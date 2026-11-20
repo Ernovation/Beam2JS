@@ -1,0 +1,4 @@
+{application, beam2js,
+ [{description, "Translate a subset of BEAM to JavaScript"},
+  {vsn, "0.1.0"},
+  {applications, [kernel, stdlib, compiler]}]}.

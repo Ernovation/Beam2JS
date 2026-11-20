@@ -1,0 +1,11 @@
+{
+  "name": "beam2js",
+  "private": true,
+  "scripts": {
+    "test:opcodes": "node test/opcode-ledger.mjs",
+    "test:toolchain": "node test/toolchain.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.55.1"
+  }
+}

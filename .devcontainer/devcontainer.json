@@ -1,0 +1,10 @@
+{
+  "name": "Beam2JS",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "postCreateCommand": "npm ci --ignore-scripts"
+}

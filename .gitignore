@@ -1,0 +1,18 @@
+# Erlang build and test output
+/_build/
+/ebin/
+/.eunit/
+/.rebar/
+/.rebar3/
+/*.beam
+/erl_crash.dump
+
+# Node.js dependencies and test output
+/node_modules/
+/coverage/
+/npm-debug.log*
+
+# Local editor and OS files
+.DS_Store
+*.swp
+*.swo
