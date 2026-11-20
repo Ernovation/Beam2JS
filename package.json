@@ -2,7 +2,9 @@
   "name": "beam2js",
   "private": true,
   "scripts": {
-    "test:opcodes": "node test/opcode-ledger.mjs",
+    "test:bifs": "node test/bif-inventory.mjs",
+    "test:execution": "node test/opcodes.mjs",
+    "test:opcodes": "node test/opcode-ledger.mjs && node test/raw-opcodes.mjs && node test/obsolete-opcodes.mjs",
     "test:toolchain": "node test/toolchain.mjs"
   },
   "devDependencies": {

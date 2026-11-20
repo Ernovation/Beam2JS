@@ -3,7 +3,7 @@
 This is a roadmap, not a claim of implemented compatibility. The current
 experimental compiler and runtime support only the small subset described in
 the [README](../README.md). In particular, they do not yet implement normal
-calls, BIFs, processes or a scheduler.
+calls, general BIF dispatch, processes or a scheduler.
 
 Work through the phases in order: each builds on earlier foundations. The
 opcode and BIF inventories are maintained throughout, rather than postponing
@@ -41,10 +41,20 @@ measurable.
   semantics and tests. Do not equate disassembler output with raw opcodes:
   the disassembler can normalize instructions. The
   [initial OTP 29.1.2 ledger](opcodes-otp-29.1.2.md) inventories all opcode
-  identities; most operand forms and control-flow variants remain unverified.
+  identities and selected operand and control-flow variants. It records OTP
+  29.1.2's obsolete-opcode loader policy and compact operand encoding, with
+  raw guard tests including x/y and type-tagged registers and a stripped
+  compiler-generated fixture, raw control-flow, selection-list and selected BIF
+  forms, and representative obsolete loader tests. It also records the
+  disassembler's missing-type-table limitation. Full per-instruction operand
+  encodings and many historical forms remain unverified.
 - [ ] Inventory BIFs by module/name/arity and category, including guard
   behavior, exceptions, side effects, host dependencies and implementation
   status. Distinguish BIFs from ordinary functions implemented by OTP modules.
+  The [initial OTP 29.1.2 inventory](bifs-otp-29.1.2.md) records the release
+  table, selected runtime and compiler classifications, and tested behavior
+  for several list, tuple, map, arithmetic, binary and process BIFs. Most individual
+  effects, exceptions, host dependencies and other built-ins still need investigation.
 - [ ] Establish a compatibility matrix for instructions, BIFs, OTP libraries,
   input releases and hosts. Record currently supported and unsupported cases.
 - [ ] Build a reusable OTP-vs-JavaScript differential harness, including
@@ -92,8 +102,19 @@ untrusted-input safety claim is made without tests and a completed audit.
   Preserve Erlang value semantics rather than exposing mutable host objects.
 - [ ] Implement exact and numeric equality, ordering, type tests and numeric
   operations for the supported terms, including integer/float edge cases.
+  Nonzero-label integer bitwise guard instructions support `band`, `bor`,
+  `bxor` and `bnot`. Integer `div` and `rem` guard instructions also support
+  nonzero labels; arithmetic and exception forms remain incomplete.
 - [ ] Lower the corresponding literal, move, test, comparison, branch, list and
   tuple instructions, including guard-failure versus exception behavior.
+  Nested literals containing the implemented term types are supported;
+  unsupported literal values still reject the module. Tagged tuple matching
+  and selected value and tuple-arity branches are also supported. Type-tagged
+  x-register sources are read without validating their hints; y registers and
+  type-tagged operands without the disassembler's required type table remain
+  unsupported. Selected `hd`, `tl`, `length`, `tuple_size` and `element` guard
+  BIF instructions branch on invalid input; their exception forms are unsupported.
+  Length traversal is synchronous and does not yield to a scheduler.
 - [ ] Test unusual atoms, large and negative integers, float boundaries,
   improper lists, nested terms, matching and failed guards against OTP.
 
@@ -132,6 +153,9 @@ BIFs.
 - [ ] Implement a BIF dispatch mechanism keyed by module, name and arity,
   including compiler-emitted specialized BIF instructions and guard forms.
   Preserve exact return values, error classes/reasons and guard failure rules.
+  Seven non-failing type-predicate BIF instruction forms and selected
+  list/tuple and integer bitwise guard BIF instructions are supported for the
+  existing term subset; callable BIF dispatch remains unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
   and relevant binary operations as their term support becomes available.

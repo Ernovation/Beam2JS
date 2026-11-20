@@ -50,8 +50,28 @@ try {
   assert.throws(() => runtime.invoke('slice', 'only', [no]), /function_clause/);
   assert.throws(() => runtime.invoke('slice', 'private', [42n]), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'module_info', []), /undefined or unsupported/);
-  assert.throws(() => runtime.invoke('slice', 'id', [42]), /integers or atoms/);
-  assert.throws(() => runtime.registerModule(2, 'bad', []), /unsupported runtime ABI/);
+  assert.throws(() => runtime.invoke('slice', 'id', [42]), /supported Erlang terms/);
+  assert.throws(() => runtime.registerModule(6, 'bad', []), /unsupported runtime ABI/);
+  runtime.registerModule(1, 'abi1', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi1', 'id', [42n]), 42n);
+  runtime.registerModule(2, 'abi2', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi2', 'id', [42n]), 42n);
+  runtime.registerModule(3, 'abi3', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi3', 'id', [42n]), 42n);
+  runtime.registerModule(4, 'abi4', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi4', 'id', [42n]), 42n);
 
   const stripped = join(dir, 'stripped.beam');
   run('erl', ['-noshell', '-eval',

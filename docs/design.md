@@ -130,6 +130,8 @@ The runtime owns:
 Host JavaScript values are not automatically Erlang terms. The runtime defines
 an explicit boundary for conversion, asynchronous host calls and exceptions.
 The same generated module and core runtime should be portable across hosts.
+The [term representation design](terms.md) describes the planned value
+representations, comparison rules and host-boundary constraints.
 
 ## Verification and release criteria
 
