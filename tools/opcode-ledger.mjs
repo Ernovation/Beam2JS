@@ -21,7 +21,13 @@ const partial = new Map([
   ['label', 'Label; next instruction.'],
   ['func_info', 'Matching module/function/arity; function-clause host error.'],
   ['line', 'Line metadata; ignored.'],
-  ['move', 'x register or supported integer/float/atom/list/tuple/bitstring literal to x register; fallthrough.'],
+  ['move', 'Ordinary x/y register or supported integer/float/atom/list/tuple/bitstring literal to ordinary x/y register; fallthrough.'],
+  ['swap', 'Ordinary x/y registers; swaps their values.'],
+  ['allocate', 'Stack size and live count 0..1024; creates uninitialized y slots. OTP GC and resource effects are not reproduced.'],
+  ['allocate_heap', 'Stack size and live count 0..1024 and nonnegative integer heap words; creates uninitialized y slots. OTP GC and resource effects are not reproduced.'],
+  ['deallocate', 'Matching stack size 0..1024; removes the allocated frame.'],
+  ['init_yregs', 'Nonempty ordered distinct y-register list with indices 0..1023; clears slots to nil. Frame bounds are checked at runtime; full register validation is not implemented.'],
+  ['trim', 'Nonnegative count and remaining size 0..1024; discards low-index y slots and renumbers the rest. Frame size is checked at runtime.'],
   ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only.'],
   ['bif2', 'Normalized element BIF with supported index and tuple operands, x destination and nonzero failure label; invalid arguments branch without changing the destination.'],
   ['gc_bif1', 'Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
@@ -56,6 +62,10 @@ const partial = new Map([
   ['select_val', 'Supported source and homogeneous, distinct atom/integer/float choices with nonzero labels; exact matching.'],
   ['select_tuple_arity', 'Supported tuple source and distinct nonnegative safe-integer arities with nonzero labels; invalid source raises a host error.'],
   ['jump', 'Nonzero local label; unconditional branch.'],
+  ['call', 'Known local target, arity 0..255; saves a synchronous continuation.'],
+  ['call_ext', 'External target, arity 0..255; saves a synchronous continuation.'],
+  ['call_last', 'Known local target, arity 0..255 and matching frame size; deallocates and tail-transfers.'],
+  ['call_ext_last', 'External target, arity 0..255 and matching frame size; deallocates and tail-transfers.'],
   ['call_only', 'Known local target, arity 0..255; tail transfer.'],
   ['call_ext_only', 'External target, arity 0..255; tail transfer.'],
   ['return', 'Return x0 to caller.'],
@@ -264,7 +274,8 @@ selected normalized forms, not comprehensive opcode or operand coverage.
 The comparison and type-test slice is exercised against OTP in Node and
 Chromium, including stripped input. Supported source operands include ordinary
 and type-tagged x registers (hints are ignored, not validated), as well as
-supported literals; y registers are not supported. \`func_info\` raises a host error, not an Erlang exception. \`line\`
+supported literals; ordinary y registers are supported in allocated frames.
+Type-tagged y registers remain unsupported. \`func_info\` raises a host error, not an Erlang exception. \`line\`
 is ignored and its effect on executable/debug metadata is not established.
 
 The operand column preserves names from available upstream specifications.
@@ -439,7 +450,8 @@ With the chunk present, the disassembler exposes a type-tagged register.
 Beam2JS reads the underlying x register without validating or relying on the
 type hint. The [typed guard fixture](../fixtures/raw_typed.S) checks hinted
 x-register type tests and comparisons against OTP in Node and Chromium,
-including stripped input. Typed and ordinary y registers remain unsupported.
+including stripped input. Type-tagged y registers remain unsupported; ordinary
+y registers are supported in allocated frames.
 
 ## Obsolete instructions
 

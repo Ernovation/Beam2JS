@@ -31,6 +31,8 @@ for (const [, , name, , lifecycle] of rows) {
   }
 }
 assert.match(row('call_last'), /deallocates a frame and tail-transfers/);
+assert.match(row('init_yregs'), /Beam2JS: Nonempty ordered distinct y-register list/);
+assert.match(row('trim'), /Beam2JS:.*discards low-index y slots/);
 assert.match(row('bif1'), /zero label denotes exception, otherwise failure branches/);
 assert.match(row('bif1'), /Beam2JS: Normalized is_integer.*zero failure label/);
 assert.match(row('bif1'), /hd, tl and tuple_size with nonzero failure label/);

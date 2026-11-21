@@ -2,8 +2,8 @@
 
 This is a roadmap, not a claim of implemented compatibility. The current
 experimental compiler and runtime support only the small subset described in
-the [README](../README.md). In particular, they do not yet implement normal
-calls, general BIF dispatch, processes or a scheduler.
+the [README](../README.md). In particular, they do not yet implement complete
+call semantics, general BIF dispatch, processes or a scheduler.
 
 Work through the phases in order: each builds on earlier foundations. The
 opcode and BIF inventories are maintained throughout, rather than postponing
@@ -113,8 +113,8 @@ untrusted-input safety claim is made without tests and a completed audit.
   partial-byte bitstring values, are supported;
   unsupported literal values still reject the module. Tagged tuple matching
   and selected value and tuple-arity branches are also supported. Type-tagged
-  x-register sources are read without validating their hints; y registers and
-  type-tagged operands without the disassembler's required type table remain
+  x-register sources are read without validating their hints; type-tagged y
+  registers and type-tagged operands without the disassembler's required type table remain
   unsupported. Selected `hd`, `tl`, `length`, `tuple_size`, `element`,
   `bit_size` and `byte_size` guard
   BIF instructions branch on invalid input; their exception forms are unsupported.
@@ -132,13 +132,15 @@ and failing cases; unsupported term types still fail explicitly.
 **Goal:** Execute ordinary Erlang functions without depending on the JavaScript
 call stack and provide the control-flow foundation for concurrency.
 
-- [ ] Replace the current synchronous tail-call-only execution with
+- [ ] Extend the current synchronous continuation-based call loop to
   process-owned frames, program counters, registers, stack slots and
-  continuations. Define versioned actions for calls, tail calls, returns,
-  raises, yields and suspensions.
+  suspension. Versioned actions currently cover calls, tail calls and returns;
+  raises, yields and suspensions remain unimplemented.
 - [ ] Lower local and external non-tail calls, tail calls, returns, stack/frame
   instructions and applicable allocation instructions. Preserve effects other
-  than garbage collection.
+  than garbage collection. A limited slice supports ordinary y slots,
+  allocation, initialization, trimming, deallocation, calls and tail transfers
+  with deallocation. Register-state and frame-flow validation remain incomplete.
 - [ ] Implement exception classes, reasons and propagation, including
   `throw`, `error`, `exit`, catch/try regions and stack traces. Distinguish
   Erlang exceptions from host JavaScript failures.
@@ -268,7 +270,9 @@ normal, exceptional and race cases.
   only when their semantics can be preserved and tested.
 - [ ] Introduce explicit Node.js and browser adapters for clocks, I/O,
   randomness and other supported capabilities; define asynchronous calls,
-  errors and conversion at the JavaScript boundary.
+  errors and conversion at the JavaScript boundary. A browser demo exposes
+  two synchronous DOM operations using distinct opaque host handles; it does
+  not provide general JavaScript interop or Erlang reference semantics.
 - [ ] Classify ports, NIFs, drivers, distribution and OS-dependent BIFs as
   implemented, adapted or unsupported on each host. Do not silently substitute
   incompatible behavior.

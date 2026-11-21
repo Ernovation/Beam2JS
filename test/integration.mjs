@@ -19,7 +19,7 @@ try {
   run(compiler, [slice, output]);
   run(compiler, [join(dir, 'slice_helper.beam'), helperOutput]);
   const firstOutput = readFileSync(output, 'utf8');
-  assert.match(firstOutput, /runtime\.registerModule\(13,/);
+  assert.match(firstOutput, /runtime\.registerModule\(15,/);
   run(compiler, [slice, output]);
   assert.equal(readFileSync(output, 'utf8'), firstOutput, 'emission must be deterministic');
 
@@ -52,7 +52,7 @@ try {
   assert.throws(() => runtime.invoke('slice', 'private', [42n]), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'module_info', []), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'id', [42]), /supported Erlang terms/);
-  assert.throws(() => runtime.registerModule(14, 'bad', []), /unsupported runtime ABI/);
+  assert.throws(() => runtime.registerModule(16, 'bad', []), /unsupported runtime ABI/);
   runtime.registerModule(1, 'abi1', [{
     name: 'id', arity: 1, exported: true,
     run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
@@ -113,6 +113,16 @@ try {
     run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
   }]);
   assert.equal(runtime.invoke('abi12', 'id', [42n]), 42n);
+  runtime.registerModule(13, 'abi13', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi13', 'id', [42n]), 42n);
+  runtime.registerModule(14, 'abi14', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi14', 'id', [42n]), 42n);
 
   const stripped = join(dir, 'stripped.beam');
   run('erl', ['-noshell', '-eval',

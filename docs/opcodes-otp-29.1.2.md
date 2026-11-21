@@ -33,7 +33,8 @@ selected normalized forms, not comprehensive opcode or operand coverage.
 The comparison and type-test slice is exercised against OTP in Node and
 Chromium, including stripped input. Supported source operands include ordinary
 and type-tagged x registers (hints are ignored, not validated), as well as
-supported literals; y registers are not supported. `func_info` raises a host error, not an Erlang exception. `line`
+supported literals; ordinary y registers are supported in allocated frames.
+Type-tagged y registers remain unsupported. `func_info` raises a host error, not an Erlang exception. `line`
 is ignored and its effect on executable/debug metadata is not established.
 
 The operand column preserves names from available upstream specifications.
@@ -208,7 +209,8 @@ With the chunk present, the disassembler exposes a type-tagged register.
 Beam2JS reads the underlying x register without validating or relying on the
 type hint. The [typed guard fixture](../fixtures/raw_typed.S) checks hinted
 x-register type tests and comparisons against OTP in Node and Chromium,
-including stripped input. Typed and ordinary y registers remain unsupported.
+including stripped input. Type-tagged y registers remain unsupported; ordinary
+y registers are supported in allocated frames.
 
 ## Obsolete instructions
 
@@ -241,21 +243,21 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 1 | `label/1` | active | Lbl | ? | N | P | P | P | OTP: Defines a module-local branch target; execution continues. Raw evidence: Unsigned label values in guard and control-flow fixtures. Beam2JS: Label; next instruction. |
 | 2 | `func_info/3` | active | M F A | ? | N | P | P | P | OTP: Module atom, function atom and arity; function-clause failure path. Raw evidence: Module/function atom indexes and unsigned arities 0, 1 and 2. Beam2JS: Matching module/function/arity; function-clause host error. |
 | 3 | `int_code_end/0` | active | not specified | ? | N | N | N | N | OTP: Marks the end of the code stream; consumed by the disassembler. Raw evidence: Zero-operand end marker at the end of the tested code streams. |
-| 4 | `call/2` | active | Arity Label | ? | N | N | N | N | OTP: Local label and arity; saves a continuation before transferring control. |
-| 5 | `call_last/3` | active | Arity Label Deallocate | ? | N | N | N | N | OTP: Local label and arity; deallocates a frame and tail-transfers. |
+| 4 | `call/2` | active | Arity Label | ? | N | P | P | P | OTP: Local label and arity; saves a continuation before transferring control. Beam2JS: Known local target, arity 0..255; saves a synchronous continuation. |
+| 5 | `call_last/3` | active | Arity Label Deallocate | ? | N | P | P | P | OTP: Local label and arity; deallocates a frame and tail-transfers. Beam2JS: Known local target, arity 0..255 and matching frame size; deallocates and tail-transfers. |
 | 6 | `call_only/2` | active | Arity Label | ? | N | P | P | P | OTP: Local label and arity; tail transfer without a new continuation. Raw evidence: Arity 1 and local label target; disassembler resolves the label to module/function/arity. Beam2JS: Known local target, arity 0..255; tail transfer. |
-| 7 | `call_ext/2` | active | Arity Destination | ? | N | N | N | N | OTP: Import-table destination and arity; saves a continuation before transferring control. |
-| 8 | `call_ext_last/3` | active | Arity Destination Deallocate | ? | N | N | N | N | OTP: Import-table destination and arity; deallocates a frame and tail-transfers. |
+| 7 | `call_ext/2` | active | Arity Destination | ? | N | P | P | P | OTP: Import-table destination and arity; saves a continuation before transferring control. Beam2JS: External target, arity 0..255; saves a synchronous continuation. |
+| 8 | `call_ext_last/3` | active | Arity Destination Deallocate | ? | N | P | P | P | OTP: Import-table destination and arity; deallocates a frame and tail-transfers. Beam2JS: External target, arity 0..255 and matching frame size; deallocates and tail-transfers. |
 | 9 | `bif0/2` | active | Bif Reg | ? | N | N | N | N | OTP: BIF import and destination; the assembler treats zero-argument BIFs as non-failing. Raw evidence: Import index for self/0 and x destination; disassembler exposes nofail. |
 | 10 | `bif1/4` | active | Lbl Bif Arg Reg | ? | N | P | P | P | OTP: Failure label, BIF import, arguments and destination; zero label denotes exception, otherwise failure branches. Raw evidence: hd/1 import, x source/destination, nonzero failure label or exception label zero. Beam2JS: Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only. |
 | 11 | `bif2/5` | active | Lbl Bif Arg1 Arg2 Reg | ? | N | P | P | P | OTP: Failure label, BIF import, arguments and destination; zero label denotes exception, otherwise failure branches. Raw evidence: element/2 import, two x sources, x destination and nonzero failure label. Beam2JS: Normalized element BIF with supported index and tuple operands, x destination and nonzero failure label; invalid arguments branch without changing the destination. |
-| 12 | `allocate/2` | active | StackNeed Live | ? | N | N | N | N | OTP: Stack size and live count; allocate_heap also reserves heap. Saves continuation; stack slots are not initialized. Raw evidence: Stack size 1 and live x-register count 1 or 2 in guard fixtures. |
-| 13 | `allocate_heap/3` | active | StackNeed HeapNeed Live | ? | N | N | N | N | OTP: Stack size and live count; allocate_heap also reserves heap. Saves continuation; stack slots are not initialized. |
+| 12 | `allocate/2` | active | StackNeed Live | ? | N | P | P | P | OTP: Stack size and live count; allocate_heap also reserves heap. Saves continuation; stack slots are not initialized. Raw evidence: Stack size 1 and live x-register count 1 or 2 in guard fixtures. Beam2JS: Stack size and live count 0..1024; creates uninitialized y slots. OTP GC and resource effects are not reproduced. |
+| 13 | `allocate_heap/3` | active | StackNeed HeapNeed Live | ? | N | P | P | P | OTP: Stack size and live count; allocate_heap also reserves heap. Saves continuation; stack slots are not initialized. Beam2JS: Stack size and live count 0..1024 and nonnegative integer heap words; creates uninitialized y slots. OTP GC and resource effects are not reproduced. |
 | 14 | `allocate_zero/2` | deprecated | StackNeed Live | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Deprecated zero-initializing stack allocation; heap variant also reserves heap. |
 | 15 | `allocate_heap_zero/3` | deprecated | StackNeed HeapNeed Live | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Deprecated zero-initializing stack allocation; heap variant also reserves heap. |
 | 16 | `test_heap/2` | active | HeapNeed Live | ? | N | P | P | P | OTP: Heap need and live x-register count; may perform GC and continues. Beam2JS: Nonnegative word count and live x-register count; no-op under JavaScript GC, without OTP resource or scheduling semantics. |
 | 17 | `init/1` | deprecated | N | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Deprecated initialization of one stack slot to nil. |
-| 18 | `deallocate/1` | active | N | ? | N | N | N | N | OTP: Restores continuation and removes the indicated stack frame. Raw evidence: Stack size 1 on both guard outcomes. |
+| 18 | `deallocate/1` | active | N | ? | N | P | P | P | OTP: Restores continuation and removes the indicated stack frame. Raw evidence: Stack size 1 on both guard outcomes. Beam2JS: Matching stack size 0..1024; removes the allocated frame. |
 | 19 | `return/0` | active | (none) | ? | N | P | P | P | OTP: Returns x0 to the continuation. Raw evidence: Zero-operand return in guard and control-flow fixtures. Beam2JS: Return x0 to caller. |
 | 20 | `send/0` | active | (none) | ? | N | N | N | N | OTP: Sends x1 to destination x0 and returns the message in x0; may raise. |
 | 21 | `remove_message/0` | active | (none) | ? | N | N | N | N | OTP: Removes the selected mailbox message and clears timeout state. |
@@ -301,7 +303,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 61 | `jump/1` | active | Label | ? | N | P | P | P | OTP: Unconditional branch to a local label. Raw evidence: Nonzero local label target in the control-flow fixture. Beam2JS: Nonzero local label; unconditional branch. |
 | 62 | `catch/2` | active | not specified | ? | N | N | N | N | OTP: Installs a handler using a y register and handler label; continues into protected code. |
 | 63 | `catch_end/1` | active | not specified | ? | N | N | N | N | OTP: Uses the active y-register handler tag to leave or enter the corresponding handler. |
-| 64 | `move/2` | active | Source Destination | ? | N | P | P | P | OTP: Term source and x/y destination; assembler also encodes typed registers and literal-table values. Raw evidence: Atom, integer or x-register source to x destination; x source to y destination. Beam2JS: x register or supported integer/float/atom/list/tuple/bitstring literal to x register; fallthrough. |
+| 64 | `move/2` | active | Source Destination | ? | N | P | P | P | OTP: Term source and x/y destination; assembler also encodes typed registers and literal-table values. Raw evidence: Atom, integer or x-register source to x destination; x source to y destination. Beam2JS: Ordinary x/y register or supported integer/float/atom/list/tuple/bitstring literal to ordinary x/y register; fallthrough. |
 | 65 | `get_list/3` | active | Source Head Tail | ? | N | P | P | P | OTP: Cons source and head/tail destinations; validator requires a cons. Beam2JS: Supported nonempty list source and distinct x destinations; captures the source before writes. |
 | 66 | `get_tuple_element/3` | active | Source Element Destination | ? | N | P | P | P | OTP: Tuple source, zero-based position and destination; validator requires a suitable tuple. Beam2JS: Supported tuple source, zero-based index and x destination; invalid source or index raises a host error. |
 | 67 | `set_tuple_element/3` | active | NewElement Tuple Position | ? | N | N | N | N | OTP: New value, tuple and position; destructive update. OTP 29 compiler no longer emits it. |
@@ -373,7 +375,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 133 | `bs_init_writable/0` | active | not specified | ? | N | N | N | N | OTP: Uses x0; initializes writable binary state. |
 | 134 | `bs_append/8` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 135 | `bs_private_append/6` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
-| 136 | `trim/2` | active | N Remaining | ? | N | N | N | N | OTP: Removes stack slots while preserving continuation; N plus remaining must match the frame size. |
+| 136 | `trim/2` | active | N Remaining | ? | N | P | P | P | OTP: Removes stack slots while preserving continuation; N plus remaining must match the frame size. Beam2JS: Nonnegative count and remaining size 0..1024; discards low-index y slots and renumbers the rest. Frame size is checked at runtime. |
 | 137 | `bs_init_bits/6` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 138 | `bs_get_utf8/5` | active | not specified | ? | N | N | N | N | OTP: Failure label, match context, live count, flags and destination; extracts a code point or branches. |
 | 139 | `bs_skip_utf8/4` | active | not specified | ? | N | N | N | N | OTP: Failure label, match context, live count and flags; advances or branches. |
@@ -406,10 +408,10 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 166 | `bs_start_match3/4` | active | Fail Bin Live Dst | ? | N | N | N | N | OTP: Failure label, binary, live count and destination; starts a match or branches. |
 | 167 | `bs_get_position/3` | active | Ctx Dst Live | ? | N | N | N | N | OTP: Match context, destination and live count; saves the match position. |
 | 168 | `bs_set_position/2` | active | not specified | ? | N | N | N | N | OTP: Match context and saved position; restores the match position. |
-| 169 | `swap/2` | active | Register1 Register2 | ? | N | N | N | N | OTP: Two registers; exchanges their contents. |
+| 169 | `swap/2` | active | Register1 Register2 | ? | N | P | P | P | OTP: Two registers; exchanges their contents. Beam2JS: Ordinary x/y registers; swaps their values. |
 | 170 | `bs_start_match4/4` | active | Fail Bin Live Dst | ? | N | N | N | N | OTP: Failure label, no_fail or resume tag, binary/context, live count and destination. |
 | 171 | `make_fun3/3` | active | OldIndex Dst EnvTerms | ? | N | N | N | N | OTP: Fun-table index, destination and list of captured terms; constructs a closure. |
-| 172 | `init_yregs/1` | active | ListOfYRegs | ? | N | N | N | N | OTP: List of y registers; validator requires a nonempty ordered set. |
+| 172 | `init_yregs/1` | active | ListOfYRegs | ? | N | P | P | P | OTP: List of y registers; validator requires a nonempty ordered set. Beam2JS: Nonempty ordered distinct y-register list with indices 0..1023; clears slots to nil. Frame bounds are checked at runtime; full register validation is not implemented. |
 | 173 | `recv_marker_bind/2` | active | Marker Reference | ? | N | N | N | N | OTP: Receive marker and reference; associates the marker with the reference. |
 | 174 | `recv_marker_clear/1` | active | Reference | ? | N | N | N | N | OTP: Reference; clears its associated receive marker. |
 | 175 | `recv_marker_reserve/1` | active | Marker | ? | N | N | N | N | OTP: Destination; reserves a receive marker. |

@@ -2,6 +2,8 @@ const floats = new WeakMap();
 const consCells = new WeakMap();
 const tuples = new WeakMap();
 const bitstrings = new WeakMap();
+const hostHandles = new WeakMap();
+let nextHostHandleId = 0n;
 const nil = Object.freeze({});
 
 function isAtom(value) {
@@ -10,7 +12,8 @@ function isAtom(value) {
 
 function isTerm(value) {
   return typeof value === 'bigint' || isAtom(value) || floats.has(value) ||
-    value === nil || consCells.has(value) || tuples.has(value) || bitstrings.has(value);
+    value === nil || consCells.has(value) || tuples.has(value) || bitstrings.has(value) ||
+    hostHandles.has(value);
 }
 
 function termType(value) {
@@ -21,6 +24,7 @@ function termType(value) {
   if (consCells.has(value)) return 'cons';
   if (tuples.has(value)) return 'tuple';
   if (bitstrings.has(value)) return 'bitstring';
+  if (hostHandles.has(value)) return 'host_handle';
   throw new TypeError('unsupported Erlang term');
 }
 
@@ -43,8 +47,29 @@ function compareBitstrings(left, right) {
 }
 
 export class Runtime {
+  #hostObjects = new WeakMap();
+
   constructor() {
     this.modules = new Map();
+  }
+
+  hostHandle(value) {
+    if ((typeof value !== 'object' || value === null) && typeof value !== 'function') {
+      throw new TypeError('host handle requires a JavaScript object or function');
+    }
+    let handle = this.#hostObjects.get(value);
+    if (!handle) {
+      handle = Object.freeze({});
+      hostHandles.set(handle, {owner: this, value, id: nextHostHandleId++});
+      this.#hostObjects.set(value, handle);
+    }
+    return handle;
+  }
+
+  hostValue(handle) {
+    const data = hostHandles.get(handle);
+    if (!data || data.owner !== this) throw new TypeError('expected a host handle from this runtime');
+    return data.value;
   }
 
   atom(name) {
@@ -175,6 +200,46 @@ export class Runtime {
     return Array.from({length: arity}, (_, index) => this.read(registers, index));
   }
 
+  readY(stack, index) {
+    if (!stack || index >= stack.length || !(index in stack)) {
+      throw new Error(`uninitialized y register ${index}`);
+    }
+    return stack[index];
+  }
+
+  writeY(stack, index, value) {
+    if (!stack || index >= stack.length) throw new Error(`invalid y register ${index}`);
+    stack[index] = value;
+  }
+
+  allocate(stack, size) {
+    if (stack !== null) throw new Error('stack frame already allocated');
+    return new Array(size);
+  }
+
+  deallocate(stack, size) {
+    if (!stack || stack.length !== size) throw new Error('invalid stack deallocation');
+    return null;
+  }
+
+  initYregs(stack, indexes) {
+    if (!stack || !Array.isArray(indexes) || indexes.length === 0 ||
+        indexes.some((index, i) => !Number.isInteger(index) || index < 0 ||
+          index >= stack.length || (i > 0 && index <= indexes[i - 1]))) {
+      throw new Error('invalid y register initialization');
+    }
+    for (const index of indexes) stack[index] = nil;
+  }
+
+  trim(stack, count, remaining) {
+    if (!stack || !Number.isInteger(count) || count < 0 ||
+        !Number.isInteger(remaining) || remaining < 0 ||
+        count + remaining !== stack.length) {
+      throw new Error('invalid stack trim');
+    }
+    return stack.slice(count);
+  }
+
   guardArithmetic(op, left, right) {
     const unary = ['neg', 'abs', 'trunc', 'round', 'floor', 'ceil', 'float'].includes(op);
     if ((!unary && !['+', '-', '*', '/'].includes(op)) || unary !== (right === undefined)) {
@@ -261,7 +326,7 @@ export class Runtime {
   }
 
   compare(left, right) {
-    const rank = {integer: 0, float: 0, atom: 1, tuple: 2, nil: 3, cons: 4, bitstring: 5};
+    const rank = {integer: 0, float: 0, atom: 1, host_handle: 2, tuple: 3, nil: 4, cons: 5, bitstring: 6};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -274,6 +339,10 @@ export class Runtime {
         // BigInt/Number relational comparison does not round the BigInt to Number.
         if (x < y) return -1;
         if (x > y) return 1;
+      } else if (aType === 'host_handle') {
+        const x = hostHandles.get(a).id;
+        const y = hostHandles.get(b).id;
+        if (x !== y) return x < y ? -1 : 1;
       } else if (aType === 'atom') {
         const leftChars = Symbol.keyFor(a)[Symbol.iterator]();
         const rightChars = Symbol.keyFor(b)[Symbol.iterator]();
@@ -329,7 +398,8 @@ export class Runtime {
   registerModule(version, name, functions) {
     if (version !== 1 && version !== 2 && version !== 3 && version !== 4 &&
         version !== 5 && version !== 6 && version !== 7 && version !== 8 &&
-        version !== 9 && version !== 10 && version !== 11 && version !== 12 && version !== 13) {
+        version !== 9 && version !== 10 && version !== 11 && version !== 12 && version !== 13 &&
+        version !== 14 && version !== 15) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);
@@ -347,15 +417,33 @@ export class Runtime {
       throw new TypeError('arguments must be supported Erlang terms');
     }
     let external = true;
+    let fn;
+    let state;
+    const continuations = [];
     while (true) {
-      const fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
-      if (!fn || (external && !fn.exported)) {
-        throw new Error(`undefined or unsupported function: ${module}:${name}/${args.length}`);
+      if (!fn) {
+        if (!Array.isArray(args) || args.some(value => !isTerm(value))) {
+          throw new TypeError('arguments must be supported Erlang terms');
+        }
+        fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
+        if (!fn || (external && !fn.exported)) {
+          throw new Error(`undefined or unsupported function: ${module}:${name}/${args.length}`);
+        }
       }
-      const action = fn.run(this, args.slice());
-      if (action.type === 'return') return action.value;
-      if (action.type !== 'tail') throw new Error(`unsupported runtime action: ${action.type}`);
-      ({module, name, args, external} = action);
+      const action = fn.run(this, args.slice(), state);
+      if (action.type === 'return') {
+        if (!isTerm(action.value)) throw new TypeError('return value must be a supported Erlang term');
+        if (continuations.length === 0) return action.value;
+        ({fn, state} = continuations.pop());
+        args = [action.value];
+      } else if (action.type === 'call' || action.type === 'tail') {
+        if (action.type === 'call') continuations.push({fn, state: action.state});
+        ({module, name, args, external} = action);
+        fn = undefined;
+        state = undefined;
+      } else {
+        throw new Error(`unsupported runtime action: ${action.type}`);
+      }
     }
   }
 }

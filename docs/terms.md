@@ -35,8 +35,8 @@ work. The precise API and limits must be finalized and tested before use.
   unbounded JavaScript recursion, and must have explicit resource limits and
   scheduler checkpoints where appropriate.
 - The new representations and conversion API require a versioned runtime ABI.
-  The current runtime accepts ABI 1 through 13; the compiler emits ABI 13 for
-  binary-part guards. Preserve behavior for existing generated modules; do not
+  The current runtime accepts ABI 1 through 15; the compiler emits ABI 15 for
+  stack initialization and trimming. Preserve behavior for existing generated modules; do not
   silently change the meaning of `runtime.atom()` or invocation arguments.
 
 ## Term types
@@ -248,6 +248,18 @@ still compares keys. Any further hash-dependent behavior must be investigated
 independently rather than exposing internal hash values as OTP results.
 
 ## JavaScript boundary and serialization
+
+The current experimental boundary additionally supports opaque host handles.
+`runtime.hostHandle` wraps an object or function, preserving its identity
+within that runtime; `runtime.hostValue` unwraps only a handle owned by that
+runtime. A live handle retains its host value, and no explicit release is
+available. Handles are immutable terms, not Erlang references; their equality
+is by identity and their ordering is an implementation-defined extension.
+They can be nested in existing compound terms and passed between runtimes as
+terms, but another runtime cannot unwrap them. Host objects are not otherwise
+automatically converted. The browser demo adapter accepts UTF-8 binaries and
+offers only two synchronous DOM operations; errors propagate as JavaScript
+errors rather than Erlang exceptions.
 
 Expose explicit constructors/converters, not implicit guessing:
 

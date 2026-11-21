@@ -17,3 +17,6 @@
 *.swp
 *.swo
 /docs/background
+
+# Generated browser demo module
+/examples/browser/browser_demo.mjs

@@ -48,7 +48,30 @@ rebar3 escriptize
 _build/default/bin/beam2js input.beam output.mjs
 node test/integration.mjs
 npm run test:execution
+npm run test:browser
 ```
+
+### Browser demo
+
+From the repository root, build and serve the example:
+
+```sh
+rebar3 escriptize
+mkdir -p _build/browser
+erlc -o _build/browser examples/browser/browser_demo.erl
+_build/default/bin/beam2js _build/browser/browser_demo.beam examples/browser/browser_demo.mjs
+python3 -m http.server 8000
+```
+
+Open `http://localhost:8000/examples/browser/`. The compiled Erlang function
+looks up the page element and calls a JavaScript-backed `dom` module to append
+text. Browser errors are reported in the developer console.
+
+The example adapter exposes only synchronous `dom:element_by_id/1` and
+`dom:append_text/2`: text arguments are UTF-8 binaries, and `append_text`
+returns `ok`. Missing elements, invalid UTF-8, invalid handles and DOM errors
+throw JavaScript errors; Erlang exception handling is not implemented. This is
+not a general JavaScript method, property or callback API.
 
 In JavaScript, create a `Runtime` from `runtime/beam2js.mjs`, call the
 generated module's `register(runtime)`, and invoke an exported function with
@@ -66,12 +89,22 @@ bytes, with bits in most-significant-bit-first order. The byte count must equal
 `ceil(bitLength / 8)`; unused low bits are cleared. `isBitstring(term)`,
 `bitstringSize(term)` and `bitstringBytes(term)` inspect it; the latter returns
 a copy. A binary is a bitstring with a bit length divisible by eight.
-Register dependencies before
-calling functions that use them. The generated module is host-independent;
-the integration tests currently run only in Node.js.
+Register dependencies before calling functions that use them. The generated
+modules run in Node and browsers. See `examples/browser/dom.mjs` for a
+JavaScript-backed module.
+
+`runtime.hostHandle(object)` wraps a JavaScript object or function as a
+distinct opaque term; `runtime.hostValue(handle)` unwraps it only in the
+owning runtime. Wrapping the same object in one runtime preserves identity.
+Handles can be passed inside Erlang terms and compared by identity; their
+ordering is an implementation-defined extension, not Erlang reference order.
+They are not Erlang references and do not implement `is_reference/1`. A live
+handle retains its object; there is no explicit release API. Raw JavaScript
+objects remain invalid terms. The adapter exposes the supplied document as a
+capability and accepts only elements it looked up itself.
 
 The compiler currently requires host OTP 29 and uses its internal disassembler.
-Moves, equality and ordering branches, selected type tests, jumps, tail calls
+Moves, equality and ordering branches, selected type tests, jumps, calls
 and returns support integers, floats, atoms, lists, tuples and bitstrings. List and tuple
 construction, matching and extraction have partial instruction support.
 Compiled literals can nest these supported types; a literal containing an
@@ -122,10 +155,18 @@ Zero-label exception forms are unsupported.
 OTP garbage collection, resource limits and scheduling effects are not reproduced.
 Unsupported instructions and operand forms
 reject the whole module, with a diagnostic; missing external functions fail at
-invocation. New generated modules use runtime ABI 13; the runtime also accepts
-existing ABI 1 through 12 modules. Integer-word heap checks are no-ops under
+invocation. New generated modules use runtime ABI 15; the runtime also accepts
+existing ABI 1 through 14 modules. Integer-word heap checks are no-ops under
 JavaScript GC; OTP memory exhaustion and scheduler effects are not reproduced.
-Ordinary non-tail calls, other arithmetic, other terms, general BIF dispatch (including
+Local and external non-tail calls use explicit continuations and stack slots;
+the supported frame instructions are `allocate`, integer-word `allocate_heap`,
+`deallocate`, `init_yregs`, `trim`, `call_last`, and `call_ext_last`, plus
+moves and swaps involving ordinary y registers. `init_yregs` clears its slots
+to nil; `trim` discards low-index slots and renumbers the rest. OTP validation
+does not permit reading initialized-but-unassigned slots as terms; Beam2JS
+does not yet perform full register validation. Type-tagged y registers and
+other frame instructions are unsupported. Calls run synchronously without yielding.
+Other arithmetic, other terms, general BIF dispatch (including
 `module_info`), processes, exceptions and scheduling are not implemented.
 Do not use the compiler on untrusted BEAM files: OTP's disassembler can intern
 atoms and decompress data before any resource limits are applied. The 32 MiB
