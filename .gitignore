@@ -6,6 +6,7 @@
 /.rebar3/
 /*.beam
 /erl_crash.dump
+/*.crashdump
 
 # Node.js dependencies and test output
 /node_modules/
