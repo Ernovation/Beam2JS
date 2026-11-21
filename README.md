@@ -103,6 +103,15 @@ handle retains its object; there is no explicit release API. Raw JavaScript
 objects remain invalid terms. The adapter exposes the supplied document as a
 capability and accepts only elements it looked up itself.
 
+For ABI 19 modules, unmatched function, case, match and if clauses throw an
+exported `ErlangError` at the JavaScript boundary. Its `erlangClass` is the
+string `"error"` and `reason` is an Erlang term: `function_clause`,
+`{case_clause, Value}`, `{badmatch, Value}`, `if_clause`, `badarg` or
+`badarith` for the supported error paths. It propagates
+through supported local and external calls without wrapping JavaScript errors.
+This does not implement Erlang catch/try, other exception classes or Erlang
+stack traces.
+
 The compiler currently requires host OTP 29 and uses its internal disassembler.
 Moves, equality and ordering branches, selected type tests, jumps, calls
 and returns support integers, floats, atoms, lists, tuples and bitstrings. List and tuple
@@ -110,8 +119,8 @@ construction, matching and extraction have partial instruction support.
 Compiled literals can nest these supported types; a literal containing an
 unsupported type, such as a map, rejects the module. Binary and partial-byte
 bitstring literals are supported, including nested literals, equality and
-ordering. General dynamic binary/bitstring construction, matching, slicing
-instructions and callable BIF dispatch remain unsupported.
+ordering. General dynamic binary/bitstring construction, matching, other
+slicing instructions and other callable binary BIFs remain unsupported.
 Tagged tuple tests and selected value and tuple-arity branches are supported.
 Supported source operands include type-tagged x registers: their hints are
 ignored, not validated. Type-tagged y registers and type-tagged operands in
@@ -123,40 +132,51 @@ The type tests include `is_integer`,
 bit length divisible by eight; `is_bitstr` accepts all bitstrings.
 Non-failing BIF instruction forms of the nine applicable Erlang predicates,
 including `is_binary/1` and `is_bitstring/1`, return boolean atoms.
+These nine predicates are also callable as `erlang` functions through external
+calls or `runtime.invoke`, for the supported term types.
 Nonzero-failure-label guard BIF instructions for `hd/1`, `tl/1`,
 `length/1`, `tuple_size/1` and `element/2` branch on invalid arguments.
+Their zero-label and callable forms raise `badarg` on invalid arguments.
 `length/1` traverses synchronously and may block the host event loop for long
-lists. Their zero-label
-exception forms and callable BIF dispatch remain unsupported.
+lists.
 Nonzero-label `bit_size/1` and `byte_size/1` guard instructions accept
 bitstrings and branch on other terms. `byte_size/1` rounds partial bytes up;
-zero-label exception forms are unsupported.
+zero-label forms raise `badarg` on non-bitstrings.
 The nonzero-label `binary_part/2` and `binary_part/3` guard instructions
 slice binaries using zero-based byte positions; the former takes a
 `{Position, Length}` tuple. Negative lengths select bytes before the position.
-Invalid inputs or ranges branch. Slices copy synchronously and may block the
-host event loop; zero-label forms are unsupported.
+Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
+`bit_size/1`, `byte_size/1` and both `binary_part` arities are also callable,
+raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIFs,
+and predicates take precedence over registered `erlang` functions of the same
+name and arity; other callable BIFs remain unsupported.
+Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
-`bnot` also branch on non-integers; their exception forms are unsupported.
+`bnot` also branch on non-integers; their zero-label forms raise `badarith`.
 Integer `div` and `rem` guard instructions branch on non-integers or a zero
 divisor; division truncates toward zero and remainder follows the dividend's
-sign. Their exception forms are also unsupported.
+sign. Their zero-label forms raise `badarith` on invalid inputs or zero divisors.
 Unary negation and binary `+`, `-` and `*` guard instructions support integer,
 float and mixed operands, branching on non-numbers or floating-point overflow.
 Binary `/` guard instructions always produce a float; they branch on
 non-numbers, zero divisors, integer-to-float conversion overflow or float
-result overflow. The `abs/1` guard preserves the integer or float type and
+result overflow. Their zero-label instruction forms instead raise `badarith`.
+Floating-register `fconv`, `fmove`, `fadd`, `fsub`, `fmul`, `fdiv` and
+`fnegate` support ordinary floating-point expressions. Arithmetic overflow
+raises `badarith`, and floating registers do not survive calls. Register
+initialization is checked at runtime, but full BEAM validation is not implemented.
+The `abs/1` guard preserves the integer or float type and
 turns negative float zero into positive zero; non-numbers branch.
 Nonzero-label `trunc/1`, `round/1`, `floor/1` and `ceil/1` instructions return
 integers, with `round/1` rounding ties away from zero. Non-numbers branch.
 The `float/1` guard preserves floats and converts integers to binary64,
 branching on non-numbers or conversion overflow.
-Zero-label exception forms are unsupported.
+Their zero-label forms raise `badarg` for non-numbers or conversion overflow.
 OTP garbage collection, resource limits and scheduling effects are not reproduced.
 Unsupported instructions and operand forms
 reject the whole module, with a diagnostic; missing external functions fail at
-invocation. New generated modules use runtime ABI 15; the runtime also accepts
-existing ABI 1 through 14 modules. Integer-word heap checks are no-ops under
+invocation. The runtime accepts only the current ABI 19; recompile modules
+generated for earlier ABIs. Integer-word and supported allocation-list `test_heap` checks are no-ops under
 JavaScript GC; OTP memory exhaustion and scheduler effects are not reproduced.
 Local and external non-tail calls use explicit continuations and stack slots;
 the supported frame instructions are `allocate`, integer-word `allocate_heap`,
@@ -167,7 +187,7 @@ does not permit reading initialized-but-unassigned slots as terms; Beam2JS
 does not yet perform full register validation. Type-tagged y registers and
 other frame instructions are unsupported. Calls run synchronously without yielding.
 Other arithmetic, other terms, general BIF dispatch (including
-`module_info`), processes, exceptions and scheduling are not implemented.
+`module_info`), processes, general exception handling and scheduling are not implemented.
 Do not use the compiler on untrusted BEAM files: OTP's disassembler can intern
 atoms and decompress data before any resource limits are applied. The 32 MiB
 input limit is not a security boundary. No producer-version or complete opcode

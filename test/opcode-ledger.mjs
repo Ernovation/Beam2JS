@@ -31,16 +31,34 @@ for (const [, , name, , lifecycle] of rows) {
   }
 }
 assert.match(row('call_last'), /deallocates a frame and tail-transfers/);
+assert.match(row('func_info'), /Beam2JS:.*function_clause reason/);
+assert.match(row('case_end'), /Beam2JS:.*case_clause, Value/);
+assert.match(row('badmatch'), /Beam2JS:.*badmatch, Value/);
+assert.match(row('if_end'), /Beam2JS:.*if_clause reason/);
+assert.match(row('fconv'), /Beam2JS:.*badarith/);
+assert.match(row('fmove'), /Beam2JS:.*floating register/);
+assert.match(row('fdiv'), /Beam2JS:.*badarith/);
+for (const name of ['fadd', 'fsub', 'fmul']) {
+  assert.match(row(name), /Beam2JS:.*overflow raises badarith/);
+}
+assert.match(row('fnegate'), /Beam2JS:.*signed zero/);
+assert.match(row('test_heap'), /Beam2JS:.*allocation list/);
 assert.match(row('init_yregs'), /Beam2JS: Nonempty ordered distinct y-register list/);
 assert.match(row('trim'), /Beam2JS:.*discards low-index y slots/);
 assert.match(row('bif1'), /zero label denotes exception, otherwise failure branches/);
 assert.match(row('bif1'), /Beam2JS: Normalized is_integer.*zero failure label/);
-assert.match(row('bif1'), /hd, tl and tuple_size with nonzero failure label/);
-assert.match(row('bif2'), /Beam2JS: Normalized element.*nonzero failure label/);
+assert.match(row('bif1'), /hd, tl and tuple_size with guard or zero failure label.*badarg/);
+assert.match(row('bif2'), /Beam2JS: Normalized element.*guard or zero failure label.*badarg/);
 assert.match(row('gc_bif1'), /Beam2JS: Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards.*nonzero failure label/);
 assert.match(row('gc_bif2'), /Beam2JS: Normalized band, bor, bxor, div, rem, \+, -, \* and \/ guards.*nonzero failure label/);
 assert.match(row('gc_bif2'), /binary_part\/2 guard/);
+assert.match(row('gc_bif1'), /Unary minus and bnot with zero label raise badarith/);
+assert.match(row('gc_bif1'), /zero-label length, bit_size and byte_size raise badarg/);
+assert.match(row('gc_bif1'), /abs, trunc, round, floor, ceil and float with zero label also raise badarg/);
+assert.match(row('gc_bif2'), /Zero-label band, bor, bxor, div, rem, \+, -, \* and \/ raise badarith/);
+assert.match(row('gc_bif2'), /zero-label binary_part\/2 raises badarg/);
 assert.match(row('gc_bif3'), /Beam2JS: Normalized binary_part\/3 guard.*nonzero failure label/);
+assert.match(row('gc_bif3'), /raise badarg with zero label/);
 assert.match(row('select_val'), /value\/label pairs.*failure label/);
 assert.match(row('select_val'), /Beam2JS:.*exact matching/);
 assert.match(row('select_tuple_arity'), /Beam2JS:.*distinct nonnegative/);

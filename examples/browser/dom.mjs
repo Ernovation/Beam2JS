@@ -9,7 +9,7 @@ export function registerDom(runtime, document) {
     return decoder.decode(runtime.bitstringBytes(term));
   }
 
-  runtime.registerModule(14, 'dom', [
+  runtime.registerModule(19, 'dom', [
     {
       name: 'element_by_id', arity: 1, exported: true,
       run: (rt, args) => {

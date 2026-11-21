@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
 const inventory = readFileSync(new URL('../docs/bifs-otp-29.1.2.md', import.meta.url), 'utf8');
-const rows = [...inventory.matchAll(/^\| `([^`]+)` \| `([^`]+)\/(\d+)` \| (bif|ubif|hbif|runtime) \| (yes|no) \| ([^|]+) \| (BIF|operator|no) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| (not implemented|instruction-only|guard-instruction-only) \|$/gm)];
+const rows = [...inventory.matchAll(/^\| `([^`]+)` \| `([^`]+)\/(\d+)` \| (bif|ubif|hbif|runtime) \| (yes|no) \| ([^|]+) \| (BIF|operator|no) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| (not implemented|instruction-and-callable|guard-instruction-only|body-and-guard-instruction-only|arithmetic-instruction-only) \|$/gm)];
 assert.equal(rows.length, 556);
 const byKey = new Map(rows.map(row => [`${row[1]}:${row[2]}/${row[3]}`, row]));
 assert.equal(byKey.size, rows.length, 'duplicate BIF identity');
@@ -19,17 +19,23 @@ assert.equal(row('erlang:yield/0')[4], 'runtime');
 assert.equal(row('erlang:is_atom/1')[7], 'BIF');
 for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float', 'is_list',
   'is_tuple', 'is_binary', 'is_bitstring']) {
-  assert.equal(row(`erlang:${name}/1`)[11], 'instruction-only');
+  assert.equal(row(`erlang:${name}/1`)[11], 'instruction-and-callable');
 }
-assert.equal(rows.filter(entry => entry[11] === 'instruction-only').length, 9);
-for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2', 'bit_size/1', 'byte_size/1',
-  'binary_part/2', 'binary_part/3',
-  'band/2', 'bor/2', 'bxor/2', 'bnot/1',
-  'div/2', 'rem/2', '+/2', '-/1', '-/2', '*/2', '//2', 'abs/1',
-  'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1']) {
-  assert.equal(row(`erlang:${name}`)[11], 'guard-instruction-only');
+for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
+  'bit_size/1', 'byte_size/1', 'binary_part/2', 'binary_part/3']) {
+  assert.equal(row(`erlang:${name}`)[11], 'instruction-and-callable');
 }
-assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 26);
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 18);
+assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
+for (const name of ['abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1']) {
+  assert.equal(row(`erlang:${name}`)[11], 'body-and-guard-instruction-only');
+}
+assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 6);
+for (const name of ['+/2', '-/1', '-/2', '*/2', '//2',
+  'band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2']) {
+  assert.equal(row(`erlang:${name}`)[11], 'arithmetic-instruction-only');
+}
+assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 11);
 assert.equal(row('erlang:is_map/1')[11], 'not implemented');
 assert.equal(row('erlang:+/2')[7], 'operator');
 assert.equal(row('erlang:list_to_atom/1')[7], 'no');

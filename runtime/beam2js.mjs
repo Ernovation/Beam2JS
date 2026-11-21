@@ -5,6 +5,29 @@ const bitstrings = new WeakMap();
 const hostHandles = new WeakMap();
 let nextHostHandleId = 0n;
 const nil = Object.freeze({});
+const callableBifs = new Map([
+  'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
+  'is_list', 'is_tuple', 'is_binary', 'is_bitstring',
+].map(name => [JSON.stringify([name, 1]), {
+  exported: true,
+  run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
+}]));
+function addGuardedBifs(entries, guard) {
+  for (const [name, arity] of entries) {
+    callableBifs.set(JSON.stringify([name, arity]), {
+      exported: true,
+      run: (rt, args) => {
+        const value = guard(rt, name, args);
+        if (value === null) rt.raiseError(rt.atom('badarg'));
+        return {type: 'return', value};
+      },
+    });
+  }
+}
+addGuardedBifs([['hd', 1], ['tl', 1], ['length', 1], ['tuple_size', 1], ['element', 2]],
+  (rt, name, args) => rt.guardListTuple(name, ...args));
+addGuardedBifs([['bit_size', 1], ['byte_size', 1], ['binary_part', 2], ['binary_part', 3]],
+  (rt, name, args) => rt.guardBitstringBif(name, ...args));
 
 function isAtom(value) {
   return typeof value === 'symbol' && Symbol.keyFor(value) !== undefined;
@@ -46,6 +69,17 @@ function compareBitstrings(left, right) {
   return aLength === bLength ? 0 : aLength < bLength ? -1 : 1;
 }
 
+export class ErlangError extends Error {
+  constructor(reason) {
+    if (!isTerm(reason)) throw new TypeError('error reason must be a supported Erlang term');
+    const tag = tuples.get(reason)?.[0] ?? reason;
+    super(`Erlang ${isAtom(tag) ? Symbol.keyFor(tag) : 'error'}`);
+    this.name = 'ErlangError';
+    this.erlangClass = 'error';
+    this.reason = reason;
+  }
+}
+
 export class Runtime {
   #hostObjects = new WeakMap();
 
@@ -75,6 +109,10 @@ export class Runtime {
   atom(name) {
     if (typeof name !== 'string') throw new TypeError('atom name must be a string');
     return Symbol.for(name);
+  }
+
+  raiseError(reason) {
+    throw new ErlangError(reason);
   }
 
   float(value) {
@@ -138,6 +176,33 @@ export class Runtime {
     return elements[index - 1];
   }
 
+  guardListTuple(op, ...args) {
+    const arity = op === 'element' ? 2 : 1;
+    if (!['hd', 'tl', 'length', 'tuple_size', 'element'].includes(op) || args.length !== arity) {
+      throw new Error(`invalid list or tuple BIF: ${op}/${args.length}`);
+    }
+    for (const value of args) termType(value);
+    if (op === 'hd' || op === 'tl') {
+      const cell = consCells.get(args[0]);
+      return cell ? cell[op === 'hd' ? 0 : 1] : null;
+    }
+    if (op === 'length') {
+      let value = args[0];
+      let length = 0n;
+      while (consCells.has(value)) {
+        value = consCells.get(value)[1];
+        length += 1n;
+      }
+      return value === nil ? length : null;
+    }
+    const elements = tuples.get(args[op === 'element' ? 1 : 0]);
+    if (!elements) return null;
+    if (op === 'tuple_size') return BigInt(elements.length);
+    const position = args[0];
+    if (typeof position !== 'bigint' || position < 1n || position > BigInt(elements.length)) return null;
+    return elements[Number(position - 1n)];
+  }
+
   bitstring(bytes, bitLength) {
     if (!Array.isArray(bytes) && !(bytes instanceof Uint8Array)) {
       throw new TypeError('bitstring requires an array or Uint8Array of bytes');
@@ -173,6 +238,24 @@ export class Runtime {
     return bits[0].slice();
   }
 
+  guardBitstringBif(op, ...args) {
+    if (!((op === 'bit_size' || op === 'byte_size') && args.length === 1) &&
+        !(op === 'binary_part' && (args.length === 2 || args.length === 3))) {
+      throw new Error(`invalid bitstring BIF: ${op}/${args.length}`);
+    }
+    for (const value of args) termType(value);
+    if (op !== 'binary_part') {
+      const bits = bitstrings.get(args[0]);
+      if (!bits) return null;
+      return BigInt(op === 'bit_size' ? bits[1] : Math.ceil(bits[1] / 8));
+    }
+    if (args.length === 2) {
+      const range = tuples.get(args[1]);
+      return range && range.length === 2 ? this.guardBinaryPart(args[0], range[0], range[1]) : null;
+    }
+    return this.guardBinaryPart(args[0], args[1], args[2]);
+  }
+
   guardBinaryPart(value, position, length) {
     const valueType = termType(value);
     const positionType = termType(position);
@@ -193,6 +276,11 @@ export class Runtime {
 
   read(registers, index) {
     if (!(index in registers)) throw new Error(`uninitialized x register ${index}`);
+    return registers[index];
+  }
+
+  readF(registers, index) {
+    if (!(index in registers)) throw new Error(`uninitialized floating-point register ${index}`);
     return registers[index];
   }
 
@@ -396,10 +484,7 @@ export class Runtime {
   }
 
   registerModule(version, name, functions) {
-    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 &&
-        version !== 5 && version !== 6 && version !== 7 && version !== 8 &&
-        version !== 9 && version !== 10 && version !== 11 && version !== 12 && version !== 13 &&
-        version !== 14 && version !== 15) {
+    if (version !== 19) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);
@@ -425,7 +510,8 @@ export class Runtime {
         if (!Array.isArray(args) || args.some(value => !isTerm(value))) {
           throw new TypeError('arguments must be supported Erlang terms');
         }
-        fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
+        fn = external && module === 'erlang' ? callableBifs.get(JSON.stringify([name, args.length])) : undefined;
+        if (!fn) fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
         if (!fn || (external && !fn.exported)) {
           throw new Error(`undefined or unsupported function: ${module}:${name}/${args.length}`);
         }

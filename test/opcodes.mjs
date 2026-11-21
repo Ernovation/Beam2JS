@@ -1122,21 +1122,6 @@ try {
     'Build(zero_select,{select_val,{x,0},{f,0},{list,[{atom,a},{f,3}]}}), ' +
     'Build(zero_binary_test,{test,is_binary,{f,0},[{x,0}]}), ' +
     'Build(missing_bits_test,{test,is_bitstr,{f,4},[{x,0}]}), ' +
-    'Build(zero_guard_bif,{bif,hd,{f,0},[{x,0}],{x,0}}), ' +
-    'Build(zero_guard_tail,{bif,tl,{f,0},[{x,0}],{x,0}}), ' +
-    'Build(zero_guard_size,{bif,tuple_size,{f,0},[{x,0}],{x,0}}), ' +
-    'Build(zero_guard_element,{bif,element,{f,0},[{integer,1},{x,0}],{x,0}}), ' +
-    'Build(zero_bitwise,{gc_bif,\'band\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_bor,{gc_bif,\'bor\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_bxor,{gc_bif,\'bxor\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_bnot,{gc_bif,\'bnot\',{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_div,{gc_bif,\'div\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_rem,{gc_bif,\'rem\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_length,{gc_bif,length,{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_bit_size,{gc_bif,bit_size,{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_byte_size,{gc_bif,byte_size,{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_binary_part,{gc_bif,binary_part,{f,0},1,[{x,0},{x,0},{x,0}],{x,0}}), ' +
-    'Build(zero_binary_part2,{gc_bif,binary_part,{f,0},1,[{x,0},{x,0}],{x,0}}), ' +
     'Build(missing_binary_part2_label,{gc_bif,binary_part,{f,4},1,[{x,0},{x,0}],{x,0}}), ' +
     'Build(binary_part2_live_limit,{gc_bif,binary_part,{f,3},1025,[{x,0},{x,0}],{x,0}}), ' +
     'Build(missing_binary_part_label,{gc_bif,binary_part,{f,4},1,[{x,0},{x,0},{x,0}],{x,0}}), ' +
@@ -1145,23 +1130,12 @@ try {
     'Build(missing_byte_size_label,{gc_bif,byte_size,{f,4},1,[{x,0}],{x,0}}), ' +
     'Build(bit_size_live_limit,{gc_bif,bit_size,{f,3},1025,[{x,0}],{x,0}}), ' +
     'Build(byte_size_live_limit,{gc_bif,byte_size,{f,3},1025,[{x,0}],{x,0}}), ' +
-    'Build(zero_add,{gc_bif,\'+\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_subtract,{gc_bif,\'-\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_multiply,{gc_bif,\'*\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_float_divide,{gc_bif,\'/\',{f,0},1,[{x,0},{integer,1}],{x,0}}), ' +
     'Build(missing_float_divide_label,{gc_bif,\'/\',{f,4},1,[{x,0},{integer,1}],{x,0}}), ' +
     'Build(float_divide_live_limit,{gc_bif,\'/\',{f,3},1025,[{x,0},{integer,1}],{x,0}}), ' +
-    'Build(zero_negate,{gc_bif,\'-\',{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_abs,{gc_bif,abs,{f,0},1,[{x,0}],{x,0}}), ' +
     'Build(missing_abs_label,{gc_bif,abs,{f,4},1,[{x,0}],{x,0}}), ' +
     'Build(abs_live_limit,{gc_bif,abs,{f,3},1025,[{x,0}],{x,0}}), ' +
-    'Build(zero_trunc,{gc_bif,trunc,{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_round,{gc_bif,round,{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_floor,{gc_bif,floor,{f,0},1,[{x,0}],{x,0}}), ' +
-    'Build(zero_ceil,{gc_bif,ceil,{f,0},1,[{x,0}],{x,0}}), ' +
     'Build(missing_round_label,{gc_bif,round,{f,4},1,[{x,0}],{x,0}}), ' +
     'Build(round_live_limit,{gc_bif,round,{f,3},1025,[{x,0}],{x,0}}), ' +
-    'Build(zero_float,{gc_bif,float,{f,0},1,[{x,0}],{x,0}}), ' +
     'Build(missing_float_label,{gc_bif,float,{f,4},1,[{x,0}],{x,0}}), ' +
     'Build(float_live_limit,{gc_bif,float,{f,3},1025,[{x,0}],{x,0}}), ' +
     'Build(missing_arith_label,{gc_bif,\'+\',{f,4},1,[{x,0},{integer,1}],{x,0}}), ' +
@@ -1178,24 +1152,16 @@ try {
     assert.match(selection.stderr, /mixed or duplicate selection choices/, file);
     assert.equal(readFileSync(preserved, 'utf8'), 'existing output');
   }
-  for (const [file, label] of [['zero_select.beam', 0], ['zero_guard_bif.beam', 0],
+  for (const [file, label] of [['zero_select.beam', 0],
     ['zero_binary_test.beam', 0], ['missing_bits_test.beam', 4],
-    ['zero_guard_tail.beam', 0], ['zero_guard_size.beam', 0], ['zero_guard_element.beam', 0],
-    ['zero_bitwise.beam', 0], ['zero_bor.beam', 0], ['zero_bxor.beam', 0],
-    ['zero_bnot.beam', 0], ['missing_bitwise_label.beam', 4],
-    ['zero_div.beam', 0], ['zero_rem.beam', 0], ['missing_div_label.beam', 4],
-    ['zero_length.beam', 0], ['missing_length_label.beam', 4],
-    ['zero_bit_size.beam', 0], ['zero_byte_size.beam', 0],
-    ['zero_binary_part.beam', 0], ['missing_binary_part_label.beam', 4],
-    ['zero_binary_part2.beam', 0], ['missing_binary_part2_label.beam', 4],
+    ['missing_bitwise_label.beam', 4], ['missing_div_label.beam', 4],
+    ['missing_length_label.beam', 4],
+    ['missing_binary_part_label.beam', 4], ['missing_binary_part2_label.beam', 4],
     ['missing_bit_size_label.beam', 4], ['missing_byte_size_label.beam', 4],
-    ['zero_add.beam', 0], ['zero_subtract.beam', 0], ['zero_multiply.beam', 0],
-    ['zero_float_divide.beam', 0], ['missing_float_divide_label.beam', 4],
-    ['zero_negate.beam', 0], ['missing_arith_label.beam', 4],
-    ['zero_abs.beam', 0], ['missing_abs_label.beam', 4],
-    ['zero_trunc.beam', 0], ['zero_round.beam', 0], ['zero_floor.beam', 0], ['zero_ceil.beam', 0],
+    ['missing_float_divide_label.beam', 4], ['missing_arith_label.beam', 4],
+    ['missing_abs_label.beam', 4],
     ['missing_round_label.beam', 4],
-    ['zero_float.beam', 0], ['missing_float_label.beam', 4],
+    ['missing_float_label.beam', 4],
     ['missing_guard_label.beam', 4]]) {
     const invalidBranch = spawnSync(compiler, [join(dir, file), preserved],
       {encoding: 'utf8', timeout: 30000});

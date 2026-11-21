@@ -1,5 +1,6 @@
 -module(calls).
--export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, depth/1]).
+-export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, depth/1,
+         match_remote/1, bif_remote/1, callable_bif_remote/1, binary_bif_remote/3]).
 
 local(Value) ->
     identity(identity(Value)).
@@ -29,6 +30,22 @@ depth([]) ->
     done;
 depth([_ | Rest]) ->
     identity(depth(Rest)).
+
+match_remote(Value) ->
+    Result = match_failures:case_value(Value),
+    {ok, Result}.
+
+bif_remote(Value) ->
+    Result = bif_body:head(Value),
+    {ok, Result}.
+
+callable_bif_remote(Value) ->
+    Result = raw_bif_body:length_call(Value),
+    {ok, Result}.
+
+binary_bif_remote(Value, Start, Length) ->
+    Result = raw_bif_body:part3_call(Value, Start, Length),
+    {ok, Result}.
 
 identity(Value) ->
     Value.

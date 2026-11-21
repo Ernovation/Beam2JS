@@ -19,21 +19,31 @@ if (createHash('sha256').update(source).digest('hex') !== sourceHash) {
 // one-to-one mappings from raw opcodes.
 const partial = new Map([
   ['label', 'Label; next instruction.'],
-  ['func_info', 'Matching module/function/arity; function-clause host error.'],
+  ['func_info', 'Matching module/function/arity; raises an ErlangError with class error and function_clause reason. Erlang catch/try and stack traces are unsupported.'],
   ['line', 'Line metadata; ignored.'],
+  ['case_end', 'Supported source term; raises an ErlangError with class error and {case_clause, Value} reason. Erlang catch/try and stack traces are unsupported.'],
+  ['badmatch', 'Supported source term; raises an ErlangError with class error and {badmatch, Value} reason. Erlang catch/try and stack traces are unsupported.'],
+  ['if_end', 'Raises an ErlangError with class error and if_clause reason. Erlang catch/try and stack traces are unsupported.'],
   ['move', 'Ordinary x/y register or supported integer/float/atom/list/tuple/bitstring literal to ordinary x/y register; fallthrough.'],
   ['swap', 'Ordinary x/y registers; swaps their values.'],
+  ['fconv', 'Supported term source to floating register 0..1022; non-numbers and integer-to-float overflow raise badarith.'],
+  ['fmove', 'Float term to floating register or floating register to x/y destination; uninitialized floating registers raise a host error.'],
+  ['fadd', 'Normalized zero-label fadd with two floating-register operands and floating-register destination; overflow raises badarith.'],
+  ['fsub', 'Normalized zero-label fsub with two floating-register operands and floating-register destination; overflow raises badarith.'],
+  ['fmul', 'Normalized zero-label fmul with two floating-register operands and floating-register destination; overflow raises badarith.'],
+  ['fdiv', 'Normalized zero-label fdiv with two floating-register operands and floating-register destination; zero divisors and overflow raise badarith.'],
+  ['fnegate', 'Normalized zero-label fnegate with floating-register operand and destination; flips the sign, including signed zero.'],
   ['allocate', 'Stack size and live count 0..1024; creates uninitialized y slots. OTP GC and resource effects are not reproduced.'],
   ['allocate_heap', 'Stack size and live count 0..1024 and nonnegative integer heap words; creates uninitialized y slots. OTP GC and resource effects are not reproduced.'],
   ['deallocate', 'Matching stack size 0..1024; removes the allocated frame.'],
   ['init_yregs', 'Nonempty ordered distinct y-register list with indices 0..1023; clears slots to nil. Frame bounds are checked at runtime; full register validation is not implemented.'],
   ['trim', 'Nonnegative count and remaining size 0..1024; discards low-index y slots and renumbers the rest. Frame size is checked at runtime.'],
-  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only.'],
-  ['bif2', 'Normalized element BIF with supported index and tuple operands, x destination and nonzero failure label; invalid arguments branch without changing the destination.'],
-  ['gc_bif1', 'Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
-  ['gc_bif2', 'Normalized band, bor, bxor, div, rem, +, -, * and / guards and binary_part/2 guard, supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments, ranges, zero divisors or float overflow branch. Binary slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
-  ['gc_bif3', 'Normalized binary_part/3 guard with supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments or ranges branch without writing the destination. Slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
-  ['test_heap', 'Nonnegative word count and live x-register count; no-op under JavaScript GC, without OTP resource or scheduling semantics.'],
+  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with guard or zero failure label; invalid zero-label calls raise badarg. Supported term source and x destination only.'],
+  ['bif2', 'Normalized element BIF with supported index and tuple operands, x destination and guard or zero failure label; invalid arguments branch or raise badarg.'],
+  ['gc_bif1', 'Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Unary minus and bnot with zero label raise badarith; zero-label length, bit_size and byte_size raise badarg; abs, trunc, round, floor, ceil and float with zero label also raise badarg. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
+  ['gc_bif2', 'Normalized band, bor, bxor, div, rem, +, -, * and / guards and binary_part/2 guard, supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments, ranges, zero divisors or float overflow branch. Zero-label band, bor, bxor, div, rem, +, -, * and / raise badarith; zero-label binary_part/2 raises badarg. Binary slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
+  ['gc_bif3', 'Normalized binary_part/3 guard with supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments or ranges branch without writing the destination, or raise badarg with zero label. Slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
+  ['test_heap', 'Nonnegative word count or allocation list with distinct words/floats/funs counts, and live x-register count; no-op under JavaScript GC, without OTP resource or scheduling semantics.'],
   ['put_list', 'Supported head and tail terms to x destination; constructs an immutable cons.'],
   ['get_list', 'Supported nonempty list source and distinct x destinations; captures the source before writes.'],
   ['get_hd', 'Supported nonempty list source and x destination; invalid source raises a host error.'],
@@ -275,8 +285,11 @@ The comparison and type-test slice is exercised against OTP in Node and
 Chromium, including stripped input. Supported source operands include ordinary
 and type-tagged x registers (hints are ignored, not validated), as well as
 supported literals; ordinary y registers are supported in allocated frames.
-Type-tagged y registers remain unsupported. \`func_info\` raises a host error, not an Erlang exception. \`line\`
-is ignored and its effect on executable/debug metadata is not established.
+Type-tagged y registers remain unsupported. Selected function, case, match and
+if failures propagate as distinct JavaScript \`ErlangError\` instances carrying
+the Erlang class and reason; Erlang catch/try and stack traces remain
+unsupported. \`line\` is ignored and its effect on executable/debug metadata
+is not established.
 
 The operand column preserves names from available upstream specifications.
 The OTP notes summarize selected forms and control-flow behavior from
@@ -370,7 +383,7 @@ label but raise \`badarg\` and \`badarith\` respectively with label zero.
 \`bif0/2\` has no failure-label operand; the disassembler represents its
 tested \`self/0\` form with \`nofail\`. These are selected forms, not complete
 coverage of BIFs or operands. Beam2JS rejects this full fixture because it
-includes unsupported BIFs and exception forms. Separately, it supports selected
+includes unsupported \`self/0\`. Separately, it supports selected
 non-failing normalized type-predicate BIF instructions for supported operands;
 the compiler-generated and assembly fixtures are tested against OTP in Node
 and Chromium, including stripped input. Nonzero-label \`hd/1\`, \`tl/1\`,
@@ -378,35 +391,44 @@ and Chromium, including stripped input. Nonzero-label \`hd/1\`, \`tl/1\`,
 [compiler-generated](../fixtures/guard_bifs.erl) and
 [assembly](../fixtures/raw_guard_bifs.S) fixtures in OTP, Node and Chromium,
 including stripped input. Invalid arguments branch without writing the
-destination; zero-label exception forms are rejected. The same fixtures cover
+destination. Zero-label exception forms are tested in the
+[body](../fixtures/bif_body.erl) and [assembly](../fixtures/raw_bif_body.S)
+fixtures and raise \`badarg\`. The same guard fixtures cover
 nonzero-label \`binary_part/2\` and \`binary_part/3\` on binaries, including negative lengths,
 boundary ranges, unaligned binary values, typed and aliased x registers and
 literal operands. The two-argument form requires a \`{Position,Length}\`
-tuple. Invalid inputs branch without changing the destination.
-Successful slices copy synchronously, without OTP resource or scheduling
-behavior; zero-label exception forms remain unsupported. The
+tuple. Invalid inputs branch without changing the destination. Their zero-label
+forms are tested in the body and assembly fixtures and raise \`badarg\` on
+invalid inputs. Successful slices copy synchronously, without OTP resource or
+scheduling behavior. The
 [length guard fixture](../fixtures/length_guards.erl) and
 [assembly fixture](../fixtures/raw_length_guards.S) exercise nonzero-label
 \`length/1\` on proper, improper and non-list inputs in OTP, Node and Chromium,
 including stripped input. They also check 10,000-element proper and improper
-lists. Traversal is synchronous and can block the host event loop; OTP
-reductions and scheduling are not reproduced. Zero-label exception forms are
-rejected. The same fixtures cover nonzero-label \`bit_size/1\` and
+lists. Zero-label \`length/1\` is covered by the body and assembly fixtures
+and raises \`badarg\` for improper lists and non-lists. Traversal is synchronous
+and can block the host event loop; OTP reductions and scheduling are not
+reproduced. The same guard fixtures cover nonzero-label \`bit_size/1\` and
 \`byte_size/1\`, including partial-byte and unaligned bitstrings, aliased
 destinations and failure without writing the destination. \`byte_size/1\`
-rounds the bit length up to whole bytes. Zero-label forms are rejected. The
+rounds the bit length up to whole bytes. Zero-label forms are tested in the body
+and assembly fixtures and raise \`badarg\` for non-bitstrings. The
 [bitwise guard fixture](../fixtures/bitwise_guards.erl) and
 [assembly fixture](../fixtures/raw_bitwise_guards.S) cover nonzero-label
 \`band\`, \`bor\`, \`bxor\` and \`bnot\` on integers, including negative and
 large values, aliased destinations and invalid arguments, in OTP, Node and
-Chromium with stripped input. Their zero-label exception forms are rejected;
-OTP garbage collection, resource limits and scheduling effects are not reproduced.
+Chromium with stripped input. Their zero-label exception forms are also tested
+in the [body](../fixtures/arithmetic_body.erl) and
+[assembly](../fixtures/raw_arithmetic_body.S) fixtures and raise \`badarith\`
+for non-integers. OTP garbage collection, resource limits and scheduling effects
+are not reproduced.
 The [integer guard fixture](../fixtures/integer_guards.erl) and
 [assembly fixture](../fixtures/raw_integer_guards.S) exercise nonzero-label
 \`div\` and \`rem\`, including negative and large integers, aliased
 destinations, non-integers and zero divisors in OTP, Node and Chromium with
 stripped input. Division truncates toward zero; the remainder has the
-dividend's sign. Zero-label exception forms are rejected.
+dividend's sign. Zero-label exception forms are tested in the same body and
+assembly fixtures and raise \`badarith\` for invalid inputs or zero divisors.
 The [arithmetic guard fixture](../fixtures/arithmetic_guards.erl) and
 [assembly fixture](../fixtures/raw_arithmetic_guards.S) exercise nonzero-label
 unary minus, \`abs/1\`, \`trunc/1\`, \`round/1\`, \`floor/1\`, \`ceil/1\`, \`float/1\`
@@ -418,12 +440,22 @@ float and also branches on zero divisors and integer-to-float conversion
 overflow. Absolute value preserves the input's numeric type and turns negative
 float zero into positive zero. Rounding guards return integers; \`round/1\`
 rounds ties away from zero. \`float/1\` preserves float bits and branches on
-integer-to-float overflow. Zero-label forms are rejected.
+integer-to-float overflow. Zero-label unary minus and binary \`+\`, \`-\`,
+\`*\` and \`/\` are supported, raising \`badarith\` on failure; compiler-generated
+and raw body fixtures are tested in Node and Chromium, including stripped
+input. Zero-label \`abs/1\`, \`trunc/1\`, \`round/1\`, \`floor/1\`, \`ceil/1\`
+and \`float/1\` are tested in the same body fixtures and raise \`badarg\` on
+invalid inputs or float conversion overflow. Floating-register \`fconv\`, \`fmove\`, \`fadd\`, \`fsub\`, \`fmul\`,
+\`fdiv\` and \`fnegate\` instructions are also exercised by the body fixture and
+[assembly fixture](../fixtures/raw_float_registers.S), including signed zero,
+conversion and result overflow, aliased destinations and x/y registers.
+Floating registers are not preserved across calls.
 The
 [list fixture](../fixtures/list_slice.erl)
 also exercises nil, list construction and extraction, including an aliased
-\`get_list\` source and destination. The integer-word \`test_heap\` form is a
-no-op; OTP GC, memory exhaustion and scheduler effects are not reproduced.
+\`get_list\` source and destination. Integer-word and supported allocation-list
+\`test_heap\` forms are no-ops; OTP GC, memory exhaustion and scheduler effects
+are not reproduced.
 The [tuple fixture](../fixtures/tuple_slice.erl) exercises construction,
 tagged matching, extraction and the empty tuple literal. The
 [literal fixture](../fixtures/literal_terms.erl) exercises nested proper and
@@ -437,7 +469,7 @@ supported; unsupported nested values reject compilation. \`is_binary\` and
 \`is_bitstr\` branch tests and the zero-label \`is_binary/1\` and
 \`is_bitstring/1\` BIF instructions cover empty and partial-byte bitstrings,
 including stripped compiler and assembly fixtures in Node and Chromium.
-Nonzero-label predicate BIF forms, callable BIF dispatch, dynamic bitstring
+Nonzero-label predicate BIF forms, other callable binary BIFs, dynamic bitstring
 construction and matching instructions remain unsupported.
 The tuple arity and
 extraction forms assume the input has passed the appropriate tuple test;

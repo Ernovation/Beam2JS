@@ -34,10 +34,9 @@ work. The precise API and limits must be finalized and tested before use.
   Traversals, hashing and conversion must handle deep terms without relying on
   unbounded JavaScript recursion, and must have explicit resource limits and
   scheduler checkpoints where appropriate.
-- The new representations and conversion API require a versioned runtime ABI.
-  The current runtime accepts ABI 1 through 15; the compiler emits ABI 15 for
-  stack initialization and trimming. Preserve behavior for existing generated modules; do not
-  silently change the meaning of `runtime.atom()` or invocation arguments.
+- The new representations and conversion API use a versioned runtime ABI.
+  The compiler and runtime currently use ABI 19 only; regenerate modules when
+  the ABI changes during development.
 
 ## Term types
 
@@ -61,8 +60,8 @@ not exactly equivalent. `Object.is` can distinguish them; JavaScript `===` and
 
 The current runtime implements this representation with private storage and
 explicit `float(number)` / `floatValue(term)` boundary methods. It supports
-float literals, moves, comparisons and selected type tests, but not float
-arithmetic. Numeric comparison does not round large
+float literals, moves, comparisons, selected type tests and arithmetic
+instruction forms. Numeric comparison does not round large
 integers through `Number`.
 
 Reject NaN and infinities at the term boundary. Arithmetic that would produce

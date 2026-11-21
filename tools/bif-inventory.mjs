@@ -167,23 +167,27 @@ const details = new Map([
   ['erlang:list_to_atom/1', {effects: 'may add a permanent atom to the global atom table'}],
   ['erlang:self/0', {effects: 'reads calling process identity', host: 'process runtime'}],
 ]);
-const instructionOnly = new Set([
+const instructionAndCallable = new Set([
   'erlang:is_integer/1', 'erlang:is_number/1', 'erlang:is_atom/1',
   'erlang:is_boolean/1', 'erlang:is_float/1', 'erlang:is_list/1', 'erlang:is_tuple/1',
   'erlang:is_binary/1', 'erlang:is_bitstring/1',
-]);
-const guardInstructionOnly = new Set([
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
+]);
+const guardInstructionOnly = new Set();
+const bodyAndGuardInstructionOnly = new Set([
+  'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
+]);
+const arithmeticInstructionOnly = new Set([
+  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2',
   'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1',
   'erlang:div/2', 'erlang:rem/2',
-  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2', 'erlang:abs/1',
-  'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
 ]);
 for (const name of details.keys()) {
   if (!entries.some(entry => key(entry) === name)) throw new Error(`unknown BIF detail: ${name}`);
 }
-for (const name of [...instructionOnly, ...guardInstructionOnly]) {
+for (const name of [...instructionAndCallable, ...guardInstructionOnly, ...bodyAndGuardInstructionOnly,
+  ...arithmeticInstructionOnly]) {
   if (!entries.some(entry => key(entry) === name)) throw new Error(`unknown BIF instruction: ${name}`);
 }
 function cell(value) {
@@ -227,12 +231,19 @@ They are release/build observations, not proof of Beam2JS support.
   investigation and differential tests.
 - **Host**: known broad dependencies are noted; \`?\` means not investigated,
   not host-independent. Categories are broad families, not complete semantics.
-- **Beam2JS**: \`instruction-only\` means the listed non-failing normalized BIF
-  instruction is supported for the implemented integer, float, atom, list, tuple and bitstring
-  terms. \`guard-instruction-only\` means the listed BIF instruction is supported
-  only with a nonzero guard failure label, for the implemented terms. Both are
-  tested against OTP in Node and Chromium, including stripped input. Neither
-  status implies callable BIF dispatch or exception support; all other entries
+- **Beam2JS**: \`instruction-and-callable\` means the listed normalized BIF
+  instruction and external callable BIF are supported for the implemented integer,
+  float, atom, list, tuple and bitstring terms. Failing list, tuple and binary BIFs
+  branch in guards and raise \`badarg\` in body and callable forms.
+  \`guard-instruction-only\` means the listed BIF instruction is supported
+  only with a nonzero guard failure label, for the implemented terms.
+  \`body-and-guard-instruction-only\` covers both guard and zero-label forms
+  of selected numeric BIF instructions, including \`badarg\` failures.
+  \`arithmetic-instruction-only\` covers both guard and zero-label forms of
+  selected arithmetic instructions, including \`badarith\` failures and the
+  supported floating-point-register sequence. Implemented forms are
+  tested against OTP in Node and Chromium, including stripped input. The
+  instruction-only classifications do not imply callable BIF dispatch; all other entries
   are \`not implemented\`. Some operations may instead use partially implemented
   guard instructions.
 
@@ -257,18 +268,25 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   tested in OTP, Node and Chromium, including stripped
   [compiler-generated](../fixtures/length_guards.erl) and
   [assembly](../fixtures/raw_length_guards.S) fixtures and 10,000-element
-  proper and improper lists. Traversal is synchronous and can block the host
-  event loop; OTP scheduling behavior is not implemented.
+  proper and improper lists. Zero-label forms are tested in
+  [body](../fixtures/bif_body.erl) and [assembly](../fixtures/raw_bif_body.S)
+  fixtures. Callable forms are also tested through direct and external calls,
+  including invalid inputs and stripped input. Traversal is synchronous and can block the host event loop; OTP
+  scheduling behavior is not implemented.
 - \`element/2\` uses one-based tuple indexes; a non-tuple or invalid index
   raises \`badarg\` in a body. \`tuple_size/1\` returns the number of tuple
-  elements and raises \`badarg\` for a non-tuple.
+  elements and raises \`badarg\` for a non-tuple. Guard and zero-label
+  instructions and callable forms are tested in Node and Chromium, including
+  invalid indexes and stripped input.
 - \`bit_size/1\` counts bits and \`byte_size/1\` rounds the bit length up
   to whole bytes, including for partial-byte bitstrings. Both raise \`badarg\`
   for non-bitstrings in a body. Their nonzero-label guard instructions are
   tested against OTP in Node and Chromium, including stripped
   [compiler-generated](../fixtures/length_guards.erl) and
-  [assembly](../fixtures/raw_length_guards.S) fixtures. Zero-label forms and
-  callable BIF dispatch remain unsupported.
+  [assembly](../fixtures/raw_length_guards.S) fixtures. Zero-label forms are
+  tested in [body](../fixtures/bif_body.erl) and
+  [assembly](../fixtures/raw_bif_body.S) fixtures. Callable forms are tested
+  through direct and external calls in both hosts, including stripped input.
 - \`map_get/2\` raises \`{badkey,Key}\` for an absent key and \`{badmap,Map}\`
   for a non-map. \`is_map_key/2\` returns \`false\` for an absent key, while it
   and \`map_size/1\` raise \`{badmap,Map}\` for a non-map. Map lookups use
@@ -286,46 +304,57 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   yields a float. Nonzero-label guard forms are tested against OTP in Node
   and Chromium using [compiler-generated](../fixtures/arithmetic_guards.erl)
   and [assembly](../fixtures/raw_arithmetic_guards.S) fixtures, including
-  stripped input. Zero-label forms, OTP resource limits and scheduling are not
-  implemented.
+  stripped input. Zero-label forms and floating-register arithmetic are tested
+  in [body](../fixtures/arithmetic_body.erl) and
+  [assembly](../fixtures/raw_arithmetic_body.S) and
+  [floating-register](../fixtures/raw_float_registers.S) fixtures, including
+  signed zero and overflow. OTP resource limits and scheduling are not implemented.
 - \`abs/1\` accepts integers and floats, preserves their type and turns
   negative float zero into positive zero; non-numbers raise \`badarg\` in a
   body. Nonzero-label guard instructions are tested in the same arithmetic
   fixtures, including large integers, subnormals, aliased destinations and
-  stripped input. Zero-label forms, OTP resource limits and scheduling are not
-  implemented.
+  stripped input. Zero-label forms are tested in the body and assembly fixtures
+  above; OTP resource limits and scheduling are not implemented.
 - \`trunc/1\`, \`round/1\`, \`floor/1\` and \`ceil/1\` accept integers and
   floats and return integers; non-numbers raise \`badarg\` in a body.
   \`trunc/1\` rounds toward zero, \`round/1\` rounds to the nearest integer
   with ties away from zero, and \`floor/1\` and \`ceil/1\` round down and up.
   Nonzero-label guards are tested in the same arithmetic fixtures, including
   half-integer boundaries, signed zeros, large numbers, aliased destinations
-  and stripped input. Zero-label forms, OTP resource limits and scheduling
-  are not implemented.
+  and stripped input. Zero-label forms are tested in the body and assembly
+  fixtures above; OTP resource limits and scheduling are not implemented.
 - \`float/1\` converts an integer to a float or returns a float unchanged,
   including the sign of zero. Non-numbers and integer-to-float overflow raise
   \`badarg\` in a body. Nonzero-label guards are tested in the same arithmetic
   fixtures, including conversion rounding and overflow boundaries, aliased
-  destinations and stripped input. Zero-label forms, OTP resource limits and
-  scheduling are not implemented.
+  destinations and stripped input. Zero-label forms are tested in the body
+  and assembly fixtures above; OTP resource limits and scheduling are not implemented.
 - Binary \`//2\` converts both operands to floats and always returns a float.
   Non-numbers, zero divisors, integer-to-float conversion overflow and float
   result overflow raise \`badarith\` in a body. Its nonzero-label guard
   instructions are tested in the same arithmetic fixtures, including signed
   zeros, subnormals, conversion boundaries, destination aliasing and stripped
-  input. Zero-label forms, OTP resource limits and scheduling are not implemented.
+  input. Zero-label instruction forms are tested in
+  [assembly](../fixtures/raw_arithmetic_body.S), while the floating-register
+  sequence for ordinary division is tested in the
+  [body](../fixtures/arithmetic_body.erl) and
+  [assembly](../fixtures/raw_float_registers.S) fixtures. OTP resource limits
+  and scheduling are not implemented.
 - \`band/2\`, \`bor/2\`, \`bxor/2\` and \`bnot/1\` operate on signed
   integers and raise \`badarith\` for non-integers in a body. Their
   nonzero-label guard instructions are tested against OTP in Node and
   Chromium, including stripped [compiler-generated](../fixtures/bitwise_guards.erl)
-  and [assembly](../fixtures/raw_bitwise_guards.S) fixtures. Exception forms,
-  OTP resource limits, garbage collection and scheduling are not implemented.
+  and [assembly](../fixtures/raw_bitwise_guards.S) fixtures. Zero-label forms
+  are tested in [body](../fixtures/arithmetic_body.erl) and
+  [assembly](../fixtures/raw_arithmetic_body.S) fixtures. OTP resource limits,
+  garbage collection and scheduling are not implemented.
 - Integer \`div/2\` truncates toward zero and \`rem/2\` has the dividend's
   sign; zero divisors and non-integers raise \`badarith\` in a body. Their
   nonzero-label guard instructions are tested against OTP in Node and
   Chromium, including stripped [compiler-generated](../fixtures/integer_guards.erl)
-  and [assembly](../fixtures/raw_integer_guards.S) fixtures. Exception forms
-  and OTP resource and scheduling behavior are not implemented.
+  and [assembly](../fixtures/raw_integer_guards.S) fixtures. Zero-label forms
+  are tested in the same body and assembly fixtures. OTP resource and
+  scheduling behavior are not implemented.
 - \`binary_part/2\` and \`binary_part/3\` use a zero-based start; the
   two-argument form accepts a \`{Start,Length}\` tuple. A negative length selects bytes
   preceding that start; a valid empty range is allowed. Invalid types,
@@ -333,8 +362,9 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   \`badarg\` in a body. Their nonzero-label guard instructions are tested in
   OTP, Node and Chromium with [compiler-generated](../fixtures/guard_bifs.erl)
   and [assembly](../fixtures/raw_guard_bifs.S) fixtures, including stripped
-  input. Successful slices copy synchronously; zero-label exception forms
-  and callable BIF dispatch are unsupported.
+  input. Zero-label and callable forms are tested in the body and assembly
+  fixtures above, including direct calls and propagated errors. Successful
+  slices copy synchronously.
 - \`self/0\` returns the calling process's PID; distinct processes have
   distinct live identities. It depends on a process runtime, not a pure
   host-value conversion.
@@ -345,18 +375,23 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   Beam2JS lowers these instructions for supported terms to Erlang \`true\` or
   \`false\` atoms. Selected register and literal operands are also checked in
   [assembly](../fixtures/raw_predicate_bifs.S), in Node and Chromium against
-  OTP, including stripped input. \`is_list/1\` accepts improper cons cells.
+  OTP, including stripped input. All nine are also callable through external
+  calls or the host invocation API; [assembly](../fixtures/raw_bif_body.S)
+  tests tail and non-tail calls. Built-ins take precedence over a registered
+  \`erlang\` function of the same name and arity. \`is_list/1\` accepts improper cons cells.
   \`is_binary/1\` accepts bitstrings whose length is divisible by eight;
   \`is_bitstring/1\` accepts partial-byte bitstrings too.
 
 Failure of these guard BIFs or operators in a guard fails the guard rather than
-propagating the body exception. The Beam2JS runtime does not implement these
+propagating the body exception. Apart from the nine type predicates and the
+list, tuple and binary BIFs above, the Beam2JS runtime does not implement these
 callable BIFs. Beam2JS lowers the nonzero-label \`hd/1\`, \`tl/1\`, \`length/1\`,
 \`tuple_size/1\`, \`element/2\`, \`bit_size/1\`, \`byte_size/1\` and
 \`binary_part/2\` and \`binary_part/3\` guard
 instructions for supported terms, with differential coverage from the
 [guard fixture](../fixtures/guard_bifs.erl), [size fixture](../fixtures/length_guards.erl)
-and their assembly fixtures. Zero-label exception forms remain unsupported.
+and their assembly fixtures. Their zero-label forms are supported and raise
+\`badarg\` on invalid inputs.
 
 Regenerate or verify using the exact upstream file and OTP 29.1.2:
 
@@ -374,8 +409,10 @@ const rows = entries.map(entry => {
   const effect = [entry.pure ? 'optimizer-pure' : null, detail?.effects].filter(Boolean).join('; ') || '?';
   const exceptions = [entry.alwaysRaises ? 'always-raises' : entry.safe ? 'optimizer-safe' : null,
     detail?.exceptions].filter(Boolean).join('; ') || '?';
-  const support = instructionOnly.has(key(entry)) ? 'instruction-only' :
-    guardInstructionOnly.has(key(entry)) ? 'guard-instruction-only' : 'not implemented';
+  const support = instructionAndCallable.has(key(entry)) ? 'instruction-and-callable' :
+    guardInstructionOnly.has(key(entry)) ? 'guard-instruction-only' :
+      bodyAndGuardInstructionOnly.has(key(entry)) ? 'body-and-guard-instruction-only' :
+        arithmeticInstructionOnly.has(key(entry)) ? 'arithmetic-instruction-only' : 'not implemented';
   return `| \`${cell(entry.module)}\` | \`${cell(entry.name)}/${entry.arity}\` | ${entry.kind} | ${entry.builtin ? 'yes' : 'no'} | ${categoryOf(entry)} | ${guard} | ${cell(effect)} | ${cell(exceptions)} | ${detail?.host ?? hostDependency(entry)} | ${support} |`;
 });
 const inventory = header + rows.join('\n') + '\n';

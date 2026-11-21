@@ -102,11 +102,14 @@ untrusted-input safety claim is made without tests and a completed audit.
   Preserve Erlang value semantics rather than exposing mutable host objects.
 - [ ] Implement exact and numeric equality, ordering, type tests and numeric
   operations for the supported terms, including integer/float edge cases.
-  Nonzero-label integer bitwise guard instructions support `band`, `bor`,
-  `bxor` and `bnot`. Integer `div` and `rem`, unary negation, binary
-  `+`, `-`, `*` and `/`, and `abs/1`, `trunc/1`, `round/1`, `floor/1`,
-  `ceil/1` and `float/1` guard instructions also support nonzero labels;
-  arithmetic and exception forms remain incomplete.
+  Integer bitwise `band`, `bor`, `bxor` and `bnot`, integer `div` and `rem`,
+  unary negation and binary `+`, `-`, `*` and `/` instructions support guard
+  and zero-label forms; the latter raise `badarith` on invalid inputs or overflow.
+  `abs/1`, `trunc/1`, `round/1`, `floor/1`, `ceil/1` and `float/1` support
+  guard and zero-label forms; the latter raise `badarg` for invalid input or
+  float conversion overflow. Floating-register conversion,
+  moves, addition, subtraction, multiplication, division and negation are also
+  supported for ordinary floating-point expressions.
 - [ ] Lower the corresponding literal, move, test, comparison, branch, list and
   tuple instructions, including guard-failure versus exception behavior.
   Nested literals containing the implemented term types, including binary and
@@ -115,9 +118,10 @@ untrusted-input safety claim is made without tests and a completed audit.
   and selected value and tuple-arity branches are also supported. Type-tagged
   x-register sources are read without validating their hints; type-tagged y
   registers and type-tagged operands without the disassembler's required type table remain
-  unsupported. Selected `hd`, `tl`, `length`, `tuple_size`, `element`,
-  `bit_size` and `byte_size` guard
-  BIF instructions branch on invalid input; their exception forms are unsupported.
+  unsupported. Selected `hd`, `tl`, `length`, `tuple_size` and `element`
+  instructions branch on invalid input in guards or raise `badarg` in zero-label
+  forms. `bit_size`, `byte_size` and `binary_part` instructions likewise branch
+  in guards or raise `badarg` in zero-label forms.
   `is_binary` and `is_bitstr` test instructions distinguish byte-sized
   binaries from other bitstrings.
   Length traversal is synchronous and does not yield to a scheduler.
@@ -135,7 +139,8 @@ call stack and provide the control-flow foundation for concurrency.
 - [ ] Extend the current synchronous continuation-based call loop to
   process-owned frames, program counters, registers, stack slots and
   suspension. Versioned actions currently cover calls, tail calls and returns;
-  raises, yields and suspensions remain unimplemented.
+  raise actions, yields and suspensions remain unimplemented. Selected error
+  paths currently propagate through JavaScript using a distinct `ErlangError`.
 - [ ] Lower local and external non-tail calls, tail calls, returns, stack/frame
   instructions and applicable allocation instructions. Preserve effects other
   than garbage collection. A limited slice supports ordinary y slots,
@@ -143,9 +148,15 @@ call stack and provide the control-flow foundation for concurrency.
   with deallocation. Register-state and frame-flow validation remain incomplete.
 - [ ] Implement exception classes, reasons and propagation, including
   `throw`, `error`, `exit`, catch/try regions and stack traces. Distinguish
-  Erlang exceptions from host JavaScript failures.
+  Erlang exceptions from host JavaScript failures. Selected `error` reasons
+  propagate through supported calls to the host; catch/try, other classes and
+  Erlang stack traces remain unsupported.
 - [ ] Implement function-clause, bad-match, case-clause, bad-argument and
   undefined-function failure behavior as the corresponding paths are added.
+  Function-clause, bad-match, case-clause and if-clause failures expose their
+  Erlang class and reason at the JavaScript boundary. Zero-label arithmetic
+  and the supported integer bitwise instructions expose `badarith`; selected
+  list, tuple, binary and numeric BIF instructions expose `badarg`.
 - [ ] Add reduction/yield checkpoints to calls, loops and potentially
   long-running runtime operations, ready for a scheduler.
 
@@ -161,9 +172,10 @@ BIFs.
 - [ ] Implement a BIF dispatch mechanism keyed by module, name and arity,
   including compiler-emitted specialized BIF instructions and guard forms.
   Preserve exact return values, error classes/reasons and guard failure rules.
-  Nine non-failing type-predicate BIF instruction forms and selected
-  list/tuple, binary, integer bitwise and selected arithmetic guard BIF instructions are supported for the
-  existing term subset; callable BIF dispatch remains unimplemented.
+  Nine non-failing type-predicate BIFs and selected list/tuple and binary BIFs
+  support instruction and callable forms for the existing term subset. Selected
+  integer bitwise and arithmetic guard and body BIF instructions are supported;
+  other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
   and relevant binary operations as their term support becomes available.
@@ -186,9 +198,9 @@ Erlang programs.
 - [ ] Implement maps, binaries and bitstrings, including construction, matching,
   updates, sizes, alignment and failure paths; cover relevant generic opcodes.
   Binary and partial-byte bitstring literals, comparisons, type tests and
-  nonzero-label size guards and `binary_part/2` and `/3` guard slicing are supported;
-  general construction, matching, slicing instructions and callable BIF
-  dispatch are not.
+  size and `binary_part/2` and `/3` guard, zero-label and callable forms are
+  supported; general construction, matching, other slicing instructions and
+  other callable binary BIFs are not.
 - [ ] Implement funs, closures and captured environments, exported funs,
   indirect calls and arity checks; retain required module/lambda metadata.
 - [ ] Complete comparison, ordering, exact map-key behavior and host conversion
