@@ -1,6 +1,7 @@
 const floats = new WeakMap();
 const consCells = new WeakMap();
 const tuples = new WeakMap();
+const bitstrings = new WeakMap();
 const nil = Object.freeze({});
 
 function isAtom(value) {
@@ -9,7 +10,7 @@ function isAtom(value) {
 
 function isTerm(value) {
   return typeof value === 'bigint' || isAtom(value) || floats.has(value) ||
-    value === nil || consCells.has(value) || tuples.has(value);
+    value === nil || consCells.has(value) || tuples.has(value) || bitstrings.has(value);
 }
 
 function termType(value) {
@@ -19,7 +20,26 @@ function termType(value) {
   if (value === nil) return 'nil';
   if (consCells.has(value)) return 'cons';
   if (tuples.has(value)) return 'tuple';
+  if (bitstrings.has(value)) return 'bitstring';
   throw new TypeError('unsupported Erlang term');
+}
+
+function compareBitstrings(left, right) {
+  const [a, aLength] = bitstrings.get(left);
+  const [b, bLength] = bitstrings.get(right);
+  const common = Math.min(aLength, bLength);
+  const fullBytes = Math.floor(common / 8);
+  for (let i = 0; i < fullBytes; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  }
+  const remaining = common % 8;
+  if (remaining) {
+    const mask = (0xff << (8 - remaining)) & 0xff;
+    const x = a[fullBytes] & mask;
+    const y = b[fullBytes] & mask;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return aLength === bLength ? 0 : aLength < bLength ? -1 : 1;
 }
 
 export class Runtime {
@@ -93,6 +113,59 @@ export class Runtime {
     return elements[index - 1];
   }
 
+  bitstring(bytes, bitLength) {
+    if (!Array.isArray(bytes) && !(bytes instanceof Uint8Array)) {
+      throw new TypeError('bitstring requires an array or Uint8Array of bytes');
+    }
+    if (!Number.isSafeInteger(bitLength) || bitLength < 0 ||
+        bytes.length !== Math.ceil(bitLength / 8)) {
+      throw new RangeError('invalid bitstring length');
+    }
+    const values = Array.from(bytes);
+    if (values.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+      throw new TypeError('bitstring requires bytes in the range 0..255');
+    }
+    const copy = Uint8Array.from(values);
+    if (bitLength % 8) copy[copy.length - 1] &= (0xff << (8 - bitLength % 8)) & 0xff;
+    const term = Object.freeze({});
+    bitstrings.set(term, [copy, bitLength]);
+    return term;
+  }
+
+  isBitstring(value) {
+    return bitstrings.has(value);
+  }
+
+  bitstringSize(value) {
+    const bits = bitstrings.get(value);
+    if (!bits) throw new TypeError('expected Erlang bitstring');
+    return bits[1];
+  }
+
+  bitstringBytes(value) {
+    const bits = bitstrings.get(value);
+    if (!bits) throw new TypeError('expected Erlang bitstring');
+    return bits[0].slice();
+  }
+
+  guardBinaryPart(value, position, length) {
+    const valueType = termType(value);
+    const positionType = termType(position);
+    const lengthType = termType(length);
+    if (valueType !== 'bitstring' || positionType !== 'integer' || lengthType !== 'integer') return null;
+    const [bytes, bitLength] = bitstrings.get(value);
+    if (bitLength % 8 !== 0) return null;
+    const end = position + length;
+    const size = BigInt(bytes.length);
+    if (position < 0n || position > size || end < 0n || end > size) return null;
+    const start = length < 0n ? end : position;
+    const stop = length < 0n ? position : end;
+    const copy = bytes.slice(Number(start), Number(stop));
+    const term = Object.freeze({});
+    bitstrings.set(term, [copy, copy.length * 8]);
+    return term;
+  }
+
   read(registers, index) {
     if (!(index in registers)) throw new Error(`uninitialized x register ${index}`);
     return registers[index];
@@ -100,6 +173,60 @@ export class Runtime {
 
   args(registers, arity) {
     return Array.from({length: arity}, (_, index) => this.read(registers, index));
+  }
+
+  guardArithmetic(op, left, right) {
+    const unary = ['neg', 'abs', 'trunc', 'round', 'floor', 'ceil', 'float'].includes(op);
+    if ((!unary && !['+', '-', '*', '/'].includes(op)) || unary !== (right === undefined)) {
+      throw new Error(`invalid guard arithmetic operation: ${op}`);
+    }
+    const leftType = termType(left);
+    const rightType = unary ? undefined : termType(right);
+    if ((leftType !== 'integer' && leftType !== 'float') ||
+        (rightType !== undefined && rightType !== 'integer' && rightType !== 'float')) return null;
+
+    if (op === 'float') {
+      if (leftType === 'float') return left;
+      const value = Number(left);
+      return Number.isFinite(value) ? this.float(value) : null;
+    }
+
+    if (op !== '/' && leftType === 'integer' && (unary || rightType === 'integer')) {
+      switch (op) {
+        case 'neg': return -left;
+        case 'abs': return left < 0n ? -left : left;
+        case 'trunc':
+        case 'round':
+        case 'floor':
+        case 'ceil': return left;
+        case '+': return left + right;
+        case '-': return left - right;
+        case '*': return left * right;
+      }
+    }
+
+    const a = leftType === 'integer' ? Number(left) : floats.get(left);
+    const b = rightType === 'integer' ? Number(right) : floats.get(right);
+    if (!Number.isFinite(a) || (!unary && !Number.isFinite(b)) ||
+        (op === '/' && b === 0)) return null;
+    if (op === 'trunc') return BigInt(Math.trunc(a));
+    if (op === 'floor') return BigInt(Math.floor(a));
+    if (op === 'ceil') return BigInt(Math.ceil(a));
+    if (op === 'round') {
+      const truncated = Math.trunc(a);
+      const integer = BigInt(truncated);
+      return Math.abs(a - truncated) >= 0.5 ? integer + (a < 0 ? -1n : 1n) : integer;
+    }
+    let result;
+    switch (op) {
+      case 'neg': result = -a; break;
+      case 'abs': result = Math.abs(a); break;
+      case '+': result = a + b; break;
+      case '-': result = a - b; break;
+      case '*': result = a * b; break;
+      case '/': result = a / b; break;
+    }
+    return Number.isFinite(result) ? this.float(result) : null;
   }
 
   equalExact(left, right) {
@@ -120,6 +247,8 @@ export class Runtime {
         const y = tuples.get(b);
         if (x.length !== y.length) return false;
         for (let i = x.length - 1; i >= 0; i--) pending.push([x[i], y[i]]);
+      } else if (type === 'bitstring') {
+        if (compareBitstrings(a, b) !== 0) return false;
       } else {
         return false;
       }
@@ -132,7 +261,7 @@ export class Runtime {
   }
 
   compare(left, right) {
-    const rank = {integer: 0, float: 0, atom: 1, tuple: 2, nil: 3, cons: 4};
+    const rank = {integer: 0, float: 0, atom: 1, tuple: 2, nil: 3, cons: 4, bitstring: 5};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -167,6 +296,9 @@ export class Runtime {
         const y = tuples.get(b);
         if (x.length !== y.length) return x.length < y.length ? -1 : 1;
         for (let i = x.length - 1; i >= 0; i--) pending.push([x[i], y[i]]);
+      } else if (aType === 'bitstring' && a !== b) {
+        const order = compareBitstrings(a, b);
+        if (order !== 0) return order;
       }
     }
     return 0;
@@ -186,12 +318,18 @@ export class Runtime {
       case 'is_list': return actual === 'nil' || actual === 'cons';
       case 'is_nonempty_list': return actual === 'cons';
       case 'is_tuple': return actual === 'tuple';
+      case 'is_binary':
+        return actual === 'bitstring' && bitstrings.get(value)[1] % 8 === 0;
+      case 'is_bitstr':
+      case 'is_bitstring': return actual === 'bitstring';
       default: throw new Error(`unsupported type test: ${type}`);
     }
   }
 
   registerModule(version, name, functions) {
-    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
+    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 &&
+        version !== 5 && version !== 6 && version !== 7 && version !== 8 &&
+        version !== 9 && version !== 10 && version !== 11 && version !== 12 && version !== 13) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);

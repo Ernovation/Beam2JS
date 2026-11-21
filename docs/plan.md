@@ -103,17 +103,23 @@ untrusted-input safety claim is made without tests and a completed audit.
 - [ ] Implement exact and numeric equality, ordering, type tests and numeric
   operations for the supported terms, including integer/float edge cases.
   Nonzero-label integer bitwise guard instructions support `band`, `bor`,
-  `bxor` and `bnot`. Integer `div` and `rem` guard instructions also support
-  nonzero labels; arithmetic and exception forms remain incomplete.
+  `bxor` and `bnot`. Integer `div` and `rem`, unary negation, binary
+  `+`, `-`, `*` and `/`, and `abs/1`, `trunc/1`, `round/1`, `floor/1`,
+  `ceil/1` and `float/1` guard instructions also support nonzero labels;
+  arithmetic and exception forms remain incomplete.
 - [ ] Lower the corresponding literal, move, test, comparison, branch, list and
   tuple instructions, including guard-failure versus exception behavior.
-  Nested literals containing the implemented term types are supported;
+  Nested literals containing the implemented term types, including binary and
+  partial-byte bitstring values, are supported;
   unsupported literal values still reject the module. Tagged tuple matching
   and selected value and tuple-arity branches are also supported. Type-tagged
   x-register sources are read without validating their hints; y registers and
   type-tagged operands without the disassembler's required type table remain
-  unsupported. Selected `hd`, `tl`, `length`, `tuple_size` and `element` guard
+  unsupported. Selected `hd`, `tl`, `length`, `tuple_size`, `element`,
+  `bit_size` and `byte_size` guard
   BIF instructions branch on invalid input; their exception forms are unsupported.
+  `is_binary` and `is_bitstr` test instructions distinguish byte-sized
+  binaries from other bitstrings.
   Length traversal is synchronous and does not yield to a scheduler.
 - [ ] Test unusual atoms, large and negative integers, float boundaries,
   improper lists, nested terms, matching and failed guards against OTP.
@@ -153,8 +159,8 @@ BIFs.
 - [ ] Implement a BIF dispatch mechanism keyed by module, name and arity,
   including compiler-emitted specialized BIF instructions and guard forms.
   Preserve exact return values, error classes/reasons and guard failure rules.
-  Seven non-failing type-predicate BIF instruction forms and selected
-  list/tuple and integer bitwise guard BIF instructions are supported for the
+  Nine non-failing type-predicate BIF instruction forms and selected
+  list/tuple, binary, integer bitwise and selected arithmetic guard BIF instructions are supported for the
   existing term subset; callable BIF dispatch remains unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
@@ -177,6 +183,10 @@ Erlang programs.
 
 - [ ] Implement maps, binaries and bitstrings, including construction, matching,
   updates, sizes, alignment and failure paths; cover relevant generic opcodes.
+  Binary and partial-byte bitstring literals, comparisons, type tests and
+  nonzero-label size guards and `binary_part/2` and `/3` guard slicing are supported;
+  general construction, matching, slicing instructions and callable BIF
+  dispatch are not.
 - [ ] Implement funs, closures and captured environments, exported funs,
   indirect calls and arity checks; retain required module/lambda metadata.
 - [ ] Complete comparison, ordering, exact map-key behavior and host conversion

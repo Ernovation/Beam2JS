@@ -19,6 +19,7 @@ try {
   run(compiler, [slice, output]);
   run(compiler, [join(dir, 'slice_helper.beam'), helperOutput]);
   const firstOutput = readFileSync(output, 'utf8');
+  assert.match(firstOutput, /runtime\.registerModule\(13,/);
   run(compiler, [slice, output]);
   assert.equal(readFileSync(output, 'utf8'), firstOutput, 'emission must be deterministic');
 
@@ -51,7 +52,7 @@ try {
   assert.throws(() => runtime.invoke('slice', 'private', [42n]), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'module_info', []), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'id', [42]), /supported Erlang terms/);
-  assert.throws(() => runtime.registerModule(6, 'bad', []), /unsupported runtime ABI/);
+  assert.throws(() => runtime.registerModule(14, 'bad', []), /unsupported runtime ABI/);
   runtime.registerModule(1, 'abi1', [{
     name: 'id', arity: 1, exported: true,
     run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
@@ -72,6 +73,46 @@ try {
     run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
   }]);
   assert.equal(runtime.invoke('abi4', 'id', [42n]), 42n);
+  runtime.registerModule(5, 'abi5', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi5', 'id', [42n]), 42n);
+  runtime.registerModule(6, 'abi6', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi6', 'id', [42n]), 42n);
+  runtime.registerModule(7, 'abi7', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi7', 'id', [42n]), 42n);
+  runtime.registerModule(8, 'abi8', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi8', 'id', [42n]), 42n);
+  runtime.registerModule(9, 'abi9', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi9', 'id', [42n]), 42n);
+  runtime.registerModule(10, 'abi10', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi10', 'id', [42n]), 42n);
+  runtime.registerModule(11, 'abi11', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi11', 'id', [42n]), 42n);
+  runtime.registerModule(12, 'abi12', [{
+    name: 'id', arity: 1, exported: true,
+    run: (rt, x) => ({type: 'return', value: rt.read(x, 0)}),
+  }]);
+  assert.equal(runtime.invoke('abi12', 'id', [42n]), 42n);
 
   const stripped = join(dir, 'stripped.beam');
   run('erl', ['-noshell', '-eval',
@@ -88,7 +129,7 @@ try {
   const unsupported = spawnSync(compiler, [join(dir, 'unsupported.beam'), output],
     {encoding: 'utf8', timeout: 30000});
   assert.notEqual(unsupported.status, 0);
-  assert.match(unsupported.stderr, /add\/2 instruction .*unsupported instruction/);
+  assert.match(unsupported.stderr, /add\/2 instruction .*invalid branch label 0/);
   assert.equal(readFileSync(output, 'utf8'), 'existing output');
   const missingOutput = join(dir, 'should-not-exist.mjs');
   const onLoad = spawnSync(compiler, [join(dir, 'on_load.beam'), missingOutput],

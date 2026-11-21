@@ -78,12 +78,12 @@ standalone values.
 
 `npm run test:opcodes` assembles and loads small guard functions and compares
 their entire raw code streams with independently specified bytes. It covers
-the five type tests and six comparisons in Beam2JS's normalized subset using
+seven type tests and six comparisons in Beam2JS's normalized subset using
 x and y registers, with and without `any` type hints; binary comparisons cover
 x/x, y/x and x/y. `is_eq_exact/3` additionally covers atom, nil, float-literal
 and integer operands, compact integer boundaries and literal-table thresholds. It
 checks successful and failing paths in OTP, including numeric equality and
-signed-zero examples.
+signed-zero examples. Beam2JS currently supports only the x-register forms.
 The test also reads the raw guard instructions in the compiler-generated
 [`guards.erl`](../fixtures/guards.erl), including stripped input. For example,
 `different/2` compiles to `is_eq_exact/3` with its failure branch leading
@@ -136,14 +136,23 @@ and Chromium, including stripped input. Nonzero-label `hd/1`, `tl/1`,
 [compiler-generated](../fixtures/guard_bifs.erl) and
 [assembly](../fixtures/raw_guard_bifs.S) fixtures in OTP, Node and Chromium,
 including stripped input. Invalid arguments branch without writing the
-destination; zero-label exception forms are rejected. The
+destination; zero-label exception forms are rejected. The same fixtures cover
+nonzero-label `binary_part/2` and `binary_part/3` on binaries, including negative lengths,
+boundary ranges, unaligned binary values, typed and aliased x registers and
+literal operands. The two-argument form requires a `{Position,Length}`
+tuple. Invalid inputs branch without changing the destination.
+Successful slices copy synchronously, without OTP resource or scheduling
+behavior; zero-label exception forms remain unsupported. The
 [length guard fixture](../fixtures/length_guards.erl) and
 [assembly fixture](../fixtures/raw_length_guards.S) exercise nonzero-label
 `length/1` on proper, improper and non-list inputs in OTP, Node and Chromium,
 including stripped input. They also check 10,000-element proper and improper
 lists. Traversal is synchronous and can block the host event loop; OTP
 reductions and scheduling are not reproduced. Zero-label exception forms are
-rejected. The
+rejected. The same fixtures cover nonzero-label `bit_size/1` and
+`byte_size/1`, including partial-byte and unaligned bitstrings, aliased
+destinations and failure without writing the destination. `byte_size/1`
+rounds the bit length up to whole bytes. Zero-label forms are rejected. The
 [bitwise guard fixture](../fixtures/bitwise_guards.erl) and
 [assembly fixture](../fixtures/raw_bitwise_guards.S) cover nonzero-label
 `band`, `bor`, `bxor` and `bnot` on integers, including negative and
@@ -156,6 +165,18 @@ The [integer guard fixture](../fixtures/integer_guards.erl) and
 destinations, non-integers and zero divisors in OTP, Node and Chromium with
 stripped input. Division truncates toward zero; the remainder has the
 dividend's sign. Zero-label exception forms are rejected.
+The [arithmetic guard fixture](../fixtures/arithmetic_guards.erl) and
+[assembly fixture](../fixtures/raw_arithmetic_guards.S) exercise nonzero-label
+unary minus, `abs/1`, `trunc/1`, `round/1`, `floor/1`, `ceil/1`, `float/1`
+and binary `+`, `-`, `*` and `/` with integer, float and mixed
+operands, including signed zeros, subnormal values, rounding and overflow in
+OTP, Node and Chromium, including stripped input. Non-numbers and float
+overflow branch without modifying the destination. Division always produces a
+float and also branches on zero divisors and integer-to-float conversion
+overflow. Absolute value preserves the input's numeric type and turns negative
+float zero into positive zero. Rounding guards return integers; `round/1`
+rounds ties away from zero. `float/1` preserves float bits and branches on
+integer-to-float overflow. Zero-label forms are rejected.
 The
 [list fixture](../fixtures/list_slice.erl)
 also exercises nil, list construction and extraction, including an aliased
@@ -164,10 +185,19 @@ no-op; OTP GC, memory exhaustion and scheduler effects are not reproduced.
 The [tuple fixture](../fixtures/tuple_slice.erl) exercises construction,
 tagged matching, extraction and the empty tuple literal. The
 [literal fixture](../fixtures/literal_terms.erl) exercises nested proper and
-improper lists and tuples in moves, comparisons and construction, including
-stripped input. A 10,000-element literal is also tested in OTP, Node and
-Chromium. Only integer, float, atom, list and tuple literal values are
-supported; unsupported nested values reject compilation. The tuple arity and
+improper lists and tuples, plus binary and partial-byte bitstring literals, in
+moves, comparisons and construction, including stripped input. The
+[binary literal fixture](../fixtures/unsupported_literal.erl) is also covered.
+Bitstring ordering compares meaningful bits and prefix lengths. A
+10,000-element list literal is also tested in OTP, Node and Chromium.
+Only integer, float, atom, list, tuple and bitstring literal values are
+supported; unsupported nested values reject compilation. `is_binary` and
+`is_bitstr` branch tests and the zero-label `is_binary/1` and
+`is_bitstring/1` BIF instructions cover empty and partial-byte bitstrings,
+including stripped compiler and assembly fixtures in Node and Chromium.
+Nonzero-label predicate BIF forms, callable BIF dispatch, dynamic bitstring
+construction and matching instructions remain unsupported.
+The tuple arity and
 extraction forms assume the input has passed the appropriate tuple test;
 malformed input can raise a host error rather than an Erlang exception.
 
@@ -217,7 +247,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 7 | `call_ext/2` | active | Arity Destination | ? | N | N | N | N | OTP: Import-table destination and arity; saves a continuation before transferring control. |
 | 8 | `call_ext_last/3` | active | Arity Destination Deallocate | ? | N | N | N | N | OTP: Import-table destination and arity; deallocates a frame and tail-transfers. |
 | 9 | `bif0/2` | active | Bif Reg | ? | N | N | N | N | OTP: BIF import and destination; the assembler treats zero-argument BIFs as non-failing. Raw evidence: Import index for self/0 and x destination; disassembler exposes nofail. |
-| 10 | `bif1/4` | active | Lbl Bif Arg Reg | ? | N | P | P | P | OTP: Failure label, BIF import, arguments and destination; zero label denotes exception, otherwise failure branches. Raw evidence: hd/1 import, x source/destination, nonzero failure label or exception label zero. Beam2JS: Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list or is_tuple BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only. |
+| 10 | `bif1/4` | active | Lbl Bif Arg Reg | ? | N | P | P | P | OTP: Failure label, BIF import, arguments and destination; zero label denotes exception, otherwise failure branches. Raw evidence: hd/1 import, x source/destination, nonzero failure label or exception label zero. Beam2JS: Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only. |
 | 11 | `bif2/5` | active | Lbl Bif Arg1 Arg2 Reg | ? | N | P | P | P | OTP: Failure label, BIF import, arguments and destination; zero label denotes exception, otherwise failure branches. Raw evidence: element/2 import, two x sources, x destination and nonzero failure label. Beam2JS: Normalized element BIF with supported index and tuple operands, x destination and nonzero failure label; invalid arguments branch without changing the destination. |
 | 12 | `allocate/2` | active | StackNeed Live | ? | N | N | N | N | OTP: Stack size and live count; allocate_heap also reserves heap. Saves continuation; stack slots are not initialized. Raw evidence: Stack size 1 and live x-register count 1 or 2 in guard fixtures. |
 | 13 | `allocate_heap/3` | active | StackNeed HeapNeed Live | ? | N | N | N | N | OTP: Stack size and live count; allocate_heap also reserves heap. Saves continuation; stack slots are not initialized. |
@@ -246,12 +276,12 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 36 | `int_bsl/4` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 37 | `int_bsr/4` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 38 | `int_bnot/3` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
-| 39 | `is_lt/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when the first is not less than the second. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported integer/float/atom/list/tuple operands; fallthrough or nonzero label. Tested in Node and Chromium. |
-| 40 | `is_ge/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when the first is less than the second. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported integer/float/atom/list/tuple operands; fallthrough or nonzero label. Tested in Node and Chromium. |
+| 39 | `is_lt/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when the first is not less than the second. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported integer/float/atom/list/tuple/bitstring operands; fallthrough or nonzero label. Tested in Node and Chromium. |
+| 40 | `is_ge/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when the first is less than the second. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported integer/float/atom/list/tuple/bitstring operands; fallthrough or nonzero label. Tested in Node and Chromium. |
 | 41 | `is_eq/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when non-exact equality fails. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported operands; numeric equality including mixed numbers and nested compound terms. |
 | 42 | `is_ne/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when non-exact equality succeeds. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported operands; numeric inequality including mixed numbers and nested compound terms. |
-| 43 | `is_eq_exact/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when exact equality fails. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y; also x followed by atom, nil, integer or float literal. Beam2JS: Supported operands; structural list/tuple equality and distinct signed float zeros. |
-| 44 | `is_ne_exact/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when exact equality succeeds. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported operands; structural list/tuple inequality and distinct signed float zeros. |
+| 43 | `is_eq_exact/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when exact equality fails. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y; also x followed by atom, nil, integer or float literal. Beam2JS: Supported operands; structural list/tuple/bitstring equality and distinct signed float zeros. |
+| 44 | `is_ne_exact/3` | active | Lbl Arg1 Arg2 | ? | N | P | P | P | OTP: Two terms; branches when exact equality succeeds. Raw evidence: Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y. Beam2JS: Supported operands; structural list/tuple/bitstring inequality and distinct signed float zeros. |
 | 45 | `is_integer/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Raw evidence: Failure label and x or y register, with or without an any type hint. Beam2JS: Supported operands only; type-test branch. |
 | 46 | `is_float/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Raw evidence: Failure label and x or y register, with or without an any type hint. Beam2JS: Supported operands only; type-test branch. |
 | 47 | `is_number/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Raw evidence: Failure label and x or y register, with or without an any type hint. Beam2JS: Supported operands only; type-test branch. |
@@ -260,7 +290,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 50 | `is_reference/2` | active | Lbl Arg1 | ? | N | N | N | N | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. |
 | 51 | `is_port/2` | active | Lbl Arg1 | ? | N | N | N | N | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. |
 | 52 | `is_nil/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Beam2JS: Supported operands only; branches unless source is the empty list. |
-| 53 | `is_binary/2` | active | Lbl Arg1 | ? | N | N | N | N | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. |
+| 53 | `is_binary/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Raw evidence: Failure label and x or y register, with or without an any type hint. Beam2JS: Supported operands only; branches unless bitstring length is divisible by eight. |
 | 54 | `is_constant/2` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 55 | `is_list/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Beam2JS: Supported operands only; accepts nil and proper or improper cons cells. |
 | 56 | `is_nonempty_list/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Beam2JS: Supported operands only; accepts proper or improper cons cells. |
@@ -271,7 +301,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 61 | `jump/1` | active | Label | ? | N | P | P | P | OTP: Unconditional branch to a local label. Raw evidence: Nonzero local label target in the control-flow fixture. Beam2JS: Nonzero local label; unconditional branch. |
 | 62 | `catch/2` | active | not specified | ? | N | N | N | N | OTP: Installs a handler using a y register and handler label; continues into protected code. |
 | 63 | `catch_end/1` | active | not specified | ? | N | N | N | N | OTP: Uses the active y-register handler tag to leave or enter the corresponding handler. |
-| 64 | `move/2` | active | Source Destination | ? | N | P | P | P | OTP: Term source and x/y destination; assembler also encodes typed registers and literal-table values. Raw evidence: Atom, integer or x-register source to x destination; x source to y destination. Beam2JS: x register or supported integer/float/atom/list/tuple literal to x register; fallthrough. |
+| 64 | `move/2` | active | Source Destination | ? | N | P | P | P | OTP: Term source and x/y destination; assembler also encodes typed registers and literal-table values. Raw evidence: Atom, integer or x-register source to x destination; x source to y destination. Beam2JS: x register or supported integer/float/atom/list/tuple/bitstring literal to x register; fallthrough. |
 | 65 | `get_list/3` | active | Source Head Tail | ? | N | P | P | P | OTP: Cons source and head/tail destinations; validator requires a cons. Beam2JS: Supported nonempty list source and distinct x destinations; captures the source before writes. |
 | 66 | `get_tuple_element/3` | active | Source Element Destination | ? | N | P | P | P | OTP: Tuple source, zero-based position and destination; validator requires a suitable tuple. Beam2JS: Supported tuple source, zero-based index and x destination; invalid source or index raises a host error. |
 | 67 | `set_tuple_element/3` | active | NewElement Tuple Position | ? | N | N | N | N | OTP: New value, tuple and position; destructive update. OTP 29 compiler no longer emits it. |
@@ -331,12 +361,12 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 121 | `bs_test_tail2/3` | active | not specified | ? | N | N | N | N | OTP: Failure label, match context and expected remaining bit count; continues or branches. |
 | 122 | `bs_save2/2` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 123 | `bs_restore2/2` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
-| 124 | `gc_bif1/5` | active | Lbl Live Bif Arg Reg | ? | N | P | P | P | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: -/1 import, x source/destination, live count 1 and nonzero failure label. Beam2JS: Normalized bnot and length guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments branch. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced. |
-| 125 | `gc_bif2/6` | active | Lbl Live Bif Arg1 Arg2 Reg | ? | N | P | P | P | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: +/2 import, two x sources, x destination, live count 2 and nonzero or zero failure label. Beam2JS: Normalized band, bor, bxor, div and rem guards, supported sources, x destination, live count 0..1024 and nonzero failure label; non-integers and zero divisors branch. OTP GC, resource and scheduling effects are not reproduced. |
+| 124 | `gc_bif1/5` | active | Lbl Live Bif Arg Reg | ? | N | P | P | P | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: -/1 import, x source/destination, live count 1 and nonzero failure label. Beam2JS: Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced. |
+| 125 | `gc_bif2/6` | active | Lbl Live Bif Arg1 Arg2 Reg | ? | N | P | P | P | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: +/2 import, two x sources, x destination, live count 2 and nonzero or zero failure label. Beam2JS: Normalized band, bor, bxor, div, rem, +, -, * and / guards and binary_part/2 guard, supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments, ranges, zero divisors or float overflow branch. Binary slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced. |
 | 126 | `bs_final2/2` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 127 | `bs_bits_to_bytes2/2` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 128 | `put_literal/2` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
-| 129 | `is_bitstr/2` | active | Lbl Arg1 | ? | N | N | N | N | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. |
+| 129 | `is_bitstr/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Raw evidence: Failure label and x or y register, with or without an any type hint. Beam2JS: Supported operands only; branches unless the value is a bitstring. |
 | 130 | `bs_context_to_binary/1` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 131 | `bs_test_unit/3` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 132 | `bs_match_string/4` | active | not specified | ? | N | N | N | N | OTP: Failure label, match context, bit count and string-table data; continues or branches. |
@@ -359,7 +389,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 149 | `on_load/0` | active | not specified | ? | N | N | N | N | OTP: Marks an on-load function; module loading behavior is required. |
 | 150 | `recv_mark/1` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 151 | `recv_set/1` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
-| 152 | `gc_bif3/7` | active | Lbl Live Bif Arg1 Arg2 Arg3 Reg | ? | N | N | N | N | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: binary_part/3 import, three x sources, x destination, live count 3 and nonzero failure label. |
+| 152 | `gc_bif3/7` | active | Lbl Live Bif Arg1 Arg2 Arg3 Reg | ? | N | P | P | P | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: binary_part/3 import, three x sources, x destination, live count 3 and nonzero failure label. Beam2JS: Normalized binary_part/3 guard with supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments or ranges branch without writing the destination. Slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced. |
 | 153 | `line/1` | active | not specified | ? | N | P | P | P | OTP: Line-table location index; metadata rather than ordinary control flow. Beam2JS: Line metadata; ignored. |
 | 154 | `put_map_assoc/5` | active | not specified | ? | N | N | N | N | OTP: Failure label, source, destination, live count and key/value list; exact updates require existing keys. |
 | 155 | `put_map_exact/5` | active | not specified | ? | N | N | N | N | OTP: Failure label, source, destination, live count and key/value list; exact updates require existing keys. |

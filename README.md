@@ -61,16 +61,24 @@ the sign of zero. `runtime.nil()` constructs the empty list, and
 JavaScript numbers and arrays are not Erlang terms. `runtime.tuple(elements)`
 copies an array of Erlang terms into an immutable tuple; `tupleSize(term)` and
 `tupleElement(term, index)` inspect it using a one-based index.
+`runtime.bitstring(bytes, bitLength)` copies an array or `Uint8Array` of
+bytes, with bits in most-significant-bit-first order. The byte count must equal
+`ceil(bitLength / 8)`; unused low bits are cleared. `isBitstring(term)`,
+`bitstringSize(term)` and `bitstringBytes(term)` inspect it; the latter returns
+a copy. A binary is a bitstring with a bit length divisible by eight.
 Register dependencies before
 calling functions that use them. The generated module is host-independent;
 the integration tests currently run only in Node.js.
 
 The compiler currently requires host OTP 29 and uses its internal disassembler.
 Moves, equality and ordering branches, selected type tests, jumps, tail calls
-and returns support integers, floats, atoms, lists and tuples. List and tuple
+and returns support integers, floats, atoms, lists, tuples and bitstrings. List and tuple
 construction, matching and extraction have partial instruction support.
 Compiled literals can nest these supported types; a literal containing an
-unsupported type, such as a map or binary, rejects the module.
+unsupported type, such as a map, rejects the module. Binary and partial-byte
+bitstring literals are supported, including nested literals, equality and
+ordering. General dynamic binary/bitstring construction, matching, slicing
+instructions and callable BIF dispatch remain unsupported.
 Tagged tuple tests and selected value and tuple-arity branches are supported.
 Supported source operands include type-tagged x registers: their hints are
 ignored, not validated. Type-tagged y registers and type-tagged operands in
@@ -78,23 +86,44 @@ BEAM files missing their type table remain unsupported. Mixed or duplicate selec
 zero branch labels are rejected; tuple-arity branches require a tuple source.
 The type tests include `is_integer`,
 `is_number`, `is_atom`, `is_boolean`, `is_float`, `is_nil`, `is_list` and
-`is_nonempty_list`, and `is_tuple`. Non-failing BIF instruction forms of the
-seven applicable Erlang predicates return boolean atoms.
+`is_nonempty_list`, `is_tuple`, `is_binary` and `is_bitstr`. A binary has a
+bit length divisible by eight; `is_bitstr` accepts all bitstrings.
+Non-failing BIF instruction forms of the nine applicable Erlang predicates,
+including `is_binary/1` and `is_bitstring/1`, return boolean atoms.
 Nonzero-failure-label guard BIF instructions for `hd/1`, `tl/1`,
 `length/1`, `tuple_size/1` and `element/2` branch on invalid arguments.
 `length/1` traverses synchronously and may block the host event loop for long
 lists. Their zero-label
 exception forms and callable BIF dispatch remain unsupported.
+Nonzero-label `bit_size/1` and `byte_size/1` guard instructions accept
+bitstrings and branch on other terms. `byte_size/1` rounds partial bytes up;
+zero-label exception forms are unsupported.
+The nonzero-label `binary_part/2` and `binary_part/3` guard instructions
+slice binaries using zero-based byte positions; the former takes a
+`{Position, Length}` tuple. Negative lengths select bytes before the position.
+Invalid inputs or ranges branch. Slices copy synchronously and may block the
+host event loop; zero-label forms are unsupported.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their exception forms are unsupported.
 Integer `div` and `rem` guard instructions branch on non-integers or a zero
 divisor; division truncates toward zero and remainder follows the dividend's
 sign. Their exception forms are also unsupported.
+Unary negation and binary `+`, `-` and `*` guard instructions support integer,
+float and mixed operands, branching on non-numbers or floating-point overflow.
+Binary `/` guard instructions always produce a float; they branch on
+non-numbers, zero divisors, integer-to-float conversion overflow or float
+result overflow. The `abs/1` guard preserves the integer or float type and
+turns negative float zero into positive zero; non-numbers branch.
+Nonzero-label `trunc/1`, `round/1`, `floor/1` and `ceil/1` instructions return
+integers, with `round/1` rounding ties away from zero. Non-numbers branch.
+The `float/1` guard preserves floats and converts integers to binary64,
+branching on non-numbers or conversion overflow.
+Zero-label exception forms are unsupported.
 OTP garbage collection, resource limits and scheduling effects are not reproduced.
 Unsupported instructions and operand forms
 reject the whole module, with a diagnostic; missing external functions fail at
-invocation. New generated modules use runtime ABI 5; the runtime also accepts
-existing ABI 1 through 4 modules. Integer-word heap checks are no-ops under
+invocation. New generated modules use runtime ABI 13; the runtime also accepts
+existing ABI 1 through 12 modules. Integer-word heap checks are no-ops under
 JavaScript GC; OTP memory exhaustion and scheduler effects are not reproduced.
 Ordinary non-tail calls, other arithmetic, other terms, general BIF dispatch (including
 `module_info`), processes, exceptions and scheduling are not implemented.

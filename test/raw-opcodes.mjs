@@ -47,9 +47,13 @@ const cases = [
     op: 'is_eq_exact', opcode: 43, arity: 1,
     operands: `{x,0},{integer,${value}}`, bytes: [0x03, ...bytes], yes: value, no: 'different',
   })),
+  {op: 'is_binary', opcode: 53, arity: 1, operands: '{x,0}', bytes: [0x03],
+    yes: '<<0>>', no: '<<1:1>>', alsoYes: ['<<>>'], alsoNo: ['no']},
+  {op: 'is_bitstr', opcode: 129, arity: 1, operands: '{x,0}', bytes: [0x03],
+    yes: '<<1:1>>', no: 'no', alsoYes: ['<<>>', '<<0>>']},
 ];
 
-for (const test of cases.slice(0, 11)) {
+for (const test of [...cases.slice(0, 11), ...cases.filter(({op}) => op === 'is_binary' || op === 'is_bitstr')]) {
   for (const {register, bytes, stack} of [
     {register: '{y,0}', bytes: [0x04], stack: 0},
     {register: '{tr,{x,0},any}', bytes: [0x57, 0x03, 0x00]},
@@ -127,9 +131,9 @@ function guardInstructions(beam) {
 
   const arities = new Map([
     [1, 1], [2, 3], [3, 0], [19, 0], [39, 3], [43, 3],
-    [45, 2], [46, 2], [47, 2], [48, 2], [64, 2], [78, 2], [114, 2], [153, 1],
+    [45, 2], [46, 2], [47, 2], [48, 2], [53, 2], [64, 2], [78, 2], [114, 2], [129, 2], [153, 1],
   ]);
-  const guardOpcodes = new Set([39, 43, 45, 46, 47, 48, 114]);
+  const guardOpcodes = new Set([39, 43, 45, 46, 47, 48, 53, 114, 129]);
   const code = codeChunk(beam);
   const guards = [];
   let functionName;
@@ -200,6 +204,8 @@ try {
     'ok=file:write_file(filename:join(Dir,"guards-stripped.beam"),Stripped), ' +
     '{module,guards}=code:load_binary(guards,"guards-stripped.beam",Stripped), ' +
     'yes=guards:integer(1), no=guards:integer(no), ' +
+    'yes=guards:binary(<<>>), no=guards:binary(<<1:1>>), ' +
+    'yes=guards:bitstring(<<1:1>>), no=guards:bitstring(no), ' +
     'yes=guards:different(1,2), no=guards:different(1,1), ' +
     '{ok,slice_helper,Helper}=compile:file("fixtures/slice_helper.erl",[binary]), ' +
     '{module,slice_helper}=code:load_binary(slice_helper,"slice_helper",Helper), ' +
@@ -379,8 +385,10 @@ try {
     ['atom', 48, [5, 9], [3, 0]],
     ['boolean', 114, [5, 12], [3, 0]],
     ['float', 46, [5, 15], [3, 0]],
-    ['less', 39, [5, 18], [3, 0], [3, 1]],
-    ['different', 43, [5, 21], [3, 0], [3, 1]],
+    ['binary', 53, [5, 18], [3, 0]],
+    ['bitstring', 129, [5, 21], [3, 0]],
+    ['less', 39, [5, 24], [3, 0], [3, 1]],
+    ['different', 43, [5, 27], [3, 0], [3, 1]],
   ];
   const guards = readFileSync(join(dir, 'guards.beam'));
   const stripped = uncompressed(readFileSync(join(dir, 'guards-stripped.beam')));

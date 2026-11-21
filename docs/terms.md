@@ -5,7 +5,8 @@ for OTP 29.1.2 terms. It is not a compatibility claim. Today the runtime accepts
 JavaScript `bigint` integers, atoms made with `runtime.atom()` (currently using
 `Symbol.for`) and finite floats made with `runtime.float()`. The compiler
 also accepts immutable proper and improper lists made with `runtime.nil()` and
-`runtime.cons()` and tuples made with `runtime.tuple()`. The supported
+`runtime.cons()`, tuples made with `runtime.tuple()`, and bitstrings made with
+`runtime.bitstring()`. The supported
 comparison, type-test, list and tuple instruction
 slice is described in the [README](../README.md); the other types and
 operations below are not implemented.
@@ -34,8 +35,8 @@ work. The precise API and limits must be finalized and tested before use.
   unbounded JavaScript recursion, and must have explicit resource limits and
   scheduler checkpoints where appropriate.
 - The new representations and conversion API require a versioned runtime ABI.
-  The current runtime accepts ABI 1 through 5; the compiler emits ABI 5 for
-  tuple support. Preserve behavior for existing generated modules; do not
+  The current runtime accepts ABI 1 through 13; the compiler emits ABI 13 for
+  binary-part guards. Preserve behavior for existing generated modules; do not
   silently change the meaning of `runtime.atom()` or invocation arguments.
 
 ## Term types
@@ -147,6 +148,23 @@ bit length. A binary is a bitstring whose length is divisible by eight; the
 underlying offset need not be byte-aligned. Copy externally supplied mutable
 buffers on entry, and never expose writable internal storage. Slices can share
 private immutable storage.
+
+The current runtime implements copied, zero-offset bitstrings with explicit
+bit lengths. `bitstring(bytes, bitLength)` accepts an array or `Uint8Array`,
+requires exactly enough bytes, and clears unused low bits in the last byte.
+`bitstringSize` returns a host number of bits and `bitstringBytes` returns a
+copy with zeroed padding. Compiler-generated binary and partial-byte bitstring
+literals, including nested literals, support equality and ordering. These
+traversals are synchronous without resource limits or scheduler checkpoints.
+The `is_binary` and `is_bitstr` test instructions and non-failing
+`is_binary/1` and `is_bitstring/1` BIF instruction forms are supported for the
+implemented terms. Binary membership depends on bit length, not offset.
+Nonzero-label `bit_size/1` and `byte_size/1` guard instructions accept any
+bitstring; `byte_size/1` rounds up partial bytes. Their exception forms are unsupported.
+The nonzero-label `binary_part/2` and `binary_part/3` guards slice binaries,
+including negative lengths; they copy selected bytes synchronously without scheduler
+checkpoints. Their exception forms, callable BIF dispatch, dynamic
+construction and general matching/slicing instructions remain unsupported.
 
 Construction and matching must handle arbitrary bit offsets, partial bytes,
 units, signedness, endianness and UTF segments as required by each instruction.

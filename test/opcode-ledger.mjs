@@ -35,8 +35,10 @@ assert.match(row('bif1'), /zero label denotes exception, otherwise failure branc
 assert.match(row('bif1'), /Beam2JS: Normalized is_integer.*zero failure label/);
 assert.match(row('bif1'), /hd, tl and tuple_size with nonzero failure label/);
 assert.match(row('bif2'), /Beam2JS: Normalized element.*nonzero failure label/);
-assert.match(row('gc_bif1'), /Beam2JS: Normalized bnot and length guards.*nonzero failure label/);
-assert.match(row('gc_bif2'), /Beam2JS: Normalized band, bor, bxor, div and rem guards.*nonzero failure label/);
+assert.match(row('gc_bif1'), /Beam2JS: Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards.*nonzero failure label/);
+assert.match(row('gc_bif2'), /Beam2JS: Normalized band, bor, bxor, div, rem, \+, -, \* and \/ guards.*nonzero failure label/);
+assert.match(row('gc_bif2'), /binary_part\/2 guard/);
+assert.match(row('gc_bif3'), /Beam2JS: Normalized binary_part\/3 guard.*nonzero failure label/);
 assert.match(row('select_val'), /value\/label pairs.*failure label/);
 assert.match(row('select_val'), /Beam2JS:.*exact matching/);
 assert.match(row('select_tuple_arity'), /Beam2JS:.*distinct nonnegative/);
@@ -47,7 +49,10 @@ assert.match(row('bs_start_match4'), /no_fail or resume/);
 assert.match(row('bs_match'), /ensure_at_least.*ensure_exactly.*binary.*integer.*skip.*get_tail/);
 assert.match(row('put_record'), /zero failure label raises, otherwise failure branches/);
 assert.match(row('is_eq_exact'), /OTP:.*Beam2JS:/);
-for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
+assert.match(row('move'), /Beam2JS:.*bitstring literal/);
+assert.match(row('is_binary'), /Beam2JS:.*length is divisible by eight/);
+assert.match(row('is_bitstr'), /Beam2JS:.*value is a bitstring/);
+for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float', 'is_binary', 'is_bitstr',
   'is_lt', 'is_ge', 'is_eq', 'is_ne', 'is_eq_exact', 'is_ne_exact', 'label',
   'func_info', 'int_code_end', 'allocate', 'deallocate', 'return', 'move',
   'jump', 'call_only', 'call_ext_only', 'is_tuple', 'select_val', 'select_tuple_arity',

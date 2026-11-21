@@ -21,11 +21,12 @@ const partial = new Map([
   ['label', 'Label; next instruction.'],
   ['func_info', 'Matching module/function/arity; function-clause host error.'],
   ['line', 'Line metadata; ignored.'],
-  ['move', 'x register or supported integer/float/atom/list/tuple literal to x register; fallthrough.'],
-  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list or is_tuple BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only.'],
+  ['move', 'x register or supported integer/float/atom/list/tuple/bitstring literal to x register; fallthrough.'],
+  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with nonzero failure label; supported term source and x destination only.'],
   ['bif2', 'Normalized element BIF with supported index and tuple operands, x destination and nonzero failure label; invalid arguments branch without changing the destination.'],
-  ['gc_bif1', 'Normalized bnot and length guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments branch. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
-  ['gc_bif2', 'Normalized band, bor, bxor, div and rem guards, supported sources, x destination, live count 0..1024 and nonzero failure label; non-integers and zero divisors branch. OTP GC, resource and scheduling effects are not reproduced.'],
+  ['gc_bif1', 'Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
+  ['gc_bif2', 'Normalized band, bor, bxor, div, rem, +, -, * and / guards and binary_part/2 guard, supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments, ranges, zero divisors or float overflow branch. Binary slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
+  ['gc_bif3', 'Normalized binary_part/3 guard with supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments or ranges branch without writing the destination. Slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
   ['test_heap', 'Nonnegative word count and live x-register count; no-op under JavaScript GC, without OTP resource or scheduling semantics.'],
   ['put_list', 'Supported head and tail terms to x destination; constructs an immutable cons.'],
   ['get_list', 'Supported nonempty list source and distinct x destinations; captures the source before writes.'],
@@ -34,12 +35,12 @@ const partial = new Map([
   ['put_tuple2', 'Supported element operands and x destination; constructs an immutable tuple.'],
   ['get_tuple_element', 'Supported tuple source, zero-based index and x destination; invalid source or index raises a host error.'],
   ['test_arity', 'Supported tuple source and nonnegative safe-integer arity; invalid source raises a host error.'],
-  ['is_lt', 'Supported integer/float/atom/list/tuple operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
-  ['is_ge', 'Supported integer/float/atom/list/tuple operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
+  ['is_lt', 'Supported integer/float/atom/list/tuple/bitstring operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
+  ['is_ge', 'Supported integer/float/atom/list/tuple/bitstring operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
   ['is_eq', 'Supported operands; numeric equality including mixed numbers and nested compound terms.'],
   ['is_ne', 'Supported operands; numeric inequality including mixed numbers and nested compound terms.'],
-  ['is_eq_exact', 'Supported operands; structural list/tuple equality and distinct signed float zeros.'],
-  ['is_ne_exact', 'Supported operands; structural list/tuple inequality and distinct signed float zeros.'],
+  ['is_eq_exact', 'Supported operands; structural list/tuple/bitstring equality and distinct signed float zeros.'],
+  ['is_ne_exact', 'Supported operands; structural list/tuple/bitstring inequality and distinct signed float zeros.'],
   ['is_integer', 'Supported operands only; type-test branch.'],
   ['is_number', 'Supported operands only; type-test branch.'],
   ['is_atom', 'Supported operands only; type-test branch.'],
@@ -49,6 +50,8 @@ const partial = new Map([
   ['is_list', 'Supported operands only; accepts nil and proper or improper cons cells.'],
   ['is_nonempty_list', 'Supported operands only; accepts proper or improper cons cells.'],
   ['is_tuple', 'Supported operands only; type-test branch.'],
+  ['is_binary', 'Supported operands only; branches unless bitstring length is divisible by eight.'],
+  ['is_bitstr', 'Supported operands only; branches unless the value is a bitstring.'],
   ['is_tagged_tuple', 'Supported source, positive safe-integer arity and atom tag; falls through or branches.'],
   ['select_val', 'Supported source and homogeneous, distinct atom/integer/float choices with nonzero labels; exact matching.'],
   ['select_tuple_arity', 'Supported tuple source and distinct nonnegative safe-integer arities with nonzero labels; invalid source raises a host error.'],
@@ -80,6 +83,8 @@ const rawEvidence = new Map([
   ['is_atom', 'Failure label and x or y register, with or without an any type hint.'],
   ['is_boolean', 'Failure label and x or y register, with or without an any type hint.'],
   ['is_float', 'Failure label and x or y register, with or without an any type hint.'],
+  ['is_binary', 'Failure label and x or y register, with or without an any type hint.'],
+  ['is_bitstr', 'Failure label and x or y register, with or without an any type hint.'],
   ['is_tuple', 'Failure label and x register before tuple-arity selection.'],
   ['is_lt', 'Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y.'],
   ['is_ge', 'Failure label; x/x, y/x or x/y, with an any hint on the first register or on a second y.'],
@@ -304,12 +309,12 @@ standalone values.
 
 \`npm run test:opcodes\` assembles and loads small guard functions and compares
 their entire raw code streams with independently specified bytes. It covers
-the five type tests and six comparisons in Beam2JS's normalized subset using
+seven type tests and six comparisons in Beam2JS's normalized subset using
 x and y registers, with and without \`any\` type hints; binary comparisons cover
 x/x, y/x and x/y. \`is_eq_exact/3\` additionally covers atom, nil, float-literal
 and integer operands, compact integer boundaries and literal-table thresholds. It
 checks successful and failing paths in OTP, including numeric equality and
-signed-zero examples.
+signed-zero examples. Beam2JS currently supports only the x-register forms.
 The test also reads the raw guard instructions in the compiler-generated
 [\`guards.erl\`](../fixtures/guards.erl), including stripped input. For example,
 \`different/2\` compiles to \`is_eq_exact/3\` with its failure branch leading
@@ -362,14 +367,23 @@ and Chromium, including stripped input. Nonzero-label \`hd/1\`, \`tl/1\`,
 [compiler-generated](../fixtures/guard_bifs.erl) and
 [assembly](../fixtures/raw_guard_bifs.S) fixtures in OTP, Node and Chromium,
 including stripped input. Invalid arguments branch without writing the
-destination; zero-label exception forms are rejected. The
+destination; zero-label exception forms are rejected. The same fixtures cover
+nonzero-label \`binary_part/2\` and \`binary_part/3\` on binaries, including negative lengths,
+boundary ranges, unaligned binary values, typed and aliased x registers and
+literal operands. The two-argument form requires a \`{Position,Length}\`
+tuple. Invalid inputs branch without changing the destination.
+Successful slices copy synchronously, without OTP resource or scheduling
+behavior; zero-label exception forms remain unsupported. The
 [length guard fixture](../fixtures/length_guards.erl) and
 [assembly fixture](../fixtures/raw_length_guards.S) exercise nonzero-label
 \`length/1\` on proper, improper and non-list inputs in OTP, Node and Chromium,
 including stripped input. They also check 10,000-element proper and improper
 lists. Traversal is synchronous and can block the host event loop; OTP
 reductions and scheduling are not reproduced. Zero-label exception forms are
-rejected. The
+rejected. The same fixtures cover nonzero-label \`bit_size/1\` and
+\`byte_size/1\`, including partial-byte and unaligned bitstrings, aliased
+destinations and failure without writing the destination. \`byte_size/1\`
+rounds the bit length up to whole bytes. Zero-label forms are rejected. The
 [bitwise guard fixture](../fixtures/bitwise_guards.erl) and
 [assembly fixture](../fixtures/raw_bitwise_guards.S) cover nonzero-label
 \`band\`, \`bor\`, \`bxor\` and \`bnot\` on integers, including negative and
@@ -382,6 +396,18 @@ The [integer guard fixture](../fixtures/integer_guards.erl) and
 destinations, non-integers and zero divisors in OTP, Node and Chromium with
 stripped input. Division truncates toward zero; the remainder has the
 dividend's sign. Zero-label exception forms are rejected.
+The [arithmetic guard fixture](../fixtures/arithmetic_guards.erl) and
+[assembly fixture](../fixtures/raw_arithmetic_guards.S) exercise nonzero-label
+unary minus, \`abs/1\`, \`trunc/1\`, \`round/1\`, \`floor/1\`, \`ceil/1\`, \`float/1\`
+and binary \`+\`, \`-\`, \`*\` and \`/\` with integer, float and mixed
+operands, including signed zeros, subnormal values, rounding and overflow in
+OTP, Node and Chromium, including stripped input. Non-numbers and float
+overflow branch without modifying the destination. Division always produces a
+float and also branches on zero divisors and integer-to-float conversion
+overflow. Absolute value preserves the input's numeric type and turns negative
+float zero into positive zero. Rounding guards return integers; \`round/1\`
+rounds ties away from zero. \`float/1\` preserves float bits and branches on
+integer-to-float overflow. Zero-label forms are rejected.
 The
 [list fixture](../fixtures/list_slice.erl)
 also exercises nil, list construction and extraction, including an aliased
@@ -390,10 +416,19 @@ no-op; OTP GC, memory exhaustion and scheduler effects are not reproduced.
 The [tuple fixture](../fixtures/tuple_slice.erl) exercises construction,
 tagged matching, extraction and the empty tuple literal. The
 [literal fixture](../fixtures/literal_terms.erl) exercises nested proper and
-improper lists and tuples in moves, comparisons and construction, including
-stripped input. A 10,000-element literal is also tested in OTP, Node and
-Chromium. Only integer, float, atom, list and tuple literal values are
-supported; unsupported nested values reject compilation. The tuple arity and
+improper lists and tuples, plus binary and partial-byte bitstring literals, in
+moves, comparisons and construction, including stripped input. The
+[binary literal fixture](../fixtures/unsupported_literal.erl) is also covered.
+Bitstring ordering compares meaningful bits and prefix lengths. A
+10,000-element list literal is also tested in OTP, Node and Chromium.
+Only integer, float, atom, list, tuple and bitstring literal values are
+supported; unsupported nested values reject compilation. \`is_binary\` and
+\`is_bitstr\` branch tests and the zero-label \`is_binary/1\` and
+\`is_bitstring/1\` BIF instructions cover empty and partial-byte bitstrings,
+including stripped compiler and assembly fixtures in Node and Chromium.
+Nonzero-label predicate BIF forms, callable BIF dispatch, dynamic bitstring
+construction and matching instructions remain unsupported.
+The tuple arity and
 extraction forms assume the input has passed the appropriate tuple test;
 malformed input can raise a host error rather than an Erlang exception.
 
