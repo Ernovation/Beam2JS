@@ -103,7 +103,7 @@ handle retains its object; there is no explicit release API. Raw JavaScript
 objects remain invalid terms. The adapter exposes the supplied document as a
 capability and accepts only elements it looked up itself.
 
-For ABI 19 modules, unmatched function, case, match and if clauses throw an
+For ABI 23 modules, unmatched function, case, match and if clauses throw an
 exported `ErlangError` at the JavaScript boundary. Its `erlangClass` is the
 string `"error"` and `reason` is an Erlang term: `function_clause`,
 `{case_clause, Value}`, `{badmatch, Value}`, `if_clause`, `badarg` or
@@ -112,9 +112,81 @@ through supported local and external calls without wrapping JavaScript errors.
 This does not implement Erlang catch/try, other exception classes or Erlang
 stack traces.
 
+### Cooperative processes
+
+The host can schedule independent executions without blocking on `invoke`:
+
+```js
+const runtime = new Runtime({schedulers: 2, reductionLimit: 1000});
+// Register generated modules before starting processes.
+const process = runtime.spawnProcess('module', 'function', [1n]);
+runtime.sendMessage(process, runtime.atom('hello'));
+const pending = runtime.processMailbox(process);
+const result = await process.result;
+```
+
+`spawnProcess` returns a host handle whose `pid` is the process's opaque Erlang
+PID term. Its `result` promise
+resolves with the returned term or rejects with the original Erlang or host
+error. Each process owns its registers, frames and FIFO mailbox;
+`processMailbox` returns a snapshot, not a way to consume messages. Messages
+must be supported terms, and sending to a terminated process or using a handle
+from another runtime throws. `erlang:self/0` returns the current process's PID;
+`is_pid/1` and PID type tests are supported. Each synchronous `invoke` also
+uses a distinct process identity, which remains a valid term after it returns.
+`erlang:is_process_alive/1` returns a boolean atom for a local PID and raises
+`badarg` for a non-PID or a PID from another runtime. The host can use
+`runtime.isProcessAlive(pid)` to obtain a JavaScript boolean.
+`erlang:spawn(Module, Function, Args)` schedules a local child and returns its
+PID. Module and function must be atoms and Args a proper list, otherwise it
+raises `badarg` in the parent. The child executes an exported function, with
+its own PID and process state. A missing or private target, or more than 255
+arguments, fails asynchronously in the child with a host diagnostic; OTP
+`undef` exceptions are not yet modeled. Argument-list traversal is synchronous.
+The host can retrieve a scheduled process's handle with
+`runtime.processHandle(pid)`, including after it terminates. A synchronous
+`invoke` PID or a PID from another runtime has no such handle.
+
+Erlang-spawned child failures are logged by default. To report them elsewhere,
+pass `onProcessError: (pid, error) => ...` to `Runtime`; it receives the
+original error. A throwing callback produces an unhandled promise rejection.
+Host-created `spawnProcess` failures remain observable through `result`.
+PIDs remain valid after termination and may be passed in terms or messages,
+but `sendMessage` requires the host handle, not a PID.
+Erlang `Destination ! Message`, `erlang:'!'/2` and `erlang:send/2` append
+supported terms to a live local PID's mailbox and return the message. Messages
+from one sender retain their order; sending to a terminated local PID returns
+the message without delivery. Invalid destinations, including unregistered
+atoms, raise `badarg`.
+Registered names, name/node tuples and non-local PIDs are not supported;
+name/node tuples and non-local PIDs raise a host diagnostic rather than being
+silently dropped.
+PID ordering is an implementation-defined local order; node identity, PID
+serialization and distributed PIDs are not supported.
+
+For supported matches and guards, indefinite selective `receive` scans the mailbox in order, removes the first
+matching message and preserves unmatched messages for later receives. A
+scheduled process suspends without consuming scheduler time when no message
+matches, and wakes when a message arrives. It remains alive while waiting.
+`invoke` can consume messages already sent to itself, but throws a host error
+if it would have to wait. `receive ... after`, receive markers, monitors and
+timers are not supported. A waiting process alone does not keep the host event
+loop alive.
+
+The positive integer options `schedulers` and `reductionLimit` default to 1
+and 1000. Scheduler slots share a runnable queue and cooperate on one
+JavaScript event loop; they do **not** run in parallel or use workers. Generated
+instructions yield after a bounded number of steps; this is not an OTP reduction
+count. Synchronous host calls and runtime operations such as list traversal, comparisons, binary slicing,
+mailbox removal and big-integer arithmetic may still block. `invoke` remains synchronous and
+does not yield. Supported immutable terms are shared between processes;
+host handles still expose potentially mutable JavaScript objects and do not
+provide process isolation. Worker transport, actual parallel schedulers,
+timed receives, cancellation and OTP scheduling semantics remain future work.
+
 The compiler currently requires host OTP 29 and uses its internal disassembler.
 Moves, equality and ordering branches, selected type tests, jumps, calls
-and returns support integers, floats, atoms, lists, tuples and bitstrings. List and tuple
+and returns support integers, floats, atoms, lists, tuples, bitstrings and local PIDs. List and tuple
 construction, matching and extraction have partial instruction support.
 Compiled literals can nest these supported types; a literal containing an
 unsupported type, such as a map, rejects the module. Binary and partial-byte
@@ -128,11 +200,11 @@ BEAM files missing their type table remain unsupported. Mixed or duplicate selec
 zero branch labels are rejected; tuple-arity branches require a tuple source.
 The type tests include `is_integer`,
 `is_number`, `is_atom`, `is_boolean`, `is_float`, `is_nil`, `is_list` and
-`is_nonempty_list`, `is_tuple`, `is_binary` and `is_bitstr`. A binary has a
+`is_nonempty_list`, `is_tuple`, `is_binary`, `is_bitstr` and `is_pid`. A binary has a
 bit length divisible by eight; `is_bitstr` accepts all bitstrings.
-Non-failing BIF instruction forms of the nine applicable Erlang predicates,
-including `is_binary/1` and `is_bitstring/1`, return boolean atoms.
-These nine predicates are also callable as `erlang` functions through external
+Non-failing BIF instruction forms of the ten applicable Erlang predicates,
+including `is_binary/1`, `is_bitstring/1` and `is_pid/1`, return boolean atoms.
+These ten predicates are also callable as `erlang` functions through external
 calls or `runtime.invoke`, for the supported term types.
 Nonzero-failure-label guard BIF instructions for `hd/1`, `tl/1`,
 `length/1`, `tuple_size/1` and `element/2` branch on invalid arguments.
@@ -149,7 +221,8 @@ Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
 `bit_size/1`, `byte_size/1` and both `binary_part` arities are also callable,
 raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIFs,
 and predicates take precedence over registered `erlang` functions of the same
-name and arity; other callable BIFs remain unsupported.
+name and arity. Other callable BIFs are limited to `self/0`,
+`is_process_alive/1`, `spawn/3`, `send/2`, `!/2` and the numeric BIFs described below.
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.
@@ -171,11 +244,13 @@ Nonzero-label `trunc/1`, `round/1`, `floor/1` and `ceil/1` instructions return
 integers, with `round/1` rounding ties away from zero. Non-numbers branch.
 The `float/1` guard preserves floats and converts integers to binary64,
 branching on non-numbers or conversion overflow.
-Their zero-label forms raise `badarg` for non-numbers or conversion overflow.
+Their zero-label forms and callable `erlang` functions raise `badarg` for
+non-numbers or conversion overflow. These six callable BIFs take precedence
+over registered `erlang` functions of the same name and arity.
 OTP garbage collection, resource limits and scheduling effects are not reproduced.
 Unsupported instructions and operand forms
 reject the whole module, with a diagnostic; missing external functions fail at
-invocation. The runtime accepts only the current ABI 19; recompile modules
+invocation. The runtime accepts only the current ABI 23; recompile modules
 generated for earlier ABIs. Integer-word and supported allocation-list `test_heap` checks are no-ops under
 JavaScript GC; OTP memory exhaustion and scheduler effects are not reproduced.
 Local and external non-tail calls use explicit continuations and stack slots;
@@ -185,9 +260,9 @@ moves and swaps involving ordinary y registers. `init_yregs` clears its slots
 to nil; `trim` discards low-index slots and renumbers the rest. OTP validation
 does not permit reading initialized-but-unassigned slots as terms; Beam2JS
 does not yet perform full register validation. Type-tagged y registers and
-other frame instructions are unsupported. Calls run synchronously without yielding.
+other frame instructions are unsupported. Calls made through `invoke` run synchronously.
 Other arithmetic, other terms, general BIF dispatch (including
-`module_info`), processes, general exception handling and scheduling are not implemented.
+`module_info`), general exception handling and full OTP process and scheduling semantics are not implemented.
 Do not use the compiler on untrusted BEAM files: OTP's disassembler can intern
 atoms and decompress data before any resource limits are applied. The 32 MiB
 input limit is not a security boundary. No producer-version or complete opcode
