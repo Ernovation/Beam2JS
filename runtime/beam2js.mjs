@@ -4,12 +4,14 @@ const tuples = new WeakMap();
 const bitstrings = new WeakMap();
 const hostHandles = new WeakMap();
 const pids = new WeakMap();
+const references = new WeakMap();
 let nextHostHandleId = 0n;
 let nextPidId = 0n;
+let nextReferenceId = 0n;
 const nil = Object.freeze({});
 const callableBifs = new Map([
   'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
-  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid',
+  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference',
 ].map(name => [JSON.stringify([name, 1]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
@@ -17,6 +19,10 @@ const callableBifs = new Map([
 callableBifs.set(JSON.stringify(['self', 0]), {
   exported: true,
   run: (rt, args, state, budget, pid) => ({type: 'return', value: pid}),
+});
+callableBifs.set(JSON.stringify(['make_ref', 0]), {
+  exported: true,
+  run: rt => ({type: 'return', value: rt.makeRef()}),
 });
 callableBifs.set(JSON.stringify(['is_process_alive', 1]), {
   exported: true,
@@ -30,6 +36,18 @@ for (const name of ['send', '!']) {
   callableBifs.set(JSON.stringify([name, 2]), {
     exported: true,
     run: (rt, args) => ({type: 'return', value: rt.sendPidMessage(...args)}),
+  });
+}
+for (const name of ['send_after', 'start_timer']) {
+  callableBifs.set(JSON.stringify([name, 3]), {
+    exported: true,
+    run: (rt, args) => ({type: 'return', value: rt.startTimer(name, ...args)}),
+  });
+}
+for (const name of ['read_timer', 'cancel_timer']) {
+  callableBifs.set(JSON.stringify([name, 1]), {
+    exported: true,
+    run: (rt, [ref]) => ({type: 'return', value: rt.accessTimer(ref, name === 'cancel_timer')}),
   });
 }
 function addGuardedBifs(entries, guard) {
@@ -58,7 +76,7 @@ function isAtom(value) {
 function isTerm(value) {
   return typeof value === 'bigint' || isAtom(value) || floats.has(value) ||
     value === nil || consCells.has(value) || tuples.has(value) || bitstrings.has(value) ||
-    hostHandles.has(value) || pids.has(value);
+    hostHandles.has(value) || pids.has(value) || references.has(value);
 }
 
 function termType(value) {
@@ -71,6 +89,7 @@ function termType(value) {
   if (bitstrings.has(value)) return 'bitstring';
   if (hostHandles.has(value)) return 'host_handle';
   if (pids.has(value)) return 'pid';
+  if (references.has(value)) return 'reference';
   throw new TypeError('unsupported Erlang term');
 }
 
@@ -117,17 +136,24 @@ export class Runtime {
   #schedulerCount;
   #reductionLimit;
   #onProcessError;
+  #clock;
+  #timers = new Map();
 
   constructor({schedulers = 1, reductionLimit = 1000,
-    onProcessError = (pid, error) => console.error('Erlang-spawned process failed:', error)} = {}) {
+    onProcessError = (pid, error) => console.error('Erlang-spawned process failed:', error),
+    clock = {now: () => performance.now(), setTimeout: (callback, delay) => setTimeout(callback, delay),
+      clearTimeout: handle => clearTimeout(handle)}} = {}) {
     if (!Number.isSafeInteger(schedulers) || schedulers < 1 ||
         !Number.isSafeInteger(reductionLimit) || reductionLimit < 1) {
       throw new RangeError('schedulers and reductionLimit must be positive safe integers');
     }
     if (typeof onProcessError !== 'function') throw new TypeError('onProcessError must be a function');
+    if (!clock || typeof clock.now !== 'function' || typeof clock.setTimeout !== 'function' ||
+        typeof clock.clearTimeout !== 'function') throw new TypeError('clock requires now, setTimeout and clearTimeout');
     this.#schedulerCount = schedulers;
     this.#reductionLimit = reductionLimit;
     this.#onProcessError = onProcessError;
+    this.#clock = clock;
     this.modules = new Map();
   }
 
@@ -153,6 +179,12 @@ export class Runtime {
   atom(name) {
     if (typeof name !== 'string') throw new TypeError('atom name must be a string');
     return Symbol.for(name);
+  }
+
+  makeRef() {
+    const ref = Object.freeze({});
+    references.set(ref, nextReferenceId++);
+    return ref;
   }
 
   raiseError(reason) {
@@ -458,7 +490,8 @@ export class Runtime {
   }
 
   compare(left, right) {
-    const rank = {integer: 0, float: 0, atom: 1, host_handle: 2, pid: 3, tuple: 4, nil: 5, cons: 6, bitstring: 7};
+    const rank = {integer: 0, float: 0, atom: 1, reference: 2, host_handle: 3, pid: 4,
+      tuple: 5, nil: 6, cons: 7, bitstring: 8};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -478,6 +511,10 @@ export class Runtime {
       } else if (aType === 'pid') {
         const x = pids.get(a);
         const y = pids.get(b);
+        if (x !== y) return x < y ? -1 : 1;
+      } else if (aType === 'reference') {
+        const x = references.get(a);
+        const y = references.get(b);
         if (x !== y) return x < y ? -1 : 1;
       } else if (aType === 'atom') {
         const leftChars = Symbol.keyFor(a)[Symbol.iterator]();
@@ -524,6 +561,7 @@ export class Runtime {
       case 'is_nonempty_list': return actual === 'cons';
       case 'is_tuple': return actual === 'tuple';
       case 'is_pid': return actual === 'pid';
+      case 'is_reference': return actual === 'reference';
       case 'is_binary':
         return actual === 'bitstring' && bitstrings.get(value)[1] % 8 === 0;
       case 'is_bitstr':
@@ -533,7 +571,7 @@ export class Runtime {
   }
 
   registerModule(version, name, functions) {
-    if (version !== 23) {
+    if (version !== 25) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);
@@ -549,13 +587,24 @@ export class Runtime {
   invoke(module, name, args) {
     const process = this.#newProcess(module, name, args);
     process.status = 'running';
+    let failed = false;
+    let failure;
     try {
       const result = this.#runProcess(process, Infinity);
       if (result.waiting) throw new Error('synchronous invocation cannot wait for a message');
       if (!result.done) throw new Error('unexpected yield in synchronous invocation');
       return result.value;
+    } catch (error) {
+      failed = true;
+      failure = error;
+      throw error;
     } finally {
-      this.#finishProcess(process, 'completed');
+      try {
+        this.#finishProcess(process, 'completed');
+      } catch (error) {
+        if (failed) throw new AggregateError([failure, error], 'process and timer cleanup failed');
+        throw error;
+      }
     }
   }
 
@@ -599,6 +648,69 @@ export class Runtime {
     this.raiseError(this.atom('badarg'));
   }
 
+  startTimer(kind, delay, destination, message) {
+    if (typeof delay !== 'bigint' || delay < 0n) this.raiseError(this.atom('badarg'));
+    if (delay > 4294967295n) throw new Error('timer delays above 4294967295 ms are unsupported');
+    if (!isTerm(destination) || !isTerm(message)) throw new TypeError('expected supported Erlang terms');
+    if (!this.#localPids.has(destination)) {
+      if (isAtom(destination)) throw new Error('timers to registered names are unsupported');
+      this.raiseError(this.atom('badarg'));
+    }
+    const ref = this.makeRef();
+    const process = this.#pidProcesses.get(destination);
+    if (!process) return ref;
+    const timer = {ref, process, message, kind, deadline: this.#clockNow() + Number(delay)};
+    this.#timers.set(ref, timer);
+    process.bifTimers ??= new Set();
+    process.bifTimers.add(timer);
+    try {
+      this.#scheduleBifTimer(timer);
+    } catch (error) {
+      this.#forgetBifTimer(timer);
+      throw error;
+    }
+    return ref;
+  }
+
+  accessTimer(ref, cancel) {
+    if (!references.has(ref)) this.raiseError(this.atom('badarg'));
+    const timer = this.#timers.get(ref);
+    if (!timer) return this.atom('false');
+    const remaining = BigInt(Math.max(0, Math.ceil(timer.deadline - this.#clockNow())));
+    if (cancel) {
+      this.#forgetBifTimer(timer);
+      this.#clock.clearTimeout(timer.handle);
+    }
+    return remaining;
+  }
+
+  #forgetBifTimer(timer) {
+    this.#timers.delete(timer.ref);
+    timer.process.bifTimers.delete(timer);
+  }
+
+  #scheduleBifTimer(timer) {
+    const delay = Math.min(2147483647, Math.max(0, Math.ceil(timer.deadline - this.#clockNow())));
+    const handle = this.#clock.setTimeout(() => {
+      if (this.#timers.get(timer.ref) !== timer) return;
+      try {
+        if (this.#clockNow() < timer.deadline) {
+          this.#scheduleBifTimer(timer);
+          return;
+        }
+        this.#forgetBifTimer(timer);
+        const message = timer.kind === 'start_timer'
+          ? this.tuple([this.atom('timeout'), timer.ref, timer.message]) : timer.message;
+        this.#deliverMessage(timer.process, message);
+      } catch (error) {
+        this.#forgetBifTimer(timer);
+        throw error;
+      }
+    }, delay);
+    if (handle === undefined || handle === null) throw new TypeError('clock.setTimeout must return a handle');
+    timer.handle = handle;
+  }
+
   sendMessage(handle, message) {
     const process = this.#getProcess(handle);
     if (!isTerm(message)) throw new TypeError('message must be a supported Erlang term');
@@ -623,6 +735,7 @@ export class Runtime {
 
   receiveMessage(pid) {
     const process = this.#receiveProcess(pid);
+    process.receiveChecked = true;
     return process.mailbox[process.receiveIndex] ?? null;
   }
 
@@ -637,6 +750,15 @@ export class Runtime {
     if (process.receiveIndex >= process.mailbox.length) throw new Error('no current mailbox message');
     process.mailbox.splice(process.receiveIndex, 1);
     process.receiveIndex = 0;
+    process.receiveChecked = false;
+    this.#clearReceiveTimer(process);
+  }
+
+  timeoutMessage(pid) {
+    const process = this.#receiveProcess(pid);
+    process.receiveIndex = 0;
+    process.receiveChecked = false;
+    this.#clearReceiveTimer(process);
   }
 
   #receiveProcess(pid) {
@@ -661,7 +783,7 @@ export class Runtime {
     this.#livePids.add(pid);
     const process = {
       pid, module, name, args: args.slice(), external: true, fn: undefined, state: undefined,
-      continuations: [], mailbox: [], receiveIndex: 0, status: 'runnable',
+      continuations: [], mailbox: [], receiveIndex: 0, receiveChecked: false, status: 'runnable',
     };
     this.#pidProcesses.set(pid, process);
     return process;
@@ -721,24 +843,91 @@ export class Runtime {
         this.#enqueue(process);
       }
     } catch (error) {
-      this.#finishProcess(process, 'failed');
-      process.reject(error);
+      let failure = error;
+      try {
+        this.#finishProcess(process, 'failed');
+      } catch (cleanupError) {
+        failure = new AggregateError([error, cleanupError], 'process and timer cleanup failed');
+      }
+      process.reject(failure);
     }
     this.#schedule();
   }
 
   #finishProcess(process, status) {
     process.status = status;
+    const errors = [];
+    try {
+      this.#clearReceiveTimer(process);
+    } catch (error) {
+      errors.push(error);
+    }
+    if (process.bifTimers) {
+      for (const timer of process.bifTimers) {
+        this.#forgetBifTimer(timer);
+        try {
+          this.#clock.clearTimeout(timer.handle);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+    }
     this.#livePids.delete(process.pid);
     this.#pidProcesses.delete(process.pid);
     process.fn = undefined;
     process.state = undefined;
     process.args = [];
     process.continuations = [];
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, 'failed to clear process timers');
+  }
+
+  #clearReceiveTimer(process) {
+    const timer = process.receiveTimer;
+    process.receiveTimer = undefined;
+    if (timer?.handle !== undefined) this.#clock.clearTimeout(timer.handle);
+  }
+
+  #clockNow() {
+    const now = this.#clock.now();
+    if (typeof now !== 'number' || !Number.isFinite(now)) throw new TypeError('clock.now must return a finite number');
+    return now;
+  }
+
+  #scheduleReceiveTimer(process, timer) {
+    const delay = Math.min(2147483647, Math.max(0, Math.ceil(timer.deadline - this.#clockNow())));
+    const handle = this.#clock.setTimeout(() => {
+      if (process.receiveTimer !== timer) return;
+      timer.handle = undefined;
+      try {
+        if (this.#clockNow() < timer.deadline) {
+          this.#scheduleReceiveTimer(process, timer);
+          return;
+        }
+        timer.expired = true;
+        if (process.status === 'waiting') process.state = {...process.state, pc: timer.timeoutPc};
+      } catch (error) {
+        process.startError = error;
+      }
+      if (process.status === 'waiting') {
+        this.#waiting.delete(process);
+        process.status = 'runnable';
+        this.#enqueue(process);
+      }
+    }, delay);
+    if (handle === undefined || handle === null) throw new TypeError('clock.setTimeout must return a handle');
+    timer.handle = handle;
+  }
+
+  #prepareWait(process) {
+    const pending = process.receiveChecked && process.receiveIndex < process.mailbox.length;
+    process.receiveChecked = false;
+    if (!pending) process.receiveIndex = process.mailbox.length;
+    return pending;
   }
 
   #runProcess(process, limit) {
-    if (process.startError) throw process.startError;
+    if ('startError' in process) throw process.startError;
     const budget = {remaining: limit};
     while (budget.remaining > 0) {
       if (!process.fn) {
@@ -776,7 +965,35 @@ export class Runtime {
         process.state = action.state;
         process.args = action.registers;
         // A message can arrive between an exhausted scan and wait across a yield.
-        if (process.receiveIndex < process.mailbox.length) continue;
+        if (this.#prepareWait(process)) continue;
+        return {done: false, waiting: true};
+      } else if (action.type === 'wait_timeout') {
+        let timer = process.receiveTimer;
+        if (!timer) {
+          const value = action.timeout;
+          if (value !== this.atom('infinity') &&
+              (typeof value !== 'bigint' || value < 0n || value > 4294967295n)) {
+            this.raiseError(this.atom('timeout_value'));
+          }
+          if (value === 0n) {
+            process.state = {...action.state, pc: action.timeoutPc};
+            process.args = action.registers;
+            continue;
+          }
+          timer = {timeoutPc: action.timeoutPc, expired: false};
+          process.receiveTimer = timer;
+          if (value !== this.atom('infinity')) {
+            timer.deadline = this.#clockNow() + Number(value);
+            this.#scheduleReceiveTimer(process, timer);
+          }
+        }
+        process.args = action.registers;
+        if (timer.expired) {
+          process.state = {...action.state, pc: action.timeoutPc};
+          continue;
+        }
+        process.state = action.state;
+        if (this.#prepareWait(process)) continue;
         return {done: false, waiting: true};
       } else {
         throw new Error(`unsupported runtime action: ${action.type}`);

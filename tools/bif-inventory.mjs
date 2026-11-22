@@ -166,6 +166,7 @@ const details = new Map([
   ['maps:is_key/2', {exceptions: '{badmap,Map} for non-map'}],
   ['erlang:list_to_atom/1', {effects: 'may add a permanent atom to the global atom table'}],
   ['erlang:self/0', {effects: 'reads calling process identity', host: 'process runtime'}],
+  ['erlang:make_ref/0', {effects: 'creates a unique local reference', host: 'runtime identity'}],
   ['erlang:is_process_alive/1', {effects: 'reads process liveness',
     exceptions: 'badarg for non-PID or non-local PID', host: 'process runtime'}],
   ['erlang:spawn/3', {effects: 'schedules a local process',
@@ -174,16 +175,26 @@ const details = new Map([
     exceptions: 'badarg for invalid destination', host: 'process runtime'}],
   ['erlang:send/2', {effects: 'sends a message to a local PID',
     exceptions: 'badarg for invalid destination', host: 'process runtime'}],
+  ['erlang:send_after/3', {effects: 'schedules a message to a local PID',
+    exceptions: 'badarg for negative or non-integer delay or invalid destination', host: 'clock / scheduler'}],
+  ['erlang:start_timer/3', {effects: 'schedules a timeout tuple to a local PID',
+    exceptions: 'badarg for negative or non-integer delay or invalid destination', host: 'clock / scheduler'}],
+  ['erlang:read_timer/1', {effects: 'reads remaining timer time',
+    exceptions: 'badarg for non-reference', host: 'clock / scheduler'}],
+  ['erlang:cancel_timer/1', {effects: 'cancels a timer',
+    exceptions: 'badarg for non-reference', host: 'clock / scheduler'}],
 ]);
 const instructionAndCallable = new Set([
   'erlang:is_integer/1', 'erlang:is_number/1', 'erlang:is_atom/1',
   'erlang:is_boolean/1', 'erlang:is_float/1', 'erlang:is_list/1', 'erlang:is_tuple/1',
-  'erlang:is_binary/1', 'erlang:is_bitstring/1', 'erlang:is_pid/1', 'erlang:self/0', 'erlang:!/2',
+  'erlang:is_binary/1', 'erlang:is_bitstring/1', 'erlang:is_pid/1', 'erlang:is_reference/1',
+  'erlang:self/0', 'erlang:!/2',
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
 ]);
-const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:spawn/3', 'erlang:send/2']);
+const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
+  'erlang:send_after/3', 'erlang:start_timer/3', 'erlang:read_timer/1', 'erlang:cancel_timer/1']);
 const guardInstructionOnly = new Set();
 const bodyAndGuardInstructionOnly = new Set();
 const arithmeticInstructionOnly = new Set([
@@ -241,7 +252,7 @@ They are release/build observations, not proof of Beam2JS support.
   not host-independent. Categories are broad families, not complete semantics.
 - **Beam2JS**: \`instruction-and-callable\` means the corresponding normalized
   instruction (including \`send/0\` for \`!/2\`) and external callable BIF are supported for the implemented integer,
-  float, atom, list, tuple, bitstring and local PID terms. Failing list, tuple, binary and numeric BIFs
+  float, atom, list, tuple, bitstring, local PID and local reference terms. Failing list, tuple, binary and numeric BIFs
   branch in guards and raise \`badarg\` in body and callable forms.
   \`callable-only\` means external calls are supported without a specialized BIF instruction.
   \`guard-instruction-only\` means the listed BIF instruction is supported
@@ -389,18 +400,30 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   and raises \`badarg\` for non-PIDs or non-local PIDs. Callable forms are tested
   for runnable, executing, completed and failed processes in Node and Chromium,
   including stripped input. Cross-runtime PIDs are treated as non-local.
+- \`make_ref/0\` creates an opaque unique local reference; \`is_reference/1\`
+  supports callable, body and guard forms. OTP, Node and Chromium tests cover
+  uniqueness, equality, ordering relative to atoms and PIDs, and messaging,
+  including stripped input. Reference ordering within Beam2JS is local and
+  implementation-defined; distributed identity and serialization are unsupported.
 - \`spawn/3\` returns a new PID and schedules a local child; non-atom module or
   function arguments and improper argument lists raise \`badarg\` in the parent.
   Tests cover direct, tail and non-tail calls in Node and Chromium, including
   stripped input. Missing or private targets and more than 255 arguments fail
   asynchronously with a host diagnostic, rather than OTP's \`undef\`. Argument
-  traversal is synchronous; monitors and timed receive are unsupported.
+  traversal is synchronous; monitors are unsupported.
 - \`!/2\` and \`send/2\` return the sent term and append it to a live local
   PID's mailbox; a dead local PID discards the message. Invalid destinations
   and unregistered atoms raise \`badarg\`. Distributed PIDs and registered-name
   node tuples are unsupported. The \`send\` instruction and callable forms are
   tested against OTP in Node and Chromium, including stripped input and per-sender
-  ordering; registered names and timed receive are not implemented.
+  ordering; registered names are not implemented.
+- \`send_after/3\` and \`start_timer/3\` schedule messages to local PIDs and
+  return references; \`read_timer/1\` and \`cancel_timer/1\` return remaining
+  milliseconds or \`false\`. Timers are canceled when the destination exits.
+  OTP, Node and Chromium tests cover delivery and cancellation, including
+  stripped input. Delays above 4294967295 milliseconds and registered-name
+  destinations produce host diagnostics; options and distributed timers are
+  unsupported.
 - OTP emits a non-failing \`bif\` instruction for direct body calls to the
   seven predicates in [this fixture](../fixtures/bif_predicates.erl) and
   \`is_list/1\` in the [list fixture](../fixtures/list_slice.erl) and

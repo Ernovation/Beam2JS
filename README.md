@@ -103,11 +103,18 @@ handle retains its object; there is no explicit release API. Raw JavaScript
 objects remain invalid terms. The adapter exposes the supplied document as a
 capability and accepts only elements it looked up itself.
 
-For ABI 23 modules, unmatched function, case, match and if clauses throw an
+`erlang:make_ref/0` and `runtime.makeRef()` create opaque immutable references,
+unique across processes and `Runtime` instances sharing the same runtime module.
+`is_reference/1` and reference type tests are supported. References remain valid
+after a process exits and can be passed in terms and messages. Their local
+ordering is implementation-defined; distributed references and serialization
+are not supported.
+
+For ABI 25 modules, unmatched function, case, match and if clauses throw an
 exported `ErlangError` at the JavaScript boundary. Its `erlangClass` is the
 string `"error"` and `reason` is an Erlang term: `function_clause`,
-`{case_clause, Value}`, `{badmatch, Value}`, `if_clause`, `badarg` or
-`badarith` for the supported error paths. It propagates
+`{case_clause, Value}`, `{badmatch, Value}`, `if_clause`, `badarg`,
+`badarith` or `timeout_value` for the supported error paths. It propagates
 through supported local and external calls without wrapping JavaScript errors.
 This does not implement Erlang catch/try, other exception classes or Erlang
 stack traces.
@@ -169,9 +176,33 @@ matching message and preserves unmatched messages for later receives. A
 scheduled process suspends without consuming scheduler time when no message
 matches, and wakes when a message arrives. It remains alive while waiting.
 `invoke` can consume messages already sent to itself, but throws a host error
-if it would have to wait. `receive ... after`, receive markers, monitors and
-timers are not supported. A waiting process alone does not keep the host event
-loop alive.
+if it would have to wait. `receive ... after` accepts 0 through 4294967295
+milliseconds or `infinity`; other values raise `timeout_value` if no message
+matches. A timeout does not restart on unmatched messages, and a match cancels
+it. The initial mailbox scan precedes starting the timer.
+
+Receive timers use a monotonic clock and host callbacks; they can fire late if
+the event loop is busy. When a message wakes a process before the timeout
+callback, pending messages are scanned first. If the timeout callback wakes a
+waiting process first, the timeout branch wins and later messages remain queued.
+The optional `clock` runtime option supplies `now()`, `setTimeout(callback, ms)`
+and `clearTimeout(handle)` for testing or host integration. `now()` must return
+a finite, nondecreasing millisecond count; `setTimeout` must return a handle
+and invoke its callback asynchronously at most once. Clock callback failures
+reject the affected process for receive timers. An indefinitely waiting process
+without a timer does not keep the host event loop alive. Receive markers and
+monitors are not supported.
+
+`erlang:send_after/3` and `erlang:start_timer/3` schedule a message to a local
+PID and return a reference. `start_timer/3` sends `{timeout, Ref, Message}`;
+`send_after/3` sends the message itself. `erlang:read_timer/1` and
+`erlang:cancel_timer/1` return remaining milliseconds or `false`. A timer is
+automatically canceled when its destination exits, not when its creator exits.
+Timers use the same clock adapter and may fire late; clock errors in timer
+callbacks are thrown to the host. Supported relative delays are 0 through
+4294967295 milliseconds. Larger delays and registered-name destinations produce
+host diagnostics, even where OTP accepts them. Timer options, absolute times,
+registered names and distributed destinations remain unsupported.
 
 The positive integer options `schedulers` and `reductionLimit` default to 1
 and 1000. Scheduler slots share a runnable queue and cooperate on one
@@ -182,13 +213,13 @@ mailbox removal and big-integer arithmetic may still block. `invoke` remains syn
 does not yield. Supported immutable terms are shared between processes;
 host handles still expose potentially mutable JavaScript objects and do not
 provide process isolation. Worker transport, actual parallel schedulers,
-timed receives, cancellation and OTP scheduling semantics remain future work.
+process cancellation and full OTP scheduling semantics remain future work.
 
 The compiler currently requires host OTP 29 and uses its internal disassembler.
 Moves, equality and ordering branches, selected type tests, jumps, calls
-and returns support integers, floats, atoms, lists, tuples, bitstrings and local PIDs. List and tuple
+and returns support integers, floats, atoms, lists, tuples, bitstrings, local PIDs and references. List and tuple
 construction, matching and extraction have partial instruction support.
-Compiled literals can nest these supported types; a literal containing an
+Compiled literals can nest the supported literal types; a literal containing an
 unsupported type, such as a map, rejects the module. Binary and partial-byte
 bitstring literals are supported, including nested literals, equality and
 ordering. General dynamic binary/bitstring construction, matching, other
@@ -200,11 +231,11 @@ BEAM files missing their type table remain unsupported. Mixed or duplicate selec
 zero branch labels are rejected; tuple-arity branches require a tuple source.
 The type tests include `is_integer`,
 `is_number`, `is_atom`, `is_boolean`, `is_float`, `is_nil`, `is_list` and
-`is_nonempty_list`, `is_tuple`, `is_binary`, `is_bitstr` and `is_pid`. A binary has a
+`is_nonempty_list`, `is_tuple`, `is_binary`, `is_bitstr`, `is_pid` and `is_reference`. A binary has a
 bit length divisible by eight; `is_bitstr` accepts all bitstrings.
-Non-failing BIF instruction forms of the ten applicable Erlang predicates,
-including `is_binary/1`, `is_bitstring/1` and `is_pid/1`, return boolean atoms.
-These ten predicates are also callable as `erlang` functions through external
+Non-failing BIF instruction forms of the eleven applicable Erlang predicates,
+including `is_binary/1`, `is_bitstring/1`, `is_pid/1` and `is_reference/1`, return boolean atoms.
+These eleven predicates are also callable as `erlang` functions through external
 calls or `runtime.invoke`, for the supported term types.
 Nonzero-failure-label guard BIF instructions for `hd/1`, `tl/1`,
 `length/1`, `tuple_size/1` and `element/2` branch on invalid arguments.
@@ -222,7 +253,8 @@ Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
 raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIFs,
 and predicates take precedence over registered `erlang` functions of the same
 name and arity. Other callable BIFs are limited to `self/0`,
-`is_process_alive/1`, `spawn/3`, `send/2`, `!/2` and the numeric BIFs described below.
+`is_process_alive/1`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`, the local
+timer BIFs above and the numeric BIFs described below.
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.
@@ -250,7 +282,7 @@ over registered `erlang` functions of the same name and arity.
 OTP garbage collection, resource limits and scheduling effects are not reproduced.
 Unsupported instructions and operand forms
 reject the whole module, with a diagnostic; missing external functions fail at
-invocation. The runtime accepts only the current ABI 23; recompile modules
+invocation. The runtime accepts only the current ABI 25; recompile modules
 generated for earlier ABIs. Integer-word and supported allocation-list `test_heap` checks are no-ops under
 JavaScript GC; OTP memory exhaustion and scheduler effects are not reproduced.
 Local and external non-tail calls use explicit continuations and stack slots;

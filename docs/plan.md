@@ -3,12 +3,14 @@
 This is a roadmap, not a claim of implemented compatibility. The current
 experimental compiler and runtime support only the small subset described in
 the [README](../README.md). In particular, they do not yet implement complete
-call semantics, general BIF dispatch, processes or a scheduler.
+call semantics, general BIF dispatch or full OTP process and scheduling
+semantics. Local processes, messaging and cooperative scheduling are supported
+for the subset described below.
 
-Work through the phases in order: each builds on earlier foundations. The
-opcode and BIF inventories are maintained throughout, rather than postponing
-coverage tracking until the end. Each phase should leave the project runnable
-and reject unsupported cases explicitly.
+The phases build on earlier foundations, but incremental work may span several
+phases. The opcode and BIF inventories are maintained throughout, rather than
+postponing coverage tracking until the end. Each phase should leave the project
+runnable and reject unsupported cases explicitly.
 
 ## Shared completion rules
 
@@ -35,24 +37,28 @@ measurable.
 - [x] Pin and record the tested OTP producer/tooling version, Node.js and
   browser versions. Start with OTP 29.1.2 as described in the
   [design](design.md).
-- [ ] Derive an independent generic opcode ledger from that release's
+- [x] Derive an initial generic opcode ledger from OTP 29.1.2's `genop.tab`,
+  independently of the disassembler, with an explicit initial status for each
+  opcode identity. See the [ledger](opcodes-otp-29.1.2.md).
+- [ ] Complete the independent generic opcode ledger from that release's
   `genop.tab`. Record active and deprecated instructions, operand and control
   flow variants, and status for decoding, validation, lowering, runtime
   semantics and tests. Do not equate disassembler output with raw opcodes:
   the disassembler can normalize instructions. The
-  [initial OTP 29.1.2 ledger](opcodes-otp-29.1.2.md) inventories all opcode
-  identities and selected operand and control-flow variants. It records OTP
+  ledger inventories selected operand and control-flow variants. It records OTP
   29.1.2's obsolete-opcode loader policy and compact operand encoding, with
   raw guard tests including x/y and type-tagged registers and a stripped
   compiler-generated fixture, raw control-flow, selection-list and selected BIF
   forms, and representative obsolete loader tests. It also records the
   disassembler's missing-type-table limitation. Full per-instruction operand
   encodings and many historical forms remain unverified.
-- [ ] Inventory BIFs by module/name/arity and category, including guard
+- [x] Inventory OTP 29.1.2 `bif.tab` declarations and the three additional
+  runtime-discovered BIFs by module, name and arity. See the
+  [initial inventory](bifs-otp-29.1.2.md).
+- [ ] Complete the BIF inventory by category, including guard
   behavior, exceptions, side effects, host dependencies and implementation
   status. Distinguish BIFs from ordinary functions implemented by OTP modules.
-  The [initial OTP 29.1.2 inventory](bifs-otp-29.1.2.md) records the release
-  table, selected runtime and compiler classifications, and tested behavior
+  The inventory records selected runtime and compiler classifications and tested behavior
   for several list, tuple, map, arithmetic, binary and process BIFs. Most individual
   effects, exceptions, host dependencies and other built-ins still need investigation.
 - [ ] Establish a compatibility matrix for instructions, BIFs, OTP libraries,
@@ -60,8 +66,10 @@ measurable.
 - [ ] Build a reusable OTP-vs-JavaScript differential harness, including
   canonical term/exception comparison, fixture compilation, stripped files,
   timeouts and deterministic test controls. Run it in Node and a real browser
-  in CI.
-- [ ] Add malformed-input, deterministic-output, unsupported-instruction and
+  in CI. The current suites compare supported cases with OTP in Node and
+  Chromium, including stripped fixtures and an injectable test clock; CI
+  integration and a complete general-purpose harness remain open.
+- [x] Add malformed-input, deterministic-output, unsupported-instruction and
   output-preservation regression tests.
 
 **Done when:** Every opcode and inventoried BIF has an explicit initial status,
@@ -83,7 +91,7 @@ the existing slice is covered by the harness, and both host test paths run.
 - [ ] Build a control-flow graph and typed IR with explicit registers, stack
   slots, branches, failure edges, calls, exceptions and suspension points.
   Validate labels, function boundaries and applicable register/stack rules.
-- [ ] Emit deterministic, escaped JavaScript with a versioned runtime ABI.
+- [x] Emit deterministic, escaped JavaScript with a versioned runtime ABI.
   Preserve atomic output replacement and diagnostics.
 - [ ] Define input, chunk, nesting and decompression limits. Audit or isolate
   OTP helpers that can intern atoms or decompress before limits apply; keep the
@@ -97,9 +105,11 @@ untrusted-input safety claim is made without tests and a completed audit.
 
 **Goal:** Establish term semantics that instructions and BIFs can share.
 
-- [ ] Define runtime representations and host-boundary conversions for atoms,
+- [x] Define the current runtime representations and host boundary for atoms,
   arbitrary-precision integers, floats, the empty list, cons cells and tuples.
-  Preserve Erlang value semantics rather than exposing mutable host objects.
+  Supported compound values are immutable; the boundary uses explicit runtime
+  constructors and accessors. Atom limits, resource limits and other broader
+  term guarantees remain future work.
 - [ ] Implement exact and numeric equality, ordering, type tests and numeric
   operations for the supported terms, including integer/float edge cases.
   Integer bitwise `band`, `bor`, `bxor` and `bnot`, integer `div` and `rem`,
@@ -125,7 +135,7 @@ untrusted-input safety claim is made without tests and a completed audit.
   `is_binary` and `is_bitstr` test instructions distinguish byte-sized
   binaries from other bitstrings.
   Length traversal is synchronous and does not yield to a scheduler.
-- [ ] Test unusual atoms, large and negative integers, float boundaries,
+- [x] Test unusual atoms, large and negative integers, float boundaries,
   improper lists, nested terms, matching and failed guards against OTP.
 
 **Done when:** Supported terms and operations agree with OTP across successful
@@ -136,12 +146,13 @@ and failing cases; unsupported term types still fail explicitly.
 **Goal:** Execute ordinary Erlang functions without depending on the JavaScript
 call stack and provide the control-flow foundation for concurrency.
 
-- [ ] Extend the current synchronous continuation-based call loop to
-  process-owned frames, program counters, registers, stack slots and
-  suspension. ABI 23 supports process-owned continuation state and bounded
-  instruction yields in the cooperative scheduler. Actions cover calls, tail
-  calls, returns, yields and indefinite receive waits; raise actions remain unimplemented.
-  Selected error paths propagate through JavaScript using a distinct `ErlangError`.
+- [x] Extend the continuation-based call loop to process-owned frames,
+  program counters, registers and stack slots, with bounded instruction yields
+  and receive suspension in ABI 25. Actions cover calls, tail calls, returns,
+  yields and receive waits.
+- [ ] Add raise actions and full exception handling to the resumable execution
+  model. Selected error paths currently propagate through JavaScript using a
+  distinct `ErlangError`.
 - [ ] Lower local and external non-tail calls, tail calls, returns, stack/frame
   instructions and applicable allocation instructions. Preserve effects other
   than garbage collection. A limited slice supports ordinary y slots,
@@ -174,10 +185,11 @@ BIFs.
 - [ ] Implement a BIF dispatch mechanism keyed by module, name and arity,
   including compiler-emitted specialized BIF instructions and guard forms.
   Preserve exact return values, error classes/reasons and guard failure rules.
-  Ten non-failing type-predicate BIFs and selected list/tuple, binary and numeric
+  Eleven non-failing type-predicate BIFs and selected list/tuple, binary and numeric
   BIFs support instruction and callable forms for the existing term subset. Selected
   integer bitwise and other arithmetic guard and body BIF instructions are supported.
-  The process BIFs `self/0`, `is_process_alive/1` and local `spawn/3` are callable;
+  `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
+  `make_ref/0` are callable, as are the local timer BIFs described in phase 8;
   other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
@@ -220,14 +232,14 @@ fun form match OTP, including failures and term comparisons.
 
 **Goal:** Run independent Erlang processes fairly on a JavaScript host.
 
-- [ ] Implement PID identity, process creation and termination, process-owned
-  state, a runnable queue and the basic process BIFs such as `self` and `spawn`.
-  Host-created process handles, isolated frames and mailboxes, completion
-  promises and a shared runnable queue are implemented. Opaque local PIDs,
-  `self/0`, `is_pid/1`, local `is_process_alive/1` and `spawn/3` are supported.
+- [x] Implement local PID identity, host-created and `spawn/3` processes,
+  process-owned frames and mailboxes, termination, completion promises and a
+  shared runnable queue. `self/0`, `is_pid/1` and local
+  `is_process_alive/1` are supported.
+- [ ] Complete process creation and termination semantics and other spawn
+  variants.
   Child failures are reported to the host; missing targets and arities over 255
-  currently produce host diagnostics rather than OTP `undef`. Other spawn
-  variants are not supported.
+  currently produce host diagnostics rather than OTP `undef`.
 - [ ] Schedule resumable frames with reduction budgets; ensure loops and
   long-running runtime operations yield, and host event loops remain responsive.
   Configurable cooperative scheduler slots run on one JavaScript event loop;
@@ -237,10 +249,15 @@ fun form match OTP, including failures and term comparisons.
   collection must not expose mutable state across processes.
   Supported immutable terms are shared; opaque host handles may refer to mutable
   host objects and are not an isolation boundary.
-- [ ] Provide deterministic scheduler and clock controls for tests, plus bounded
-  handling of host callbacks and asynchronous work.
-- [ ] Test deep recursion, process isolation, termination, fairness and
-  responsiveness under CPU-bound workloads.
+- [x] Provide configurable cooperative scheduler slots and instruction budgets,
+  and an injectable monotonic clock for receive-timer tests.
+- [ ] Provide deterministic scheduler controls and bounded handling of host
+  callbacks and asynchronous work.
+- [x] Test deep recursion, process state and mailbox isolation, termination,
+  interleaving and host responsiveness for selected generated-instruction
+  workloads in Node and Chromium.
+- [ ] Extend fairness and responsiveness tests to long-running runtime
+  operations and other CPU-bound workloads as they become yieldable.
 
 **Done when:** Multiple independent processes make progress without blocking
 the host, and process identity, lifecycle and supported spawn behavior match
@@ -250,24 +267,33 @@ OTP in the covered cases.
 
 **Goal:** Support Erlang-style asynchronous communication and waiting.
 
-- [ ] Implement message sending, per-process mailboxes and ordering guarantees;
-  include sending to dead or invalid destinations and registered names as their
-  support is added.
-  The host can append supported terms to a process-local FIFO mailbox. Erlang
+- [x] Implement process-local FIFO mailboxes and local PID message sending.
+  The host can append supported terms to a mailbox. Erlang
   `!` and `send/2` deliver to local PIDs, returning the message and discarding
-  it for dead local PIDs. Invalid destinations raise `badarg`; registered names,
-  name/node tuples and non-local PIDs are unsupported. Full OTP delivery
-  semantics are not implemented.
-- [ ] Lower receive instructions and implement selective receive, mailbox
-  scanning, suspension, wakeup and preservation of unmatched messages.
-  Indefinite receives support scanning, suspension and wakeup; timed receives
-  and receive markers are not implemented. A synchronous invocation throws
-  if it would block. Waiting alone does not keep the host event loop alive.
-- [ ] Implement `receive ... after`, monotonic time, timer creation and
-  cancellation, with defined timeout/message races and host clock adapters.
-- [ ] Add differential tests for multiple senders, selective receive, mailbox
-  ordering, zero and delayed timeouts, cancellation and send/exit races.
-  Compare permitted outcomes where OTP scheduling is nondeterministic.
+  it for dead local PIDs. Messages from the same sender retain their order.
+  Invalid destinations raise `badarg`.
+- [ ] Extend delivery to registered names, name/node tuples and non-local PIDs
+  and complete OTP delivery semantics.
+- [x] Lower the supported receive instructions for indefinite and timed
+  selective receive, including mailbox scanning, suspension, wakeup and
+  preservation of unmatched messages. A synchronous invocation throws if it
+  would block. An indefinite wait alone does not keep the host event loop alive.
+- [ ] Implement receive markers and remaining receive instruction forms.
+- [x] Implement `receive ... after` timers, including OTP's timeout range,
+  infinity, cancellation on match,
+  a monotonic host clock adapter and explicit event-loop race ordering.
+- [x] Implement local PID `send_after/3` and `start_timer/3`, plus
+  `read_timer/1` and `cancel_timer/1`, for relative delays through
+  4294967295 milliseconds. Cancel timers when their destination exits and
+  test delivery, cancellation and timer references against OTP in Node and
+  Chromium, including stripped input.
+- [ ] Complete timer BIFs and OTP timer/scheduler semantics, including larger
+  delays, registered names, absolute times and options.
+- [x] Add differential tests for multiple senders, selective receive, mailbox
+  ordering, zero and delayed timeouts and cancellation. Per-sender ordering
+  checks allow different interleavings.
+- [ ] Extend race tests to send/exit and other nondeterministic outcomes,
+  comparing permitted results rather than assuming a scheduler order.
 
 **Done when:** Processes can exchange messages and suspend/resume correctly;
 receive and timer tests agree with OTP's observable guarantees.
@@ -278,7 +304,10 @@ receive and timer tests agree with OTP's observable guarantees.
 
 - [ ] Implement bidirectional links, unlinking, exit signals, exit reasons and
   `trap_exit`, including normal exits, untrappable kill and already-dead PIDs.
-- [ ] Implement process monitors, unique references, `DOWN` messages,
+- [x] Implement unique local references with `make_ref/0` and `is_reference/1`,
+  including identity, comparisons and message transport. Distributed reference
+  identity and serialization remain unsupported.
+- [ ] Implement process monitors, `DOWN` messages,
   demonitoring and flush/info options, including monitor-after-exit and
   cancellation races.
 - [ ] Define signal ordering and lifecycle cleanup; cover simultaneous exits,
@@ -299,6 +328,8 @@ normal, exceptional and race cases.
 - [ ] Implement additional BIF families from the inventory, including process
   registry and information, references, timers, conversions and other commonly
   used operations. Specify supported options and resource limits per BIF.
+  Local `make_ref/0`, `is_reference/1` and the timer BIF slice in phase 8 are
+  already supported; broader reference and timer operations remain open.
 - [ ] Define registration, dependency resolution, module loading and `on_load`
   ordering/failure behavior. Implement code-version lifetime and hot loading
   only when their semantics can be preserved and tested.

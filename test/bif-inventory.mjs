@@ -18,7 +18,7 @@ assert.equal(row('erlang:apply/2')[4], 'runtime');
 assert.equal(row('erlang:yield/0')[4], 'runtime');
 assert.equal(row('erlang:is_atom/1')[7], 'BIF');
 for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float', 'is_list',
-  'is_tuple', 'is_binary', 'is_bitstring', 'is_pid']) {
+  'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference']) {
   assert.equal(row(`erlang:${name}/1`)[11], 'instruction-and-callable');
 }
 for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
@@ -27,10 +27,14 @@ for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
   assert.equal(row(`erlang:${name}`)[11], 'instruction-and-callable');
 }
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 27);
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 28);
 assert.equal(row('erlang:is_process_alive/1')[11], 'callable-only');
 assert.equal(row('erlang:spawn/3')[11], 'callable-only');
 assert.equal(row('erlang:send/2')[11], 'callable-only');
+assert.equal(row('erlang:make_ref/0')[11], 'callable-only');
+for (const name of ['send_after/3', 'start_timer/3', 'read_timer/1', 'cancel_timer/1']) {
+  assert.equal(row(`erlang:${name}`)[11], 'callable-only');
+}
 assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
 assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 0);
 for (const name of ['+/2', '-/1', '-/2', '*/2', '//2',
@@ -75,6 +79,9 @@ assert.match(row('erlang:spawn/3')[9], /badarg.*improper/);
 assert.equal(row('erlang:spawn/3')[10], 'process runtime');
 assert.match(row('erlang:send/2')[9], /badarg.*invalid destination/);
 assert.equal(row('erlang:!/2')[10], 'process runtime');
+assert.match(row('erlang:make_ref/0')[8], /unique local reference/);
+assert.match(row('erlang:send_after/3')[8], /local PID/);
+assert.match(row('erlang:cancel_timer/1')[9], /badarg.*non-reference/);
 assert.match(row('os:getenv/1')[10], /OS \/ host/);
 assert.ok(byKey.has('lists:member/2'));
 assert.ok(!byKey.has('lists:map/2'));

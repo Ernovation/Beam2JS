@@ -6,7 +6,7 @@ JavaScript `bigint` integers, atoms made with `runtime.atom()` (currently using
 `Symbol.for`) and finite floats made with `runtime.float()`. The compiler
 also accepts immutable proper and improper lists made with `runtime.nil()` and
 `runtime.cons()`, tuples made with `runtime.tuple()`, and bitstrings made with
-`runtime.bitstring()`, plus opaque local process PIDs. The supported
+`runtime.bitstring()`, plus opaque local process PIDs and references. The supported
 comparison, type-test, list and tuple instruction
 slice is described in the [README](../README.md); the other types and
 operations below are not implemented.
@@ -35,7 +35,7 @@ work. The precise API and limits must be finalized and tested before use.
   unbounded JavaScript recursion, and must have explicit resource limits and
   scheduler checkpoints where appropriate.
 - The new representations and conversion API use a versioned runtime ABI.
-  The compiler and runtime currently use ABI 23 only; regenerate modules when
+  The compiler and runtime currently use ABI 25 only; regenerate modules when
   the ABI changes during development.
 
 ## Term types
@@ -204,8 +204,14 @@ The current local PID slice assigns a unique opaque term to each host-created
 or synchronously invoked process and retains identity after termination.
 `self/0`, `is_pid/1` and local `is_process_alive/1` are supported; host process handles expose the PID but
 remain separate from it. PIDs have an implementation-defined local ordering;
-node components, serialization, distribution, Erlang spawning and PID-based
-message delivery are not implemented.
+node components, serialization and distribution are not implemented. Local
+`spawn/3` and PID-based message delivery are supported.
+
+Local `make_ref/0` and `runtime.makeRef()` create immutable unique references
+across processes and runtimes sharing the same runtime module. They remain valid
+after process termination and support equality and `is_reference/1`. Reference
+ordering within Beam2JS is implementation-defined; distributed reference
+identity and serialization remain unsupported.
 
 ### OTP 29 native records
 

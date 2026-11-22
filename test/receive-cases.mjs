@@ -11,7 +11,7 @@ export async function receiveChecks(Runtime, registerModules) {
   const rt = new Runtime({schedulers: 2, reductionLimit: 1000});
   registerModules(rt);
   let mark;
-  rt.registerModule(23, 'receive_probe', [{
+  rt.registerModule(25, 'receive_probe', [{
     name: 'mark', arity: 0, exported: true,
     run: runtime => {
       if (!mark) throw new Error('unexpected receive probe');
@@ -101,7 +101,7 @@ export async function receiveChecks(Runtime, registerModules) {
   let count = 0;
   let parked;
   const parkEntered = new Promise(resolve => { parked = resolve; });
-  rt.registerModule(23, 'receive_host', [{
+  rt.registerModule(25, 'receive_host', [{
     name: 'park', arity: 0, exported: true,
     run: (runtime, args, state, budget, pid) => {
       count++;

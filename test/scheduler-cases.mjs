@@ -20,7 +20,7 @@ export async function schedulerChecks(Runtime, ErlangError, registerModules) {
   const hostError = new Error('host process failure');
   let timerRanDuringWork = false;
   let allDone = false;
-  runtime.registerModule(23, 'scheduler_probe', [{
+  runtime.registerModule(25, 'scheduler_probe', [{
     name: 'mark', arity: 2, exported: true,
     run: (rt, [id, remaining]) => {
       progress.push([id, remaining]);
@@ -30,7 +30,7 @@ export async function schedulerChecks(Runtime, ErlangError, registerModules) {
       return {type: 'return', value: rt.atom('ok')};
     },
   }]);
-  runtime.registerModule(23, 'scheduler_host', [{
+  runtime.registerModule(25, 'scheduler_host', [{
     name: 'fail', arity: 0, exported: true,
     run: () => { throw hostError; },
   }, {

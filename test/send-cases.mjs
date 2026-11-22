@@ -7,7 +7,7 @@ export async function sendChecks(Runtime, registerModules) {
     onProcessError: (pid, error) => errors.push([pid, error])});
   registerModules(rt);
   let release = false;
-  rt.registerModule(23, 'send_host', [{
+  rt.registerModule(25, 'send_host', [{
     name: 'hold', arity: 0, exported: true,
     run: (runtime, args) => release
       ? {type: 'return', value: runtime.atom('ok')}
@@ -18,7 +18,7 @@ export async function sendChecks(Runtime, registerModules) {
       type: 'return', value: runtime.invoke('erlang', 'send', [pid, runtime.atom('reentrant')]),
     }),
   }]);
-  rt.registerModule(23, 'erlang', [{
+  rt.registerModule(25, 'erlang', [{
     name: 'send', arity: 2, exported: true,
     run: runtime => ({type: 'return', value: runtime.atom('shadow')}),
   }, {
