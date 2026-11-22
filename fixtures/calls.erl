@@ -2,7 +2,8 @@
 -export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, stack_tuple/2, stack_element/1,
          stack_list_head/1, stack_list_tail/1, stack_list/2, stack_hd/2, stack_tl/2, depth/1,
          match_remote/1, bif_remote/1, callable_bif_remote/1, binary_bif_remote/3,
-         numeric_bif_remote/1, arithmetic_bif_remote/2]).
+         numeric_bif_remote/1, arithmetic_bif_remote/2, exact_bif_remote/2,
+         integer_bif_remote/2, comparison_bif_remote/2]).
 
 local(Value) ->
     identity(identity(Value)).
@@ -85,6 +86,18 @@ numeric_bif_remote(Value) ->
 
 arithmetic_bif_remote(Left, Right) ->
     Result = raw_bif_body:multiply_call(Left, Right),
+    {ok, Result}.
+
+exact_bif_remote(Left, Right) ->
+    Result = raw_bif_body:exact_call(Left, Right),
+    {ok, Result}.
+
+integer_bif_remote(Left, Right) ->
+    Result = raw_bif_body:rem_call(Left, Right),
+    {ok, Result}.
+
+comparison_bif_remote(Left, Right) ->
+    Result = raw_bif_body:gt_call(Left, Right),
     {ok, Result}.
 
 identity(Value) ->

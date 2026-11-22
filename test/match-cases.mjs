@@ -250,6 +250,183 @@ export function matchResults(runtime) {
     ['raw_bif_body', 'part3_call', [binary, 1n, 2n]], ['raw_bif_body', 'part3_call', [binary, 4n, 1n]],
     ['calls', 'binary_bif_remote', [binary, 4n, -2n]], ['calls', 'binary_bif_remote', [binary, 0n, -1n]],
   );
+  const ref = runtime.makeRef();
+  const pid = runtime.invoke('erlang', 'self', []);
+  const otherPid = runtime.invoke('erlang', 'self', []);
+  let longCopy = nil;
+  for (let i = 0; i < 10000; i++) longCopy = runtime.cons(BigInt(i), longCopy);
+  cases.push(
+    ['erlang', '=:=', [1n, 1n]], ['erlang', '=:=', [1n, runtime.float(1)]],
+    ['erlang', '=:=', [runtime.float(0), runtime.float(-0)]],
+    ['erlang', '=:=', [1n << 100n, 1n << 100n]],
+    ['erlang', '=:=', [tuple(proper, partial), tuple(proper, runtime.bitstring([1, 128], 9))]],
+    ['erlang', '=:=', [tuple(improper), tuple(runtime.cons(atom('first'), atom('other')))]],
+    ['erlang', '=:=', [binary, partial]], ['erlang', '=:=', [nil, atom('nil')]],
+    ['erlang', '=:=', [ref, ref]], ['erlang', '=:=', [ref, runtime.makeRef()]],
+    ['erlang', '=:=', [pid, pid]], ['erlang', '=:=', [pid, otherPid]],
+    ['erlang', '=:=', [pid, ref]], ['erlang', '=:=', [longProper, longCopy]],
+    ['raw_bif_body', 'exact_call_tail', [1n, 1n]],
+    ['raw_bif_body', 'exact_call_tail', [1n, runtime.float(1)]],
+    ['raw_bif_body', 'exact_call_last', [partial, runtime.bitstring([1, 128], 9)]],
+    ['raw_bif_body', 'exact_call_last', [partial, binary]],
+    ['raw_bif_body', 'exact_call', [improper, improper]],
+    ['raw_bif_body', 'exact_call', [improper, proper]],
+    ['calls', 'exact_bif_remote', [1n, 1n]],
+    ['calls', 'exact_bif_remote', [1n, runtime.float(1)]],
+  );
+  const comparisonOps = ['==', '/=', '=/=', '<', '=<', '>', '>='];
+  const comparisonPairs = [
+    [1n, 1n], [1n, runtime.float(1)], [runtime.float(0), runtime.float(-0)],
+    [9007199254740993n, runtime.float(9007199254740992)],
+    [-(1n << 100n), 1n << 100n], [atom('a'), atom('b')], [1n, atom('a')],
+    [tuple(1n, proper), tuple(runtime.float(1), proper)],
+    [proper, improper], [improper, proper], [binary, partial],
+    [partial, runtime.bitstring([1, 128], 9)], [nil, nil],
+    [ref, ref], [pid, pid], [ref, pid], [longProper, longCopy],
+  ];
+  for (const name of comparisonOps) {
+    for (const args of comparisonPairs) cases.push(['erlang', name, args]);
+  }
+  cases.push(
+    ['raw_bif_body', 'eq_call_tail', [1n, runtime.float(1)]],
+    ['raw_bif_body', 'eq_call_tail', [1n, 2n]],
+    ['raw_bif_body', 'ne_call_last', [1n, runtime.float(1)]],
+    ['raw_bif_body', 'ne_call_last', [1n, 2n]],
+    ['raw_bif_body', 'exact_ne_call', [1n, runtime.float(1)]],
+    ['raw_bif_body', 'exact_ne_call', [1n, 1n]],
+    ['raw_bif_body', 'lt_call_tail', [1n, 2n]], ['raw_bif_body', 'lt_call_tail', [2n, 1n]],
+    ['raw_bif_body', 'le_call_last', [1n, runtime.float(1)]], ['raw_bif_body', 'le_call_last', [2n, 1n]],
+    ['raw_bif_body', 'gt_call', [2n, 1n]], ['raw_bif_body', 'gt_call', [1n, 2n]],
+    ['raw_bif_body', 'ge_call_tail', [2n, 1n]], ['raw_bif_body', 'ge_call_tail', [1n, 2n]],
+    ['calls', 'comparison_bif_remote', [2n, 1n]], ['calls', 'comparison_bif_remote', [1n, 2n]],
+  );
+  const nested = runtime.cons(tagged, runtime.cons(partial, nil));
+  cases.push(
+    ['erlang', 'list_to_tuple', [nil]], ['erlang', 'list_to_tuple', [proper]],
+    ['erlang', 'list_to_tuple', [nested]], ['erlang', 'list_to_tuple', [improper]],
+    ['erlang', 'list_to_tuple', [longImproper]], ['erlang', 'list_to_tuple', [atom('bad')]],
+    ['erlang', 'list_to_tuple', [tuple()]],
+    ['erlang', 'tuple_to_list', [tuple()]], ['erlang', 'tuple_to_list', [tagged]],
+    ['erlang', 'tuple_to_list', [tuple(tagged, partial)]], ['erlang', 'tuple_to_list', [nil]],
+    ['erlang', 'tuple_to_list', [proper]], ['erlang', 'tuple_to_list', [atom('bad')]],
+    ['bif_body', 'from_list', [proper]], ['bif_body', 'from_list', [improper]],
+    ['bif_body', 'to_list', [tagged]], ['bif_body', 'to_list', [nil]],
+    ['bif_body', 'tuple_roundtrip', [nested]], ['bif_body', 'tuple_roundtrip', [improper]],
+    ['raw_bif_body', 'list_to_tuple_last', [proper]],
+    ['raw_bif_body', 'list_to_tuple_last', [improper]],
+    ['raw_bif_body', 'tuple_to_list_last', [tagged]],
+    ['raw_bif_body', 'tuple_to_list_last', [nil]],
+  );
+  const booleanValues = [atom('true'), atom('false'), atom('bad'), 0n, nil];
+  for (const [module, name] of [
+    ['erlang', 'not'], ['bif_body', 'bool_not'], ['bif_body', 'guard_not'],
+    ['raw_bif_body', 'bool_not_y'], ['raw_bif_body', 'bool_not_guard'],
+    ['raw_bif_body', 'bool_not_call'],
+  ]) {
+    for (const value of booleanValues) cases.push([module, name, [value]]);
+  }
+  for (const op of ['and', 'or', 'xor']) {
+    for (const [module, name] of [
+      ['erlang', op], ['bif_body', `bool_${op}`], ['bif_body', `guard_${op}`],
+      ['raw_bif_body', `bool_${op}_y`], ['raw_bif_body', `bool_${op}_guard`],
+      ['raw_bif_body', `bool_${op}_call`],
+    ]) {
+      for (const left of booleanValues) {
+        for (const right of booleanValues) cases.push([module, name, [left, right]]);
+      }
+    }
+  }
+  for (const value of booleanValues) cases.push(['raw_bif_body', 'bool_xor_same', [value]]);
+  const huge = 1n << 512n;
+  for (const name of ['integer_to_list', 'integer_to_binary']) {
+    for (const value of [0n, -123n, huge, -huge, runtime.float(1), atom('bad'), tuple()]) {
+      cases.push(['erlang', name, [value]]);
+    }
+    for (let base = 2; base <= 36; base++) {
+      for (const value of [0n, huge + 123n, -huge - 123n]) {
+        cases.push(['erlang', name, [value, BigInt(base)]]);
+      }
+    }
+    for (const args of [
+      [42n, 0n], [42n, 1n], [42n, 37n], [42n, 1n << 1024n],
+      [42n, runtime.float(10)], [42n, atom('bad')], [runtime.float(1), 10n],
+      [atom('bad'), 10n], [nil, 10n],
+    ]) cases.push(['erlang', name, args]);
+  }
+  cases.push(
+    ['bif_body', 'integer_chars', [-123n]], ['bif_body', 'integer_chars', [atom('bad')]],
+    ['bif_body', 'integer_chars_base', [-255n, 16n]], ['bif_body', 'integer_chars_base', [1n, 1n]],
+    ['bif_body', 'integer_binary', [-123n]], ['bif_body', 'integer_binary', [runtime.float(1)]],
+    ['bif_body', 'integer_binary_base', [35n, 36n]], ['bif_body', 'integer_binary_base', [1n, 37n]],
+    ['bif_body', 'integer_text_pair', [-255n, 16n]], ['bif_body', 'integer_text_pair', [1n, 1n]],
+    ['raw_bif_body', 'integer_chars_last', [255n, 16n]], ['raw_bif_body', 'integer_chars_last', [1n, 1n]],
+    ['raw_bif_body', 'integer_binary_last', [-255n, 16n]], ['raw_bif_body', 'integer_binary_last', [nil, 10n]],
+  );
+  const longTuple = runtime.invoke('erlang', 'list_to_tuple', [longProper]);
+  const longRoundtrip = runtime.tupleSize(longTuple) === 10000 &&
+    runtime.tupleElement(longTuple, 1) === 9999n && runtime.tupleElement(longTuple, 10000) === 0n &&
+    runtime.equalExact(runtime.invoke('erlang', 'tuple_to_list', [longTuple]), longProper);
+  const identityTerms = [runtime.hostHandle({}), ref, pid];
+  const identityList = identityTerms.reduceRight((tail, value) => runtime.cons(value, tail), nil);
+  const identityTuple = runtime.invoke('erlang', 'list_to_tuple', [identityList]);
+  if (!identityTerms.every((value, i) => runtime.tupleElement(identityTuple, i + 1) === value) ||
+      !runtime.equalExact(runtime.invoke('erlang', 'tuple_to_list', [identityTuple]), identityList)) {
+    throw new Error('list/tuple conversion changed term identities');
+  }
+
+  const shadow = new runtime.constructor();
+  shadow.registerModule(26, 'erlang', [
+    ...['=:=', ...comparisonOps].map(name => ({name, arity: 2})), {name: '=:=', arity: 1},
+    {name: '<', arity: 1}, {name: 'list_to_tuple', arity: 1},
+    {name: 'tuple_to_list', arity: 1}, {name: 'list_to_tuple', arity: 2},
+    ...['and', 'or', 'xor'].map(name => ({name, arity: 2})), {name: 'not', arity: 1},
+    {name: 'not', arity: 2},
+    ...['integer_to_list', 'integer_to_binary'].flatMap(name => [1, 2, 3].map(arity => ({name, arity}))),
+  ].map(entry => ({
+    ...entry, exported: true,
+    run: rt => ({type: 'return', value: rt.atom('shadow')}),
+  })));
+  if (shadow.invoke('erlang', '=:=', [1n, 1n]) !== shadow.atom('true') ||
+      shadow.invoke('erlang', '=:=', [1n]) !== shadow.atom('shadow')) {
+    throw new Error('incorrect exact equality BIF dispatch');
+  }
+  for (const name of comparisonOps) {
+    if (shadow.invoke('erlang', name, [1n, 1n]) === shadow.atom('shadow')) {
+      throw new Error(`incorrect comparison BIF dispatch: ${name}/2`);
+    }
+  }
+  if (shadow.invoke('erlang', '<', [1n]) !== shadow.atom('shadow')) {
+    throw new Error('incorrect comparison BIF arity dispatch');
+  }
+  const singleton = shadow.cons(1n, shadow.nil());
+  if (!shadow.equalExact(shadow.invoke('erlang', 'list_to_tuple', [singleton]), shadow.tuple([1n])) ||
+      !shadow.equalExact(shadow.invoke('erlang', 'tuple_to_list', [shadow.tuple([1n])]), singleton) ||
+      shadow.invoke('erlang', 'list_to_tuple', [1n, 2n]) !== shadow.atom('shadow')) {
+    throw new Error('incorrect list/tuple conversion BIF dispatch');
+  }
+  for (const [name, args, expected] of [
+    ['not', [shadow.atom('false')], shadow.atom('true')],
+    ['and', [shadow.atom('true'), shadow.atom('false')], shadow.atom('false')],
+    ['or', [shadow.atom('true'), shadow.atom('false')], shadow.atom('true')],
+    ['xor', [shadow.atom('true'), shadow.atom('true')], shadow.atom('false')],
+    ['not', [1n, 2n], shadow.atom('shadow')],
+  ]) {
+    if (shadow.invoke('erlang', name, args) !== expected) {
+      throw new Error(`incorrect boolean BIF dispatch: ${name}/${args.length}`);
+    }
+  }
+  const charsFF = shadow.cons(70n, shadow.cons(70n, shadow.nil()));
+  if (!shadow.equalExact(shadow.invoke('erlang', 'integer_to_list', [255n, 16n]), charsFF) ||
+      !shadow.equalExact(shadow.invoke('erlang', 'integer_to_binary', [255n, 16n]),
+        shadow.bitstring([70, 70], 16)) ||
+      shadow.invoke('erlang', 'integer_to_list', [1n, 2n, 3n]) !== shadow.atom('shadow')) {
+    throw new Error('incorrect integer conversion BIF dispatch');
+  }
+  const handle = shadow.hostHandle({});
+  if (shadow.invoke('erlang', '=:=', [handle, handle]) !== shadow.atom('true') ||
+      shadow.invoke('erlang', '=:=', [handle, shadow.hostHandle({})]) !== shadow.atom('false')) {
+    throw new Error('incorrect exact equality for host handles');
+  }
 
   function format(value) {
     if (typeof value === 'bigint') return String(value);
@@ -263,7 +440,12 @@ export function matchResults(runtime) {
     }
     if (runtime.isType('is_nil', value)) return '[]';
     if (runtime.isType('is_nonempty_list', value)) {
-      return `[${format(runtime.listHead(value))}|${format(runtime.listTail(value))}]`;
+      const elements = [];
+      while (runtime.isType('is_nonempty_list', value)) {
+        elements.push(format(runtime.listHead(value)));
+        value = runtime.listTail(value);
+      }
+      return `[${elements.join(',')}${runtime.isType('is_nil', value) ? '' : `|${format(value)}`}]`;
     }
     if (runtime.isType('is_tuple', value)) {
       return `{${Array.from({length: runtime.tupleSize(value)},
@@ -272,7 +454,7 @@ export function matchResults(runtime) {
     throw new TypeError('unexpected test term');
   }
 
-  return cases.map(([module, name, args]) => {
+  const results = cases.map(([module, name, args]) => {
     try {
       return `{ok,${format(runtime.invoke(module, name, args))}}`;
     } catch (error) {
@@ -280,4 +462,6 @@ export function matchResults(runtime) {
       return `{${error.erlangClass},${format(error.reason)}}`;
     }
   });
+  results.push(`{ok,${longRoundtrip}}`);
+  return results;
 }

@@ -321,7 +321,10 @@ are ignored, not validated, and y registers require an allocated slot.
 Type-tagged operands in BEAM files missing their type table remain unsupported.
 The zero-label `=:=/2` BIF instruction returns a boolean atom using exact
 equality and supports ordinary x or y destinations, including aliased operands;
-callable `erlang:'=:='/2` dispatch is not supported. Mixed or duplicate selection choices and
+`erlang:'=:='/2` is also callable through external calls and `runtime.invoke`.
+The other comparison operators `==`, `/=`, `=/=`, `<`, `=<`, `>` and `>=`
+are callable in the same way, using the supported term equality and ordering.
+Mixed or duplicate selection choices and
 zero branch labels are rejected; tuple-arity branches require a tuple source.
 The type tests include `is_integer`,
 `is_number`, `is_atom`, `is_boolean`, `is_float`, `is_nil`, `is_list` and
@@ -332,6 +335,10 @@ including `is_binary/1`, `is_bitstring/1`, `is_pid/1` and `is_reference/1`, retu
 They support ordinary x or y destinations, including an aliased source.
 These eleven predicates are also callable as `erlang` functions through external
 calls or `runtime.invoke`, for the supported term types.
+Boolean `not`, `and`, `or` and `xor` instructions support guard and zero-label
+forms with x or y destinations, including aliased operands. Invalid inputs
+branch without writing or raise `badarg`. They are also callable as `erlang`
+BIFs; binary operators require both operands to be booleans.
 Nonzero-failure-label guard BIF instructions for `hd/1`, `tl/1`,
 `length/1`, `tuple_size/1` and `element/2` branch on invalid arguments.
 Their zero-label and callable forms raise `badarg` on invalid arguments.
@@ -340,6 +347,15 @@ forms support ordinary x or y destinations, including aliased source operands;
 failed guards leave their destinations unchanged.
 `length/1` traverses synchronously and may block the host event loop for long
 lists.
+Callable `list_to_tuple/1` and `tuple_to_list/1` preserve element order and
+raise `badarg` for an improper/non-list or non-tuple respectively. Conversion
+is synchronous and may block the host event loop.
+Callable `integer_to_list/1,2` and `integer_to_binary/1,2` format integers with
+uppercase digits and an optional leading minus. The default base is 10; explicit
+bases must be integers from 2 through 36. Invalid arguments raise `badarg`.
+Conversion is synchronous and may block the host event loop; OTP resource and
+scheduling behavior is not reproduced. The ordinary OTP `list_to_integer/1,2`
+functions are not bundled.
 Nonzero-label `bit_size/1` and `byte_size/1` guard instructions accept
 bitstrings and branch on other terms. `byte_size/1` rounds partial bytes up;
 zero-label forms raise `badarg` on non-bitstrings. Both instruction forms
@@ -352,8 +368,9 @@ Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
 Both instruction arities support x or y destinations, including aliased
 operands; failed guards leave the destination unchanged.
 `bit_size/1`, `byte_size/1` and both `binary_part` arities are also callable,
-raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIFs,
-and predicates take precedence over registered `erlang` functions of the same
+raising `badarg` for invalid inputs. These callable BIFs, the list and tuple and
+integer conversion BIFs,
+predicates and comparison operators take precedence over registered `erlang` functions of the same
 name and arity. Other callable BIFs are limited to `self/0`,
 `is_process_alive/1`, `process_info/2`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`,
 the local process dictionary, registry and timer BIFs above and the numeric BIFs described below.
@@ -366,7 +383,8 @@ Integer `div` and `rem` guard instructions branch on non-integers or a zero
 divisor; division truncates toward zero and remainder follows the dividend's
 sign. Their zero-label forms raise `badarith` on invalid inputs or zero divisors.
 Both forms support x or y destinations, including aliased operands; failed guards
-leave the destination unchanged.
+leave the destination unchanged. All six integer bitwise and division operators
+are also callable as `erlang` BIFs and raise `badarith` on invalid inputs.
 Unary negation and binary `+`, `-` and `*` guard instructions support integer,
 float and mixed operands, branching on non-numbers or floating-point overflow.
 Binary `/` guard instructions always produce a float; they branch on

@@ -260,7 +260,34 @@ try {
     'lists:foreach(fun({Name,Op}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,BFs), ' +
     'true=lists:any(fun({gc_bif,Actual,{f,0},_,_,_}) when Actual=:=Op -> true;(_)->false end,Code) end, ' +
     '[{bits,bit_size},{bytes,byte_size},{part,binary_part},{part2,binary_part}]), ' +
+    'lists:foreach(fun({Name,Bif}) -> {function,Name,1,_,Code}=lists:keyfind(Name,2,BFs), ' +
+    'true=lists:any(fun({call_ext_only,1,{extfunc,erlang,Actual,1}}) when Actual=:=Bif -> true; ' +
+    '(_)->false end,Code) end,[{from_list,list_to_tuple},{to_list,tuple_to_list}]), ' +
+    '{function,tuple_roundtrip,1,_,Roundtrip}=lists:keyfind(tuple_roundtrip,2,BFs), ' +
+    'lists:foreach(fun(Bif)->true=lists:any(fun({call_ext,1,{extfunc,erlang,Actual,1}}) ' +
+    'when Actual=:=Bif -> true;(_)->false end,Roundtrip) end,[list_to_tuple,tuple_to_list]), ' +
+    'lists:foreach(fun({Name,Bif,Arity}) -> {function,Name,Arity,_,Code}=lists:keyfind(Name,2,BFs), ' +
+    'true=lists:any(fun({call_ext_only,N,{extfunc,erlang,Actual,N}}) ' +
+    'when Actual=:=Bif, N=:=Arity -> true;(_)->false end,Code) end, ' +
+    '[{integer_chars,integer_to_list,1},{integer_chars_base,integer_to_list,2},' +
+    '{integer_binary,integer_to_binary,1},{integer_binary_base,integer_to_binary,2}]), ' +
+    '{function,integer_text_pair,2,_,TextPair}=lists:keyfind(integer_text_pair,2,BFs), ' +
+    'lists:foreach(fun(Bif)->true=lists:any(fun({call_ext,2,{extfunc,erlang,Actual,2}}) ' +
+    'when Actual=:=Bif -> true;(_)->false end,TextPair) end,[integer_to_list,integer_to_binary]), ' +
+    'lists:foreach(fun({Name,Bif}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,BFs), ' +
+    'true=lists:any(fun({bif,Actual,{f,0},_,_}) when Actual=:=Bif -> true;(_)->false end,Code) end, ' +
+    '[{bool_not,\'not\'},{bool_and,\'and\'},{bool_or,\'or\'},{bool_xor,\'xor\'}]), ' +
     '{beam_file,raw_bif_body,_,_,_,RFs}=beam_disasm:file(filename:join(Dir,"raw_bif_body.beam")), ' +
+    'lists:foreach(fun({Name,Op,Slot,Failing}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,RFs), ' +
+    'true=lists:any(fun({bif,Actual,{f,Fail},Args,{y,Dest}}) ' +
+    'when Actual=:=Op, Dest=:=Slot -> (Fail=/=0)=:=Failing andalso lists:member({y,Slot},Args); ' +
+    '(_)->false end,Code) end, ' +
+    '[{bool_not_y,\'not\',0,false},{bool_and_y,\'and\',0,false},' +
+    '{bool_or_y,\'or\',1,false},{bool_xor_y,\'xor\',1,false},' +
+    '{bool_not_guard,\'not\',0,true},{bool_and_guard,\'and\',0,true},' +
+    '{bool_or_guard,\'or\',1,true},{bool_xor_guard,\'xor\',1,true}]), ' +
+    '{function,bool_xor_same,1,_,XorSame}=lists:keyfind(bool_xor_same,2,RFs), ' +
+    'true=lists:any(fun({bif,\'xor\',{f,0},[{y,0},{y,0}],{y,0}})->true;(_)->false end,XorSame), ' +
     '{function,predicates_stack,1,_,RawPredicateStack}=lists:keyfind(predicates_stack,2,RFs), ' +
     'lists:foreach(fun(Op)->true=lists:any(fun({bif,Actual,{f,0},[{y,N}],{y,N}}) ' +
     'when Actual=:=Op -> true;(_)->false end,RawPredicateStack) end,Predicates), ' +
@@ -296,7 +323,16 @@ try {
     '{bits_call_tail,call_ext_only},{part2_call_last,call_ext_last},{part3_call,call_ext},' +
     '{abs_call_tail,call_ext_only},{round_call_last,call_ext_last},{float_call,call_ext},' +
     '{add_call_tail,call_ext_only},{subtract_call_last,call_ext_last},{multiply_call,call_ext},' +
-    '{divide_call_tail,call_ext_only},{negate_call,call_ext}]), ' +
+    '{divide_call_tail,call_ext_only},{negate_call,call_ext},' +
+    '{exact_call_tail,call_ext_only},{exact_call_last,call_ext_last},{exact_call,call_ext},' +
+    '{band_call_tail,call_ext_only},{bor_call_last,call_ext_last},{bxor_call,call_ext},' +
+    '{bnot_call_tail,call_ext_only},{div_call_last,call_ext_last},{rem_call,call_ext},' +
+    '{eq_call_tail,call_ext_only},{ne_call_last,call_ext_last},{exact_ne_call,call_ext},' +
+    '{lt_call_tail,call_ext_only},{le_call_last,call_ext_last},{gt_call,call_ext},' +
+    '{ge_call_tail,call_ext_only},{list_to_tuple_last,call_ext_last},' +
+    '{tuple_to_list_last,call_ext_last},{bool_not_call,call_ext_only},' +
+    '{bool_and_call,call_ext_last},{bool_or_call,call_ext},{bool_xor_call,call_ext_only},' +
+    '{integer_chars_last,call_ext_last},{integer_binary_last,call_ext_last}]), ' +
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
@@ -455,7 +491,33 @@ try {
     'raw_arithmetic_body:float_stack_distinct(1 bsl 1024,7)=:={failed,7},' +
     'erlang:\'+\'(2,3)=:=5,raw_bif_body:subtract_call_last(7,3)=:=4,' +
     'raw_bif_body:divide_call_tail(5,2)=:=2.5,' +
-    'calls:arithmetic_bif_remote(6,7)=:={ok,{result,42}}]]),halt().',
+    'calls:arithmetic_bif_remote(6,7)=:={ok,{result,42}},' +
+    'erlang:\'=:=\'(1,1)=:=true,raw_bif_body:exact_call_tail(1,1.0)=:=false,' +
+    'raw_bif_body:exact_call_last(<<5:3>>,<<5:3>>)=:=true,' +
+    'calls:exact_bif_remote(1,1.0)=:={ok,{result,false}},' +
+    'erlang:\'band\'(-7,3)=:=1,raw_bif_body:bor_call_last(-7,3)=:=-5,' +
+    'raw_bif_body:bxor_call(-7,3)=:={result,-6},raw_bif_body:bnot_call_tail(0)=:=-1,' +
+    'raw_bif_body:div_call_last(-7,3)=:=-2,calls:integer_bif_remote(-7,3)=:={ok,{result,-1}},' +
+    'erlang:\'==\'(1,1.0)=:=true,raw_bif_body:ne_call_last(1,1.0)=:=false,' +
+    'raw_bif_body:exact_ne_call(1,1.0)=:={result,true},raw_bif_body:lt_call_tail(1,2)=:=true,' +
+    'raw_bif_body:le_call_last(1,1.0)=:=true,calls:comparison_bif_remote(2,1)=:={ok,{result,true}},' +
+    'raw_bif_body:ge_call_tail(1,2)=:=false,' +
+    'erlang:list_to_tuple([9])=:={9},bif_body:from_list([9])=:={9},' +
+    'raw_bif_body:tuple_to_list_last({5,6})=:=[5,6],' +
+    'bif_body:tuple_roundtrip([9])=:={ok,[9]},' +
+    'erlang:\'not\'(false)=:=true,bif_body:bool_and(true,false)=:=false,' +
+    'bif_body:guard_or(true,bad)=:=no,raw_bif_body:bool_not_guard(bad)=:={failed,bad},' +
+    'raw_bif_body:bool_xor_guard(true,false)=:=true,raw_bif_body:bool_or_call(true,false)=:={result,true},' +
+    'erlang:integer_to_list(255)=:="255",raw_bif_body:integer_chars_last(255,16)=:="FF",' +
+    'bif_body:integer_binary_base(-255,16)=:= <<"-FF">>,' +
+    'bif_body:integer_text_pair(35,36)=:={"Z",<<"Z">>},' +
+    '(try raw_bif_body:div_call_last(1,0),false catch error:badarith->true end),' +
+    '(try raw_bif_body:list_to_tuple_last([9|tail]),false catch error:badarg->true end),' +
+    '(try bif_body:to_list([]),false catch error:badarg->true end),' +
+    '(try raw_bif_body:bool_and_y(false,bad),false catch error:badarg->true end),' +
+    '(try erlang:\'or\'(true,bad),false catch error:badarg->true end),' +
+    '(try bif_body:integer_chars_base(1,1),false catch error:badarg->true end),' +
+    '(try erlang:integer_to_binary(1,16.0),false catch error:badarg->true end)]]),halt().',
   ]).trim();
   const schedulerOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'io:format("~w~n~w~n",[scheduler_fixture:count(11,8),scheduler_fixture:count(22,8)]),halt().',
@@ -794,8 +856,9 @@ try {
     'io:format("~w~n",[[Empty,Bound,Invalid,Delivered,Removed,Reused,SelfOK,FailureCleanup,LateBound,Reregistered,Disappeared]]),halt().',
   ]).trim();
   const matchOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
-    'Long=lists:seq(1,10000), LongImproper=lists:foldl(fun(X,Acc)->[X|Acc] end,tail,Long), ' +
+    'Huge=1 bsl 512, Long=lists:seq(1,10000), LongImproper=lists:foldl(fun(X,Acc)->[X|Acc] end,tail,Long), ' +
     'Bin=(fun(<<_:3,B:32/bitstring,_/bitstring>>)->B end)(<<0:3,0,1,2,255,0:1013>>), ' +
+    'Ref=make_ref(), Pid=self(), OtherPid=spawn(fun()->ok end), ' +
     'Cases=[{match_failures,case_value,[yes]},{match_failures,case_value,[no]},' +
     '{match_failures,case_value,[other]},{match_failures,case_value,[17]},' +
     '{match_failures,case_value,[{tag,5}]},{match_failures,case_value,[<<5:3>>]},' +
@@ -922,9 +985,78 @@ try {
     '{raw_bif_body,bits_call_tail,[<<1,1:1>>]},{raw_bif_body,bits_call_tail,[bad]},' +
     '{raw_bif_body,part2_call_last,[Bin,{4,-2}]},{raw_bif_body,part2_call_last,[Bin,{0,-1}]},' +
     '{raw_bif_body,part3_call,[Bin,1,2]},{raw_bif_body,part3_call,[Bin,4,1]},' +
-    '{calls,binary_bif_remote,[Bin,4,-2]},{calls,binary_bif_remote,[Bin,0,-1]}], ' +
+    '{calls,binary_bif_remote,[Bin,4,-2]},{calls,binary_bif_remote,[Bin,0,-1]},' +
+    '{erlang,\'=:=\',[1,1]},{erlang,\'=:=\',[1,1.0]},{erlang,\'=:=\',[0.0,-0.0]},' +
+    '{erlang,\'=:=\',[1 bsl 100,1 bsl 100]},' +
+    '{erlang,\'=:=\',[{[first,second],<<1,1:1>>},{[first,second],<<1,1:1>>}]},' +
+    '{erlang,\'=:=\',[{[first|tail]},{[first|other]}]},' +
+    '{erlang,\'=:=\',[Bin,<<1,1:1>>]},{erlang,\'=:=\',[[],nil]},' +
+    '{erlang,\'=:=\',[Ref,Ref]},{erlang,\'=:=\',[Ref,make_ref()]},' +
+    '{erlang,\'=:=\',[Pid,Pid]},{erlang,\'=:=\',[Pid,OtherPid]},' +
+    '{erlang,\'=:=\',[Pid,Ref]},{erlang,\'=:=\',[Long,lists:map(fun(X)->X end,Long)]},' +
+    '{raw_bif_body,exact_call_tail,[1,1]},{raw_bif_body,exact_call_tail,[1,1.0]},' +
+    '{raw_bif_body,exact_call_last,[<<1,1:1>>,<<1,1:1>>]},' +
+    '{raw_bif_body,exact_call_last,[<<1,1:1>>,Bin]},' +
+    '{raw_bif_body,exact_call,[[first|tail],[first|tail]]},' +
+    '{raw_bif_body,exact_call,[[first|tail],[first,second]]},' +
+    '{calls,exact_bif_remote,[1,1]},{calls,exact_bif_remote,[1,1.0]}] ++ ' +
+    '[{erlang,Op,[L,R]} || Op <- [\'==\',\'/=\',\'=/=\',\'<\',\'=<\',\'>\',\'>=\'], ' +
+    '{L,R} <- [{1,1},{1,1.0},{0.0,-0.0},{9007199254740993,9007199254740992.0},' +
+    '{-(1 bsl 100),1 bsl 100},{a,b},{1,a},{{1,[first,second]},{1.0,[first,second]}},' +
+    '{[first,second],[first|tail]},{[first|tail],[first,second]},' +
+    '{Bin,<<1,1:1>>},{<<1,1:1>>,<<1,1:1>>},{[],[]},' +
+    '{Ref,Ref},{Pid,Pid},{Ref,Pid},{Long,lists:map(fun(X)->X end,Long)}]] ++ ' +
+    '[{raw_bif_body,eq_call_tail,[1,1.0]},{raw_bif_body,eq_call_tail,[1,2]},' +
+    '{raw_bif_body,ne_call_last,[1,1.0]},{raw_bif_body,ne_call_last,[1,2]},' +
+    '{raw_bif_body,exact_ne_call,[1,1.0]},{raw_bif_body,exact_ne_call,[1,1]},' +
+    '{raw_bif_body,lt_call_tail,[1,2]},{raw_bif_body,lt_call_tail,[2,1]},' +
+    '{raw_bif_body,le_call_last,[1,1.0]},{raw_bif_body,le_call_last,[2,1]},' +
+    '{raw_bif_body,gt_call,[2,1]},{raw_bif_body,gt_call,[1,2]},' +
+    '{raw_bif_body,ge_call_tail,[2,1]},{raw_bif_body,ge_call_tail,[1,2]},' +
+    '{calls,comparison_bif_remote,[2,1]},{calls,comparison_bif_remote,[1,2]}] ++ ' +
+    '[{erlang,list_to_tuple,[[]]},{erlang,list_to_tuple,[[first,second]]},' +
+    '{erlang,list_to_tuple,[[{tag,5},<<1,1:1>>]]},' +
+    '{erlang,list_to_tuple,[[first|tail]]},{erlang,list_to_tuple,[LongImproper]},' +
+    '{erlang,list_to_tuple,[bad]},{erlang,list_to_tuple,[{}]},' +
+    '{erlang,tuple_to_list,[{}]},{erlang,tuple_to_list,[{tag,5}]},' +
+    '{erlang,tuple_to_list,[{{tag,5},<<1,1:1>>}]},' +
+    '{erlang,tuple_to_list,[[]]},{erlang,tuple_to_list,[[first,second]]},' +
+    '{erlang,tuple_to_list,[bad]},' +
+    '{bif_body,from_list,[[first,second]]},{bif_body,from_list,[[first|tail]]},' +
+    '{bif_body,to_list,[{tag,5}]},{bif_body,to_list,[[]]},' +
+    '{bif_body,tuple_roundtrip,[[{tag,5},<<1,1:1>>]]},' +
+    '{bif_body,tuple_roundtrip,[[first|tail]]},' +
+    '{raw_bif_body,list_to_tuple_last,[[first,second]]},' +
+    '{raw_bif_body,list_to_tuple_last,[[first|tail]]},' +
+    '{raw_bif_body,tuple_to_list_last,[{tag,5}]},{raw_bif_body,tuple_to_list_last,[[]]}] ++ ' +
+    '[{M,F,[V]} || {M,F} <- [{erlang,\'not\'},{bif_body,bool_not},{bif_body,guard_not},' +
+    '{raw_bif_body,bool_not_y},{raw_bif_body,bool_not_guard},{raw_bif_body,bool_not_call}], ' +
+    'V <- [true,false,bad,0,[]]] ++ ' +
+    'lists:append([[{M,F,[L,R]} || {M,F} <- [{erlang,Op},{bif_body,Body},{bif_body,Guard},' +
+    '{raw_bif_body,Y},{raw_bif_body,RawGuard},{raw_bif_body,Call}], ' +
+    'L <- [true,false,bad,0,[]], R <- [true,false,bad,0,[]]] || ' +
+    '{Op,Body,Guard,Y,RawGuard,Call} <- ' +
+    '[{\'and\',bool_and,guard_and,bool_and_y,bool_and_guard,bool_and_call},' +
+    '{\'or\',bool_or,guard_or,bool_or_y,bool_or_guard,bool_or_call},' +
+    '{\'xor\',bool_xor,guard_xor,bool_xor_y,bool_xor_guard,bool_xor_call}]]) ++ ' +
+    '[{raw_bif_body,bool_xor_same,[V]} || V <- [true,false,bad,0,[]]] ++ ' +
+    'lists:append([[{erlang,Name,[V]} || V <- [0,-123,Huge,-Huge,1.0,bad,{}]] ++ ' +
+    '[{erlang,Name,[V,Base]} || Base <- lists:seq(2,36), V <- [0,Huge+123,-Huge-123]] ++ ' +
+    '[{erlang,Name,[V,Base]} || {V,Base} <- [{42,0},{42,1},{42,37},{42,1 bsl 1024},' +
+    '{42,10.0},{42,bad},{1.0,10},{bad,10},{[],10}]] || ' +
+    'Name <- [integer_to_list,integer_to_binary]]) ++ ' +
+    '[{bif_body,integer_chars,[-123]},{bif_body,integer_chars,[bad]},' +
+    '{bif_body,integer_chars_base,[-255,16]},{bif_body,integer_chars_base,[1,1]},' +
+    '{bif_body,integer_binary,[-123]},{bif_body,integer_binary,[1.0]},' +
+    '{bif_body,integer_binary_base,[35,36]},{bif_body,integer_binary_base,[1,37]},' +
+    '{bif_body,integer_text_pair,[-255,16]},{bif_body,integer_text_pair,[1,1]},' +
+    '{raw_bif_body,integer_chars_last,[255,16]},{raw_bif_body,integer_chars_last,[1,1]},' +
+    '{raw_bif_body,integer_binary_last,[-255,16]},{raw_bif_body,integer_binary_last,[[],10]}], ' +
     'lists:foreach(fun({M,F,A}) -> Result=try apply(M,F,A) of V->{ok,V} ' +
-    'catch C:R->{C,R} end, io:format("~w~n",[Result]) end,Cases),halt().',
+    'catch C:R->{C,R} end, io:format("~w~n",[Result]) end,Cases), ' +
+    'LongTuple=list_to_tuple(Long), LongRoundtrip=tuple_size(LongTuple)=:=10000 andalso ' +
+    'element(1,LongTuple)=:=1 andalso element(10000,LongTuple)=:=10000 andalso ' +
+    'tuple_to_list(LongTuple)=:=Long, io:format("~w~n",[{ok,LongRoundtrip}]),halt().',
   ]).trimEnd().split('\n');
   const arithmeticOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Huge=1 bsl 1024, MaxIntegerFloat=Huge-(1 bsl 971), FloatOverflowTie=Huge-(1 bsl 970), ' +
@@ -1128,7 +1260,18 @@ try {
     '{raw_bif_body,multiply_call,[-7,3]},{raw_bif_body,multiply_call,[bad,3]},' +
     '{raw_bif_body,divide_call_tail,[5,2]},{raw_bif_body,divide_call_tail,[1,0]},' +
     '{raw_bif_body,negate_call,[-0.0]},{raw_bif_body,negate_call,[bad]},' +
-    '{calls,arithmetic_bif_remote,[6,7]},{calls,arithmetic_bif_remote,[bad,7]}], ' +
+    '{calls,arithmetic_bif_remote,[6,7]},{calls,arithmetic_bif_remote,[bad,7]}] ++ ' +
+    '[{erlang,Op,[L,R]} || Op <- [\'band\',\'bor\',\'bxor\',\'div\',\'rem\'], ' +
+    '{L,R} <- [{-7,3},{-7,-3},{7,-3},{Huge,-7},{-Huge,Huge+1},{0,0},{1,0},' +
+    '{1.0,3},{3,1.0},{bad,1},{1,bad}]] ++ ' +
+    '[{erlang,\'bnot\',[V]} || V <- [0,-Huge,1.0,bad]] ++ ' +
+    '[{raw_bif_body,band_call_tail,[-7,3]},{raw_bif_body,band_call_tail,[bad,3]},' +
+    '{raw_bif_body,bor_call_last,[-7,3]},{raw_bif_body,bor_call_last,[3,1.0]},' +
+    '{raw_bif_body,bxor_call,[-7,3]},{raw_bif_body,bxor_call,[bad,3]},' +
+    '{raw_bif_body,bnot_call_tail,[-Huge]},{raw_bif_body,bnot_call_tail,[bad]},' +
+    '{raw_bif_body,div_call_last,[-7,3]},{raw_bif_body,div_call_last,[1,0]},' +
+    '{raw_bif_body,rem_call,[-7,3]},{raw_bif_body,rem_call,[1,0]},' +
+    '{calls,integer_bif_remote,[-7,3]},{calls,integer_bif_remote,[1,0]}], ' +
     'Format=fun F(V) when is_integer(V) -> integer_to_list(V); ' +
     'F(V) when is_float(V) -> <<Bits:64>> = <<V:64/float>>, io_lib:format("float:~16.16.0b",[Bits]); ' +
     'F(V) when is_atom(V) -> atom_to_list(V); ' +

@@ -246,8 +246,11 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
              <<", y, f}, timeoutPc: ">>, integer_to_list(Index + 1), <<", timeout: ">>,
              operand(Time, Context, Index), <<", registers: x};">>];
         {bif, Op, {f, Target}, [Source], Dest}
-          when Op =:= hd; Op =:= tl; Op =:= tuple_size ->
+          when Op =:= hd; Op =:= tl; Op =:= tuple_size; Op =:= 'not' ->
             guard_bif(Op, [Source], Dest, Target, Index, Labels, Context);
+        {bif, Op, {f, Target}, [Left, Right], Dest}
+          when Op =:= 'and'; Op =:= 'or'; Op =:= 'xor' ->
+            guard_bif(Op, [Left, Right], Dest, Target, Index, Labels, Context);
         {bif, element, {f, Target}, [Position, Source], Dest} ->
             guard_bif(element, [Position, Source], Dest, Target, Index, Labels, Context);
         {gc_bif, Op, {f, Target}, Live, [Source], Dest}
@@ -354,6 +357,19 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
             {[<<"const result = rt.guardListTuple(">>, string(ListTuple), <<", ">>,
               lists:join(<<", ">>, Values), <<"); ">>],
              <<"result !== null">>, <<"result">>};
+        {'not', [Value]} ->
+            {[<<"const value = ">>, Value, <<"; ">>],
+             <<"rt.isType('is_boolean', value)">>,
+             <<"rt.atom(value === rt.atom('false') ? 'true' : 'false')">>};
+        {Boolean, [Left, Right]} when Boolean =:= 'and'; Boolean =:= 'or'; Boolean =:= 'xor' ->
+            Expression = case Boolean of
+                'and' -> <<"left === rt.atom('true') && right === rt.atom('true')">>;
+                'or' -> <<"left === rt.atom('true') || right === rt.atom('true')">>;
+                'xor' -> <<"left !== right">>
+            end,
+            {[<<"const left = ">>, Left, <<"; const right = ">>, Right, <<"; ">>],
+             <<"rt.isType('is_boolean', left) && rt.isType('is_boolean', right)">>,
+             [<<"rt.atom(">>, Expression, <<" ? 'true' : 'false')">>]};
         {'bnot', [Value]} ->
             {[<<"const value = ">>, Value, <<"; ">>],
              <<"typeof value === 'bigint'">>, <<"~value">>};
@@ -399,7 +415,8 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
                             FailureOp =:= abs; FailureOp =:= trunc; FailureOp =:= round;
                             FailureOp =:= floor; FailureOp =:= ceil; FailureOp =:= float;
                             FailureOp =:= bit_size; FailureOp =:= byte_size;
-                            FailureOp =:= binary_part ->
+                            FailureOp =:= binary_part; FailureOp =:= 'not';
+                            FailureOp =:= 'and'; FailureOp =:= 'or'; FailureOp =:= 'xor' ->
             <<"rt.raiseError(rt.atom('badarg'));">>;
         _ -> [<<"pc = ">>, target(Target, Labels, Context, Index), <<";">>]
     end,

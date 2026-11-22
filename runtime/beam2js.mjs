@@ -28,6 +28,36 @@ const callableBifs = new Map([
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
 }]));
+for (const [name, compare] of [
+  ['=:=', (rt, left, right) => rt.equalExact(left, right)],
+  ['=/=', (rt, left, right) => !rt.equalExact(left, right)],
+  ['==', (rt, left, right) => rt.equalNumeric(left, right)],
+  ['/=', (rt, left, right) => !rt.equalNumeric(left, right)],
+  ['<', (rt, left, right) => rt.compare(left, right) < 0],
+  ['=<', (rt, left, right) => rt.compare(left, right) <= 0],
+  ['>', (rt, left, right) => rt.compare(left, right) > 0],
+  ['>=', (rt, left, right) => rt.compare(left, right) >= 0],
+]) {
+  callableBifs.set(JSON.stringify([name, 2]), {
+    exported: true,
+    run: (rt, [left, right]) => ({type: 'return', value: rt.atom(compare(rt, left, right) ? 'true' : 'false')}),
+  });
+}
+for (const [name, arity, operation] of [
+  ['not', 1, (truth, left) => left !== truth],
+  ['and', 2, (truth, left, right) => left === truth && right === truth],
+  ['or', 2, (truth, left, right) => left === truth || right === truth],
+  ['xor', 2, (truth, left, right) => left !== right],
+]) {
+  callableBifs.set(JSON.stringify([name, arity]), {
+    exported: true,
+    run: (rt, args) => {
+      if (args.some(value => !rt.isType('is_boolean', value))) rt.raiseError(rt.atom('badarg'));
+      const result = operation(rt.atom('true'), ...args);
+      return {type: 'return', value: rt.atom(result ? 'true' : 'false')};
+    },
+  });
+}
 callableBifs.set(JSON.stringify(['self', 0]), {
   exported: true,
   run: (rt, args, state, budget, pid) => ({type: 'return', value: pid}),
@@ -123,7 +153,8 @@ function addGuardedBifs(entries, guard, errorReason = 'badarg') {
     });
   }
 }
-addGuardedBifs([['hd', 1], ['tl', 1], ['length', 1], ['tuple_size', 1], ['element', 2]],
+addGuardedBifs([['hd', 1], ['tl', 1], ['length', 1], ['tuple_size', 1], ['element', 2],
+  ['list_to_tuple', 1], ['tuple_to_list', 1]],
   (rt, name, args) => rt.guardListTuple(name, ...args));
 addGuardedBifs([['bit_size', 1], ['byte_size', 1], ['binary_part', 2], ['binary_part', 3]],
   (rt, name, args) => rt.guardBitstringBif(name, ...args));
@@ -132,6 +163,21 @@ addGuardedBifs([['abs', 1], ['trunc', 1], ['round', 1], ['floor', 1], ['ceil', 1
 addGuardedBifs([['+', 2], ['-', 1], ['-', 2], ['*', 2], ['/', 2]],
   (rt, name, args) => rt.guardArithmetic(name === '-' && args.length === 1 ? 'neg' : name, ...args),
   'badarith');
+addGuardedBifs([['band', 2], ['bor', 2], ['bxor', 2], ['bnot', 1], ['div', 2], ['rem', 2]],
+  (rt, name, args) => rt.guardArithmetic(name, ...args), 'badarith');
+addGuardedBifs([
+  ['integer_to_list', 1], ['integer_to_list', 2],
+  ['integer_to_binary', 1], ['integer_to_binary', 2],
+], (rt, name, [value, base = 10n]) => {
+  if (typeof value !== 'bigint' || typeof base !== 'bigint' || base < 2n || base > 36n) return null;
+  const text = value.toString(Number(base)).toUpperCase();
+  if (name === 'integer_to_binary') {
+    return rt.bitstring(Array.from(text, char => char.charCodeAt(0)), text.length * 8);
+  }
+  let list = nil;
+  for (let i = text.length - 1; i >= 0; i--) list = rt.cons(BigInt(text.charCodeAt(i)), list);
+  return list;
+});
 
 function isAtom(value) {
   return typeof value === 'symbol' && Symbol.keyFor(value) !== undefined;
@@ -319,7 +365,8 @@ export class Runtime {
 
   guardListTuple(op, ...args) {
     const arity = op === 'element' ? 2 : 1;
-    if (!['hd', 'tl', 'length', 'tuple_size', 'element'].includes(op) || args.length !== arity) {
+    if (!['hd', 'tl', 'length', 'tuple_size', 'element', 'list_to_tuple', 'tuple_to_list'].includes(op) ||
+        args.length !== arity) {
       throw new Error(`invalid list or tuple BIF: ${op}/${args.length}`);
     }
     for (const value of args) termType(value);
@@ -336,9 +383,24 @@ export class Runtime {
       }
       return value === nil ? length : null;
     }
+    if (op === 'list_to_tuple') {
+      let value = args[0];
+      const elements = [];
+      while (consCells.has(value)) {
+        const [head, tail] = consCells.get(value);
+        elements.push(head);
+        value = tail;
+      }
+      return value === nil ? this.tuple(elements) : null;
+    }
     const elements = tuples.get(args[op === 'element' ? 1 : 0]);
     if (!elements) return null;
     if (op === 'tuple_size') return BigInt(elements.length);
+    if (op === 'tuple_to_list') {
+      let result = nil;
+      for (let i = elements.length - 1; i >= 0; i--) result = this.cons(elements[i], result);
+      return result;
+    }
     const position = args[0];
     if (typeof position !== 'bigint' || position < 1n || position > BigInt(elements.length)) return null;
     return elements[Number(position - 1n)];
@@ -470,12 +532,24 @@ export class Runtime {
   }
 
   guardArithmetic(op, left, right) {
-    const unary = ['neg', 'abs', 'trunc', 'round', 'floor', 'ceil', 'float'].includes(op);
-    if ((!unary && !['+', '-', '*', '/'].includes(op)) || unary !== (right === undefined)) {
+    const unary = ['neg', 'abs', 'trunc', 'round', 'floor', 'ceil', 'float', 'bnot'].includes(op);
+    if ((!unary && !['+', '-', '*', '/', 'band', 'bor', 'bxor', 'div', 'rem'].includes(op)) ||
+        unary !== (right === undefined)) {
       throw new Error(`invalid guard arithmetic operation: ${op}`);
     }
     const leftType = termType(left);
     const rightType = unary ? undefined : termType(right);
+    if (['band', 'bor', 'bxor', 'bnot', 'div', 'rem'].includes(op)) {
+      if (leftType !== 'integer' || (!unary && rightType !== 'integer')) return null;
+      switch (op) {
+        case 'band': return left & right;
+        case 'bor': return left | right;
+        case 'bxor': return left ^ right;
+        case 'bnot': return ~left;
+        case 'div': return right === 0n ? null : left / right;
+        case 'rem': return right === 0n ? null : left % right;
+      }
+    }
     if ((leftType !== 'integer' && leftType !== 'float') ||
         (rightType !== undefined && rightType !== 'integer' && rightType !== 'float')) return null;
 

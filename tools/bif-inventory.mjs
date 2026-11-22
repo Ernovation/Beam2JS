@@ -136,9 +136,19 @@ const details = new Map([
   ['erlang:hd/1', {exceptions: 'badarg for empty or non-cons input'}],
   ['erlang:tl/1', {exceptions: 'badarg for empty or non-cons input'}],
   ['erlang:length/1', {exceptions: 'badarg for improper or non-list input'}],
+  ['erlang:list_to_tuple/1', {exceptions: 'badarg for improper or non-list input'}],
+  ['erlang:tuple_to_list/1', {exceptions: 'badarg for non-tuple input'}],
+  ['erlang:integer_to_list/1', {exceptions: 'badarg for non-integer input'}],
+  ['erlang:integer_to_list/2', {exceptions: 'badarg for non-integer input or invalid base'}],
+  ['erlang:integer_to_binary/1', {exceptions: 'badarg for non-integer input'}],
+  ['erlang:integer_to_binary/2', {exceptions: 'badarg for non-integer input or invalid base'}],
   ['erlang:bit_size/1', {exceptions: 'badarg for non-bitstring input'}],
   ['erlang:byte_size/1', {exceptions: 'badarg for non-bitstring input'}],
   ['erlang:element/2', {exceptions: 'badarg for invalid index or non-tuple'}],
+  ['erlang:not/1', {exceptions: 'badarg for non-boolean input'}],
+  ['erlang:and/2', {exceptions: 'badarg for non-boolean input'}],
+  ['erlang:or/2', {exceptions: 'badarg for non-boolean input'}],
+  ['erlang:xor/2', {exceptions: 'badarg for non-boolean input'}],
   ['erlang:abs/1', {exceptions: 'badarg for non-number input'}],
   ['erlang:trunc/1', {exceptions: 'badarg for non-number input'}],
   ['erlang:round/1', {exceptions: 'badarg for non-number input'}],
@@ -219,9 +229,16 @@ const instructionAndCallable = new Set([
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
-  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2',
+  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2', 'erlang:=:=/2',
+  'erlang:==/2', 'erlang:/=/2', 'erlang:=/=/2', 'erlang:</2', 'erlang:=</2',
+  'erlang:>/2', 'erlang:>=/2',
+  'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1', 'erlang:div/2', 'erlang:rem/2',
+  'erlang:not/1', 'erlang:and/2', 'erlang:or/2', 'erlang:xor/2',
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/2', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
+  'erlang:list_to_tuple/1', 'erlang:tuple_to_list/1',
+  'erlang:integer_to_list/1', 'erlang:integer_to_list/2',
+  'erlang:integer_to_binary/1', 'erlang:integer_to_binary/2',
   'erlang:monotonic_time/0', 'erlang:monotonic_time/1',
   'erlang:get/0', 'erlang:get_keys/0', 'erlang:get_keys/1', 'erlang:put/2', 'erlang:erase/0', 'erlang:erase/1',
   'erlang:send_after/3', 'erlang:send_after/4', 'erlang:start_timer/3', 'erlang:start_timer/4',
@@ -229,11 +246,8 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:read_timer/2', 'erlang:cancel_timer/2',
   'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0']);
 const guardInstructionOnly = new Set();
-const bodyAndGuardInstructionOnly = new Set(['erlang:=:=/2']);
-const arithmeticInstructionOnly = new Set([
-  'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1',
-  'erlang:div/2', 'erlang:rem/2',
-]);
+const bodyAndGuardInstructionOnly = new Set();
+const arithmeticInstructionOnly = new Set();
 for (const name of details.keys()) {
   if (!entries.some(entry => key(entry) === name)) throw new Error(`unknown BIF detail: ${name}`);
 }
@@ -286,13 +300,13 @@ They are release/build observations, not proof of Beam2JS support.
   instruction (including \`send/0\` for \`!/2\`) and external callable BIF are supported for the implemented integer,
   float, atom, list, tuple, bitstring, local PID and local reference terms. Failing list, tuple, binary and
   selected numeric BIFs branch in guards and raise \`badarg\` in body and callable forms;
-  supported arithmetic operators instead raise \`badarith\`.
+  supported arithmetic operators instead raise \`badarith\`. Comparison
+  operators use comparison test instructions in guards.
   \`callable-only\` means external calls are supported without a specialized BIF instruction.
   \`guard-instruction-only\` means the listed BIF instruction is supported
   only with a nonzero guard failure label, for the implemented terms.
   \`body-and-guard-instruction-only\` covers selected zero-label BIF
-  instructions and their guard forms. For exact equality, the guard form is
-  the comparison test instruction; neither form dispatches a callable BIF.
+  instructions and their guard forms.
   \`arithmetic-instruction-only\` covers both guard and zero-label forms of
   selected arithmetic instructions, including \`badarith\` failures and the
   supported floating-point-register sequence. Implemented forms are
@@ -316,6 +330,19 @@ and focused OTP tests; they are not exhaustive exception or resource contracts.
 The [raw BIF fixture](../fixtures/raw_bifs.S) additionally checks selected
 guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
 
+- \`=:=/2\` returns a boolean atom using exact term equality, including
+  distinctions between integers and floats and between signed floating zeroes.
+  Its body instruction and callable form are tested against OTP in Node and
+  Chromium, including stripped assembly callers. Comparisons are synchronous.
+- \`==/2\`, \`/=/2\`, \`=/=/2\`, \`</2\`, \`=</2\`, \`>/2\` and \`>=/2\`
+  return boolean atoms using numeric or exact equality and Erlang term ordering.
+  Callable forms and comparison test instructions are tested against OTP in
+  Node and Chromium, including stripped assembly callers. Comparisons are synchronous.
+- Boolean \`not/1\`, \`and/2\`, \`or/2\` and \`xor/2\` require boolean
+  arguments; invalid inputs branch in guard instructions or raise \`badarg\`
+  in zero-label and callable forms. Both operands of binary operators are
+  validated. OTP, Node and Chromium tests cover truth tables, invalid values,
+  aliased x/y destinations, external calls and stripped inputs.
 - \`hd/1\` and \`tl/1\` accept nonempty cons cells, including improper lists;
   \`length/1\` requires a proper list. Invalid inputs tested here raise
   \`badarg\` in a body. Nonzero-label \`length/1\` guard instructions are
@@ -327,6 +354,19 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   fixtures. Callable forms are also tested through direct and external calls,
   including invalid inputs and stripped input. Traversal is synchronous and can block the host event loop; OTP
   scheduling behavior is not implemented.
+- \`list_to_tuple/1\` and \`tuple_to_list/1\` preserve element order and
+  raise \`badarg\` for an improper/non-list or non-tuple respectively. Callable
+  forms are tested against OTP in Node and Chromium, including stripped
+  compiler-generated callers and long lists. Conversion is synchronous and
+  OTP resource limits and scheduling behavior are not implemented.
+- Callable \`integer_to_list/1,2\` and \`integer_to_binary/1,2\` format integers
+  using uppercase digits and an optional leading minus. The default base is 10;
+  explicit bases must be integers from 2 through 36. Invalid arguments raise
+  \`badarg\`. OTP, Node and Chromium tests cover all bases, large integers,
+  invalid inputs, external calls and scheduler yields, including stripped
+  callers. Conversion is synchronous and can block the event loop; OTP resource
+  limits and scheduling behavior are not implemented. \`list_to_integer/1,2\`
+  are ordinary preloaded Erlang functions, not runtime BIFs.
 - \`element/2\` uses one-based tuple indexes; a non-tuple or invalid index
   raises \`badarg\` in a body. \`tuple_size/1\` returns the number of tuple
   elements and raises \`badarg\` for a non-tuple. Guard and zero-label
@@ -405,15 +445,18 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   Chromium, including stripped [compiler-generated](../fixtures/bitwise_guards.erl)
   and [assembly](../fixtures/raw_bitwise_guards.S) fixtures. Zero-label forms
   are tested in [body](../fixtures/arithmetic_body.erl) and
-  [assembly](../fixtures/raw_arithmetic_body.S) fixtures. OTP resource limits,
+  [assembly](../fixtures/raw_arithmetic_body.S) fixtures. Callable forms are
+  tested against OTP in Node and Chromium, including stripped external callers.
+  OTP resource limits,
   garbage collection and scheduling are not implemented.
 - Integer \`div/2\` truncates toward zero and \`rem/2\` has the dividend's
   sign; zero divisors and non-integers raise \`badarith\` in a body. Their
   nonzero-label guard instructions are tested against OTP in Node and
   Chromium, including stripped [compiler-generated](../fixtures/integer_guards.erl)
   and [assembly](../fixtures/raw_integer_guards.S) fixtures. Zero-label forms
-  are tested in the same body and assembly fixtures. OTP resource and
-  scheduling behavior are not implemented.
+  are tested in the same body and assembly fixtures. Callable forms are tested
+  against OTP in Node and Chromium, including stripped external callers.
+  OTP resource and scheduling behavior are not implemented.
 - \`binary_part/2\` and \`binary_part/3\` use a zero-based start; the
   two-argument form accepts a \`{Start,Length}\` tuple. A negative length selects bytes
   preceding that start; a valid empty range is allowed. Invalid types,

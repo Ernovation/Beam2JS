@@ -62,9 +62,11 @@ assert.match(row('bif1'), /is_reference BIF with zero failure label and ordinary
 assert.match(row('bif1'), /hd, tl and tuple_size with guard or zero failure label.*badarg/);
 assert.match(row('bif1'), /hd, tl and tuple_size.*ordinary x or y destination/);
 assert.match(row('bif1'), /Zero-label get\/1.*x or y destination/);
+assert.match(row('bif1'), /Boolean not.*guard or zero failure label.*aliased source.*badarg/);
 assert.match(row('bif2'), /Beam2JS: Normalized element.*guard or zero failure label.*badarg/);
 assert.match(row('bif2'), /ordinary x or y destination.*branch without writing/);
 assert.match(row('bif2'), /Zero-label =:= BIF.*exact-equality boolean atoms.*x or y destination including aliased operands/);
+assert.match(row('bif2'), /Boolean and, or and xor.*guard or zero failure label.*aliased operands.*badarg/);
 assert.match(row('gc_bif1'), /Beam2JS: Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards.*nonzero failure label/);
 assert.match(row('gc_bif1'), /length, bit_size and byte_size also support y destinations, including an aliased source/);
 assert.match(row('gc_bif1'), /bnot likewise supports y destinations and an aliased source/);

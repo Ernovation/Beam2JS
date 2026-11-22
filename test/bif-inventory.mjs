@@ -24,12 +24,23 @@ for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_floa
 for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
   'bit_size/1', 'byte_size/1', 'binary_part/2', 'binary_part/3',
   'abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1', 'self/0',
-  '+/2', '-/1', '-/2', '*/2', '//2']) {
+  '+/2', '-/1', '-/2', '*/2', '//2', '=:=/2',
+  '==/2', '/=/2', '=/=/2', '</2', '=</2', '>/2', '>=/2',
+  'band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2',
+  'not/1', 'and/2', 'or/2', 'xor/2']) {
   assert.equal(row(`erlang:${name}`)[11], 'instruction-and-callable');
 }
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 34);
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 52);
+assert.equal(row('erlang:list_to_tuple/1')[11], 'callable-only');
+assert.equal(row('erlang:tuple_to_list/1')[11], 'callable-only');
+for (const name of ['integer_to_list/1', 'integer_to_list/2', 'integer_to_binary/1', 'integer_to_binary/2']) {
+  assert.equal(row(`erlang:${name}`)[11], 'callable-only');
+  assert.match(row(`erlang:${name}`)[9], /badarg.*non-integer/);
+}
+assert.match(row('erlang:integer_to_list/2')[9], /invalid base/);
+assert.match(row('erlang:integer_to_binary/2')[9], /invalid base/);
 for (const name of ['get/0', 'get_keys/0', 'get_keys/1', 'put/2', 'erase/0', 'erase/1']) {
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }
@@ -50,12 +61,8 @@ for (const name of ['register/2', 'unregister/1', 'whereis/1', 'registered/0']) 
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }
 assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
-assert.equal(row('erlang:=:=/2')[11], 'body-and-guard-instruction-only');
-assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 1);
-for (const name of ['band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2']) {
-  assert.equal(row(`erlang:${name}`)[11], 'arithmetic-instruction-only');
-}
-assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 6);
+assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 0);
+assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 0);
 assert.equal(row('erlang:is_map/1')[11], 'not implemented');
 assert.equal(row('erlang:+/2')[7], 'operator');
 assert.equal(row('erlang:list_to_atom/1')[7], 'no');
@@ -75,6 +82,11 @@ assert.equal(row('maps:is_key/2')[7], 'no');
 assert.match(row('erlang:hd/1')[9], /non-cons/);
 assert.match(row('erlang:tl/1')[9], /non-cons/);
 assert.match(row('erlang:length/1')[9], /improper/);
+assert.match(row('erlang:list_to_tuple/1')[9], /badarg.*improper/);
+assert.match(row('erlang:tuple_to_list/1')[9], /badarg.*non-tuple/);
+for (const name of ['not/1', 'and/2', 'or/2', 'xor/2']) {
+  assert.match(row(`erlang:${name}`)[9], /badarg.*non-boolean/);
+}
 assert.match(row('erlang:bit_size/1')[9], /non-bitstring/);
 assert.match(row('erlang:byte_size/1')[9], /non-bitstring/);
 assert.match(row('erlang:-/1')[9], /badarith/);
@@ -110,6 +122,8 @@ assert.ok(byKey.has('lists:member/2'));
 assert.ok(!byKey.has('lists:map/2'));
 assert.ok(!byKey.has('erlang:spawn/1'));
 assert.ok(!byKey.has('maps:get/3'));
+assert.ok(!byKey.has('erlang:list_to_integer/1'));
+assert.ok(!byKey.has('erlang:list_to_integer/2'));
 
 const oracle = execFileSync('erl', ['-noshell', '-eval',
   '{ok,V}=file:read_file(filename:join([code:root_dir(),"releases",' +

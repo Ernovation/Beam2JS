@@ -369,6 +369,23 @@ export function arithmeticResults(runtime) {
     ['raw_bif_body', 'negate_call', [f(-0)]], ['raw_bif_body', 'negate_call', [bad]],
     ['calls', 'arithmetic_bif_remote', [6n, 7n]], ['calls', 'arithmetic_bif_remote', [bad, 7n]],
   ];
+  for (const name of ['band', 'bor', 'bxor', 'div', 'rem']) {
+    for (const args of [[-7n, 3n], [-7n, -3n], [7n, -3n], [huge, -7n],
+      [-huge, huge + 1n], [0n, 0n], [1n, 0n],
+      [f(1), 3n], [3n, f(1)], [bad, 1n], [1n, bad]]) {
+      cases.push(['erlang', name, args]);
+    }
+  }
+  for (const value of [0n, -huge, f(1), bad]) cases.push(['erlang', 'bnot', [value]]);
+  cases.push(
+    ['raw_bif_body', 'band_call_tail', [-7n, 3n]], ['raw_bif_body', 'band_call_tail', [bad, 3n]],
+    ['raw_bif_body', 'bor_call_last', [-7n, 3n]], ['raw_bif_body', 'bor_call_last', [3n, f(1)]],
+    ['raw_bif_body', 'bxor_call', [-7n, 3n]], ['raw_bif_body', 'bxor_call', [bad, 3n]],
+    ['raw_bif_body', 'bnot_call_tail', [-huge]], ['raw_bif_body', 'bnot_call_tail', [bad]],
+    ['raw_bif_body', 'div_call_last', [-7n, 3n]], ['raw_bif_body', 'div_call_last', [1n, 0n]],
+    ['raw_bif_body', 'rem_call', [-7n, 3n]], ['raw_bif_body', 'rem_call', [1n, 0n]],
+    ['calls', 'integer_bif_remote', [-7n, 3n]], ['calls', 'integer_bif_remote', [1n, 0n]],
+  );
 
   function format(value) {
     if (typeof value === 'bigint') return String(value);
@@ -389,6 +406,8 @@ export function arithmeticResults(runtime) {
   shadow.registerModule(26, 'erlang', [
     {name: '+', arity: 2}, {name: '-', arity: 1}, {name: '-', arity: 2},
     {name: '*', arity: 2}, {name: '/', arity: 2}, {name: '+', arity: 1},
+    ...['band', 'bor', 'bxor', 'div', 'rem'].map(name => ({name, arity: 2})),
+    {name: 'bnot', arity: 1}, {name: 'band', arity: 1},
   ].map(entry => ({
     ...entry, exported: true, run: rt => ({type: 'return', value: rt.atom('shadow')}),
   })));
@@ -396,6 +415,9 @@ export function arithmeticResults(runtime) {
     ['+', [2n, 3n], 5n], ['-', [2n], -2n], ['-', [2n, 3n], -1n],
     ['*', [2n, 3n], 6n], ['/', [6n, 3n], shadow.float(2)],
     ['+', [2n], shadow.atom('shadow')],
+    ['band', [-7n, 3n], 1n], ['bor', [-7n, 3n], -5n], ['bxor', [-7n, 3n], -6n],
+    ['bnot', [0n], -1n], ['div', [-7n, 3n], -2n], ['rem', [-7n, 3n], -1n],
+    ['band', [2n], shadow.atom('shadow')],
   ]) {
     if (!shadow.equalExact(shadow.invoke('erlang', name, args), expected)) {
       throw new Error(`incorrect arithmetic BIF dispatch: ${name}/${args.length}`);

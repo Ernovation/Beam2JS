@@ -115,7 +115,8 @@ untrusted-input safety claim is made without tests and a completed audit.
   Integer bitwise `band`, `bor`, `bxor` and `bnot`, integer `div` and `rem`,
   unary negation and binary `+`, `-`, `*` and `/` instructions support guard
   and zero-label forms; the latter raise `badarith` on invalid inputs or overflow.
-  Unary negation and binary arithmetic operators also support callable BIF forms.
+  These integer operators, unary negation and binary arithmetic operators also
+  support callable BIF forms.
   The bitwise, `div`, `rem`, unary negation and binary arithmetic forms support
   ordinary x and y destinations, including aliased operands, without changing
   the destination on guard failure.
@@ -134,8 +135,8 @@ untrusted-input safety claim is made without tests and a completed audit.
   and selected value and tuple-arity branches are also supported. Type-tagged
   x- and y-register sources are read without validating their hints; type-tagged
   operands without the disassembler's required type table remain unsupported.
-  The zero-label `=:=/2` instruction returns exact-equality boolean atoms, but
-  callable `erlang:'=:='/2` is not implemented. Selected `hd`, `tl`, `length`, `tuple_size` and `element`
+  The zero-label `=:=/2` instruction and callable `erlang:'=:='/2` return
+  exact-equality boolean atoms. Selected `hd`, `tl`, `length`, `tuple_size` and `element`
   instructions branch on invalid input in guards or raise `badarg` in zero-label
   forms. `bit_size`, `byte_size` and `binary_part` instructions likewise branch
   in guards or raise `badarg` in zero-label forms.
@@ -263,8 +264,13 @@ BIFs.
   Preserve exact return values, error classes/reasons and guard failure rules.
   Eleven non-failing type-predicate BIFs and selected list/tuple, binary and numeric
   BIFs support instruction and callable forms for the existing term subset. Selected
-  integer bitwise guard and body BIF instructions are supported. Unary negation and
-  binary `+`, `-`, `*` and `/` support instructions and callable BIF forms.
+  integer bitwise and division operators, unary negation and binary `+`, `-`,
+  `*` and `/` support instructions and callable BIF forms.
+  Comparison operators support comparison test instructions and callable forms;
+  exact equality also supports a zero-label BIF instruction.
+  Boolean `not`, `and`, `or` and `xor` support instructions and callable forms.
+  `list_to_tuple/1`, `tuple_to_list/1`, `integer_to_list/1,2` and
+  `integer_to_binary/1,2` are callable.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
   `make_ref/0` are callable, as are the local timer, dictionary, process-info and registry BIFs
   described in phases 8 and 10; other callable BIFs remain unimplemented.
@@ -275,6 +281,31 @@ BIFs.
   including external calls and `badarith` exceptions. Compare integer, float,
   overflow and failure behavior with OTP in Node and Chromium, including stripped
   callers and forced scheduler yields.
+- [x] Support callable `erlang:'=:='/2` for the supported term types, including
+  external tail and non-tail calls. Compare exact equality with OTP in Node and
+  Chromium, including stripped callers and forced scheduler yields. Comparison
+  remains synchronous.
+- [x] Support the other callable comparison operators `==`, `/=`, `=/=`, `<`,
+  `=<`, `>` and `>=` for supported terms. Compare numeric and exact equality,
+  ordering, external calls and scheduler yields with OTP in Node and Chromium,
+  including stripped callers. Comparisons remain synchronous.
+- [x] Support callable `erlang` integer `band`, `bor`, `bxor`, `bnot`, `div`
+  and `rem`, including external calls and `badarith` exceptions. Compare large
+  and negative integers, invalid operands and zero divisors with OTP in Node
+  and Chromium, including stripped callers and forced scheduler yields.
+- [x] Support callable `list_to_tuple/1` and `tuple_to_list/1`, including
+  compiler-generated calls and `badarg` failures. Test empty, nested, long and
+  improper inputs against OTP in Node and Chromium, including stripped callers
+  and scheduler yields. Conversion remains synchronous.
+- [x] Support boolean `not`, `and`, `or` and `xor` BIF instructions and
+  callable forms, with guard failure, `badarg` exceptions and x/y destinations.
+  Test truth tables, non-booleans, aliased operands and scheduler yields against
+  OTP in Node and Chromium, including stripped callers.
+- [x] Support callable `integer_to_list/1,2` and `integer_to_binary/1,2`.
+  Test all bases, large signed integers, invalid arguments, external calls and
+  scheduler yields against OTP in Node and Chromium, including stripped callers.
+  Conversion remains synchronous; OTP resource and scheduling behavior is not
+  reproduced.
 - [ ] Implement dynamic `apply`/function resolution and the supported portions
   of module introspection, including `module_info`, rather than treating BIFs
   as ordinary missing external modules.
