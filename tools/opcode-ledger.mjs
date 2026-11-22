@@ -53,11 +53,11 @@ const partial = new Map([
   ['gc_bif3', 'Normalized binary_part/3 guard with supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments or ranges branch without writing the destination, or raise badarg with zero label. Slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
   ['test_heap', 'Nonnegative word count or allocation list with distinct words/floats/funs counts, and live x-register count; no-op under JavaScript GC, without OTP resource or scheduling semantics.'],
   ['put_list', 'Supported head and tail terms to x destination; constructs an immutable cons.'],
-  ['get_list', 'Supported nonempty list source and distinct x destinations; captures the source before writes.'],
+  ['get_list', 'Supported nonempty list source and distinct ordinary x or y destinations; captures the source before writes, including when it aliases either destination.'],
   ['get_hd', 'Supported nonempty list source and x destination; invalid source raises a host error.'],
   ['get_tl', 'Supported nonempty list source and x destination; invalid source raises a host error.'],
-  ['put_tuple2', 'Supported element operands and x destination; constructs an immutable tuple.'],
-  ['get_tuple_element', 'Supported tuple source, zero-based index and x destination; invalid source or index raises a host error.'],
+  ['put_tuple2', 'Supported element operands and ordinary x or y destination; constructs an immutable tuple before writing the destination, including when an element aliases it.'],
+  ['get_tuple_element', 'Supported tuple source, zero-based index and ordinary x or y destination; source is read before writing, including when it aliases the destination. Invalid source or index raises a host error.'],
   ['test_arity', 'Supported tuple source and nonnegative safe-integer arity; invalid source raises a host error.'],
   ['is_lt', 'Supported integer/float/atom/list/tuple/bitstring/PID/reference operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
   ['is_ge', 'Supported integer/float/atom/list/tuple/bitstring/PID/reference operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
@@ -465,12 +465,18 @@ conversion and result overflow, aliased destinations and x/y registers.
 Floating registers are not preserved across calls.
 The
 [list fixture](../fixtures/list_slice.erl)
-also exercises nil, list construction and extraction, including an aliased
-\`get_list\` source and destination. Integer-word and supported allocation-list
+also exercises nil, list construction and extraction. The call and stack
+assembly fixtures additionally cover \`get_list\` with x/y destinations and an
+aliased source across calls and scheduler yields, including stripped input.
+Integer-word and supported allocation-list
 \`test_heap\` forms are no-ops; OTP GC, memory exhaustion and scheduler effects
 are not reproduced.
 The [tuple fixture](../fixtures/tuple_slice.erl) exercises construction,
 tagged matching, extraction and the empty tuple literal. The
+[call](../fixtures/calls.erl) and [stack assembly](../fixtures/raw_stack.S)
+fixtures also exercise \`put_tuple2\` and \`get_tuple_element\` with y-register
+destinations, including aliased y operands and an empty tuple, across calls and scheduler yields.
+They are tested in OTP, Node and Chromium, including stripped input. The
 [literal fixture](../fixtures/literal_terms.erl) exercises nested proper and
 improper lists and tuples, plus binary and partial-byte bitstring literals, in
 moves, comparisons and construction, including stripped input. The

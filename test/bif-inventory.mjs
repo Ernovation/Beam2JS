@@ -33,6 +33,8 @@ for (const name of ['get/0', 'get_keys/0', 'get_keys/1', 'put/2', 'erase/0', 'er
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }
 assert.equal(row('erlang:is_process_alive/1')[11], 'callable-only');
+assert.equal(row('erlang:process_info/2')[11], 'callable-only');
+assert.equal(row('erlang:process_info/1')[11], 'not implemented');
 assert.equal(row('erlang:spawn/3')[11], 'callable-only');
 assert.equal(row('erlang:send/2')[11], 'callable-only');
 assert.equal(row('erlang:make_ref/0')[11], 'callable-only');
@@ -86,6 +88,7 @@ assert.match(row('erlang:binary_part/2')[9], /badarg.*out-of-bounds/);
 assert.match(row('erlang:self/0')[8], /calling process identity/);
 assert.equal(row('erlang:self/0')[10], 'process runtime');
 assert.match(row('erlang:is_process_alive/1')[9], /badarg.*non-local PID/);
+assert.match(row('erlang:process_info/2')[9], /badarg.*invalid PID or item/);
 assert.match(row('erlang:spawn/3')[9], /badarg.*improper/);
 assert.equal(row('erlang:spawn/3')[10], 'process runtime');
 assert.match(row('erlang:send/2')[9], /badarg.*invalid destination/);

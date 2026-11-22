@@ -9,6 +9,18 @@ let nextHostHandleId = 0n;
 let nextPidId = 0n;
 let nextReferenceId = 0n;
 const nil = Object.freeze({});
+const processInfoItems = new Set([
+  'registered_name', 'current_function', 'initial_call', 'status', 'messages', 'message_queue_len',
+  'links', 'monitors', 'monitored_by', 'dictionary', 'trap_exit', 'error_handler', 'heap_size',
+  'stack_size', 'memory', 'garbage_collection', 'group_leader', 'reductions', 'priority',
+  'trace', 'binary', 'sequential_trace_token', 'catchlevel', 'backtrace', 'last_calls',
+  'total_heap_size', 'suspending', 'min_heap_size', 'min_bin_vheap_size', 'max_heap_size',
+  'current_location', 'current_stacktrace', 'message_queue_data', 'garbage_collection_info',
+  'magic_ref', 'fullsweep_after', 'parent', 'async_dist', 'label', 'priority_messages',
+]);
+const supportedProcessInfoItems = new Set([
+  'registered_name', 'status', 'messages', 'message_queue_len', 'dictionary',
+]);
 const callableBifs = new Map([
   'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
   'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference',
@@ -35,6 +47,10 @@ callableBifs.set(JSON.stringify(['monotonic_time', 1]), {
 callableBifs.set(JSON.stringify(['is_process_alive', 1]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isProcessAlive(args[0]) ? 'true' : 'false')}),
+});
+callableBifs.set(JSON.stringify(['process_info', 2]), {
+  exported: true,
+  run: (rt, [pid, items]) => ({type: 'return', value: rt.processInfo(pid, items)}),
 });
 callableBifs.set(JSON.stringify(['spawn', 3]), {
   exported: true,
@@ -658,6 +674,58 @@ export class Runtime {
     if (!isTerm(pid)) throw new TypeError('expected a supported Erlang term');
     if (!this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
     return this.#livePids.has(pid);
+  }
+
+  processInfo(pid, itemSpec) {
+    if (!isTerm(pid) || !isTerm(itemSpec)) throw new TypeError('expected supported Erlang terms');
+    if (!this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
+    const list = itemSpec === nil || consCells.has(itemSpec);
+    const items = [];
+    if (list) {
+      let cursor = itemSpec;
+      while (consCells.has(cursor)) {
+        const [item, tail] = consCells.get(cursor);
+        items.push(item);
+        cursor = tail;
+      }
+      if (cursor !== nil) this.raiseError(this.atom('badarg'));
+    } else {
+      items.push(itemSpec);
+    }
+    let unsupported;
+    for (const item of items) {
+      const pair = tuples.get(item);
+      if (pair?.length === 2 && pair[0] === this.atom('dictionary')) continue;
+      if (!isAtom(item) || !processInfoItems.has(Symbol.keyFor(item))) this.raiseError(this.atom('badarg'));
+      if (!supportedProcessInfoItems.has(Symbol.keyFor(item))) unsupported ??= Symbol.keyFor(item);
+    }
+    const process = this.#pidProcesses.get(pid);
+    if (!process || process.status === 'completed' || process.status === 'failed') return this.atom('undefined');
+    if (unsupported !== undefined) throw new Error(`unsupported process_info item: ${unsupported}`);
+    const info = item => {
+      const pair = tuples.get(item);
+      if (pair) return this.tuple([item, this.#processDictionary(process, 'get', [pair[1]])]);
+      switch (Symbol.keyFor(item)) {
+        case 'registered_name':
+          if (process.registeredName === undefined && !list) return nil;
+          return this.tuple([item, process.registeredName ?? nil]);
+        case 'status': return this.tuple([item, this.atom(process.status)]);
+        case 'message_queue_len': return this.tuple([item, BigInt(process.mailbox.length)]);
+        case 'messages': {
+          let messages = nil;
+          for (let i = process.mailbox.length - 1; i >= 0; i--) {
+            messages = this.cons(process.mailbox[i], messages);
+          }
+          return this.tuple([item, messages]);
+        }
+        case 'dictionary': return this.tuple([item, this.#processDictionary(process, 'get', [])]);
+        default: throw new Error('invalid process_info item');
+      }
+    };
+    if (!list) return info(items[0]);
+    let result = nil;
+    for (let i = items.length - 1; i >= 0; i--) result = this.cons(info(items[i]), result);
+    return result;
   }
 
   spawnProcess(module, name, args) {

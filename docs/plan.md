@@ -135,6 +135,18 @@ untrusted-input safety claim is made without tests and a completed audit.
   `is_binary` and `is_bitstr` test instructions distinguish byte-sized
   binaries from other bitstrings.
   Length traversal is synchronous and does not yield to a scheduler.
+- [x] Support `put_tuple2` construction into ordinary x and y registers,
+  including aliased source operands. Test compiler-generated and assembly
+  forms, empty tuples, calls and scheduler yields against OTP in Node and
+  Chromium, including stripped input.
+- [x] Support `get_tuple_element` extraction into ordinary x and y registers,
+  including an aliased source and destination. Test compiler-generated and
+  assembly forms, calls and scheduler yields against OTP in Node and Chromium,
+  including stripped input.
+- [x] Support `get_list` extraction into distinct ordinary x and y registers,
+  including a source aliased with either destination. Test compiler-generated
+  and assembly forms, improper lists, calls and scheduler yields against OTP
+  in Node and Chromium, including stripped input.
 - [x] Test unusual atoms, large and negative integers, float boundaries,
   improper lists, nested terms, matching and failed guards against OTP.
 
@@ -189,7 +201,7 @@ BIFs.
   BIFs support instruction and callable forms for the existing term subset. Selected
   integer bitwise and other arithmetic guard and body BIF instructions are supported.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
-  `make_ref/0` are callable, as are the local timer, dictionary and registry BIFs
+  `make_ref/0` are callable, as are the local timer, dictionary, process-info and registry BIFs
   described in phases 8 and 10; other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
@@ -351,6 +363,11 @@ normal, exceptional and race cases.
   `erase/0,1`, including the compiler-emitted `get/1` instruction. Test exact
   key/value matching, process isolation and lifecycle against OTP in Node and
   Chromium, including stripped input. Dictionary operations run synchronously.
+- [x] Support local `process_info/2` snapshots for messages, queue length,
+  dictionary and dictionary-key lookup, registered name and cooperative status,
+  including ordered item lists, dead PIDs and invalid inputs. Test against OTP
+  in Node and Chromium, including stripped input. Other information items,
+  `process_info/1` and cross-scheduler signal semantics remain open.
 - [ ] Implement additional BIF families from the inventory, including process
   registry and information, references, timers, conversions and other commonly
   used operations. Specify supported options and resource limits per BIF.

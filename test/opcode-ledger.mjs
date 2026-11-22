@@ -82,6 +82,9 @@ assert.match(row('bs_match'), /ensure_at_least.*ensure_exactly.*binary.*integer.
 assert.match(row('put_record'), /zero failure label raises, otherwise failure branches/);
 assert.match(row('is_eq_exact'), /OTP:.*Beam2JS:/);
 assert.match(row('move'), /Beam2JS:.*bitstring literal/);
+assert.match(row('put_tuple2'), /Beam2JS:.*x or y destination.*aliases it/);
+assert.match(row('get_tuple_element'), /Beam2JS:.*x or y destination.*aliases the destination/);
+assert.match(row('get_list'), /Beam2JS:.*distinct ordinary x or y destinations.*aliases either destination/);
 assert.match(row('is_binary'), /Beam2JS:.*length is divisible by eight/);
 assert.match(row('is_bitstr'), /Beam2JS:.*value is a bitstring/);
 for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float', 'is_binary', 'is_bitstr',

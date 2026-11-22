@@ -1,5 +1,6 @@
 -module(calls).
--export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, depth/1,
+-export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, stack_tuple/2, stack_element/1,
+         stack_list_head/1, stack_list_tail/1, depth/1,
          match_remote/1, bif_remote/1, callable_bif_remote/1, binary_bif_remote/3,
          numeric_bif_remote/1]).
 
@@ -26,6 +27,23 @@ stack(First, Second, Third, Fourth) ->
     C = slice_helper:id(Third),
     D = slice_helper:id(Fourth),
     {Pair, C, D}.
+
+stack_tuple(First, Second) ->
+    Pair = {First, Second},
+    Value = slice_helper:id(First),
+    {Pair, Value}.
+
+stack_element({First, Second}) ->
+    Value = slice_helper:id(First),
+    {Value, Second}.
+
+stack_list_head([Head | Tail]) ->
+    Value = slice_helper:id(Tail),
+    {Head, Value}.
+
+stack_list_tail([Head | Tail]) ->
+    Value = slice_helper:id(Head),
+    {Value, Tail}.
 
 depth([]) ->
     done;

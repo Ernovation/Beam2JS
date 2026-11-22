@@ -286,23 +286,21 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
         {get_tl, Source, {x, Dest}} when is_integer(Dest), Dest >= 0, Dest < 1024 ->
             [<<"x[">>, integer_to_list(Dest), <<"] = rt.listTail(">>,
              operand(Source, Context, Index), <<"); ">>, next(Index)];
-        {get_list, Source, {x, Head}, {x, Tail}}
-          when is_integer(Head), Head >= 0, Head < 1024, is_integer(Tail), Tail >= 0, Tail < 1024,
-               Head =/= Tail ->
-            [<<"{ const list = ">>, operand(Source, Context, Index), <<"; x[">>,
-             integer_to_list(Head), <<"] = rt.listHead(list); x[">>, integer_to_list(Tail),
-             <<"] = rt.listTail(list); } ">>, next(Index)];
-        {put_tuple2, {x, Dest}, {list, Elements}}
-          when is_integer(Dest), Dest >= 0, Dest < 1024, is_list(Elements) ->
-            [<<"x[">>, integer_to_list(Dest), <<"] = rt.tuple([">>,
-             lists:join(<<", ">>, [operand(E, Context, Index) || E <- Elements]),
-             <<"]); ">>, next(Index)];
-        {get_tuple_element, Source, Element, {x, Dest}}
-          when is_integer(Element), Element >= 0, Element < 9007199254740991,
-               is_integer(Dest), Dest >= 0, Dest < 1024 ->
-            [<<"x[">>, integer_to_list(Dest), <<"] = rt.tupleElement(">>,
-             operand(Source, Context, Index), <<", ">>, integer_to_list(Element + 1),
-             <<"); ">>, next(Index)];
+        {get_list, Source, Head, Tail} when Head =/= Tail ->
+            [<<"{ const list = ">>, operand(Source, Context, Index), <<"; ">>,
+             write_register(Head, <<"rt.listHead(list)">>, Context, Index),
+             write_register(Tail, <<"rt.listTail(list)">>, Context, Index),
+             <<"} ">>, next(Index)];
+        {put_tuple2, Dest, {list, Elements}} when is_list(Elements) ->
+            Value = [<<"rt.tuple([">>,
+                     lists:join(<<", ">>, [operand(E, Context, Index) || E <- Elements]),
+                     <<"])">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
+        {get_tuple_element, Source, Element, Dest}
+          when is_integer(Element), Element >= 0, Element < 9007199254740991 ->
+            Value = [<<"rt.tupleElement(">>, operand(Source, Context, Index),
+                     <<", ">>, integer_to_list(Element + 1), <<")">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
         {select_val, Source, {f, Fail}, {list, Choices}} when is_list(Choices) ->
             selection(value, Source, Fail, Choices, Labels, Context, Index);
         {select_tuple_arity, Source, {f, Fail}, {list, Choices}} when is_list(Choices) ->

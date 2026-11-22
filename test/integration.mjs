@@ -90,6 +90,55 @@ try {
   assert.notEqual(invalid.status, 0);
   assert.match(invalid.stderr, /cannot disassemble BEAM/);
   assert.equal(readFileSync(output, 'utf8'), 'existing output');
+  run('erl', ['-noshell', '-eval',
+    '[Dir]=init:get_plain_arguments(), Build=fun(Module,Instruction)->' +
+    'Is=[{label,1},{func_info,{atom,Module},{atom,f},1},{label,2},' +
+    'Instruction,return], ' +
+    '{ok,B}=beam_asm:module({Module,[{f,1}],[],#{},[{function,f,1,2,Is}],3},[],[],[]), ' +
+    'ok=file:write_file(filename:join(Dir,atom_to_list(Module)++".beam"),B) end, ' +
+    'Build(tuple_bad_x,{put_tuple2,{x,1024},{list,[{x,0}]}}), ' +
+    'Build(tuple_bad_y,{put_tuple2,{y,1024},{list,[{x,0}]}}), ' +
+    'Build(tuple_no_frame,{put_tuple2,{y,0},{list,[{x,0}]}}), ' +
+    'Build(element_bad_x,{get_tuple_element,{x,0},0,{x,1024}}), ' +
+    'Build(element_bad_y,{get_tuple_element,{x,0},0,{y,1024}}), ' +
+    'Build(element_no_frame,{get_tuple_element,{x,0},0,{y,0}}), ' +
+    'Build(list_bad_head,{get_list,{x,0},{x,1024},{y,0}}), ' +
+    'Build(list_bad_tail,{get_list,{x,0},{x,0},{y,1024}}), ' +
+    'Build(list_same_x,{get_list,{x,0},{x,0},{x,0}}), ' +
+    'Build(list_same_y,{get_list,{x,0},{y,0},{y,0}}), ' +
+    'Build(list_no_frame,{get_list,{x,0},{x,0},{y,0}}),halt().',
+    '-extra', dir]);
+  for (const [module, register] of [['tuple_bad_x', 'x'], ['tuple_bad_y', 'y'],
+    ['element_bad_x', 'x'], ['element_bad_y', 'y'],
+    ['list_bad_head', 'x'], ['list_bad_tail', 'y']]) {
+    const result = spawnSync(compiler, [join(dir, `${module}.beam`), output],
+      {encoding: 'utf8', timeout: 30000});
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(`unsupported register \\{${register},1024\\}`));
+    assert.equal(readFileSync(output, 'utf8'), 'existing output');
+  }
+  const missingFrameOutput = join(dir, 'tuple_no_frame.mjs');
+  run(compiler, [join(dir, 'tuple_no_frame.beam'), missingFrameOutput]);
+  (await import(pathToFileURL(missingFrameOutput))).register(runtime);
+  assert.throws(() => runtime.invoke('tuple_no_frame', 'f', [1n]), /invalid y register 0/);
+  const missingElementFrameOutput = join(dir, 'element_no_frame.mjs');
+  run(compiler, [join(dir, 'element_no_frame.beam'), missingElementFrameOutput]);
+  (await import(pathToFileURL(missingElementFrameOutput))).register(runtime);
+  assert.throws(() => runtime.invoke('element_no_frame', 'f', [runtime.tuple([1n])]), /invalid y register 0/);
+  assert.throws(() => runtime.invoke('element_no_frame', 'f', [1n]), /expected Erlang tuple/);
+  assert.throws(() => runtime.invoke('element_no_frame', 'f', [runtime.tuple([])]), /invalid tuple index/);
+  for (const module of ['list_same_x', 'list_same_y']) {
+    const result = spawnSync(compiler, [join(dir, `${module}.beam`), output],
+      {encoding: 'utf8', timeout: 30000});
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /unsupported instruction \{get_list/);
+    assert.equal(readFileSync(output, 'utf8'), 'existing output');
+  }
+  const missingListFrameOutput = join(dir, 'list_no_frame.mjs');
+  run(compiler, [join(dir, 'list_no_frame.beam'), missingListFrameOutput]);
+  (await import(pathToFileURL(missingListFrameOutput))).register(runtime);
+  assert.throws(() => runtime.invoke('list_no_frame', 'f', [runtime.cons(1n, runtime.nil())]), /invalid y register 0/);
+  assert.throws(() => runtime.invoke('list_no_frame', 'f', [runtime.nil()]), /expected nonempty Erlang list/);
   console.log('Integration tests passed');
 } finally {
   rmSync(dir, {recursive: true, force: true});

@@ -179,6 +179,8 @@ const details = new Map([
     exceptions: 'badarg for invalid time unit', host: 'clock / scheduler'}],
   ['erlang:is_process_alive/1', {effects: 'reads process liveness',
     exceptions: 'badarg for non-PID or non-local PID', host: 'process runtime'}],
+  ['erlang:process_info/2', {effects: 'reads selected local process state',
+    exceptions: 'badarg for invalid PID or item', host: 'process runtime'}],
   ['erlang:spawn/3', {effects: 'schedules a local process',
     exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
   ['erlang:register/2', {effects: 'registers a local process name',
@@ -218,7 +220,7 @@ const instructionAndCallable = new Set([
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
 ]);
-const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
+const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/2', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
   'erlang:monotonic_time/0', 'erlang:monotonic_time/1',
   'erlang:get/0', 'erlang:get_keys/0', 'erlang:get_keys/1', 'erlang:put/2', 'erlang:erase/0', 'erlang:erase/1',
   'erlang:send_after/3', 'erlang:send_after/4', 'erlang:start_timer/3', 'erlang:start_timer/4',
@@ -430,6 +432,14 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   and raises \`badarg\` for non-PIDs or non-local PIDs. Callable forms are tested
   for runnable, executing, completed and failed processes in Node and Chromium,
   including stripped input. Cross-runtime PIDs are treated as non-local.
+- \`process_info/2\` supports local PID queries for \`messages\`,
+  \`message_queue_len\`, \`dictionary\`, \`{dictionary, Key}\`,
+  \`registered_name\` and cooperative scheduler \`status\`, individually or
+  in an ordered list. Dead local PIDs return \`undefined\`; invalid PIDs and
+  item specifications raise \`badarg\`. Other valid items produce a host
+  diagnostic for live processes. OTP, Node and Chromium tests cover snapshots,
+  ordering, lifecycle and invalid arguments, including stripped input.
+  Cross-scheduler signals and the remaining information items are unsupported.
 - \`make_ref/0\` creates an opaque unique local reference; \`is_reference/1\`
   supports callable, body and guard forms. OTP, Node and Chromium tests cover
   uniqueness, equality, ordering relative to atoms and PIDs, and messaging,

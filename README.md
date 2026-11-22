@@ -118,6 +118,17 @@ also be a stored value; list results have unspecified order. Dictionaries are
 discarded when a process exits. Operations and comparisons scan synchronously
 and may block the host for large dictionaries or terms.
 
+`erlang:process_info/2` accepts a local PID and `messages`,
+`message_queue_len`, `dictionary`, `{dictionary, Key}`, `registered_name` or
+`status`, or a proper list of these items. Results are snapshots, and list
+results preserve item order and duplicates. An unregistered process returns
+`[]` for the single `registered_name` item and `{registered_name, []}` when
+that item is in a list. A dead local PID returns `undefined`; invalid PIDs
+and item specifications raise `badarg`. Other valid OTP 29.1.2 items produce
+a host diagnostic for live processes. Status describes this cooperative
+scheduler (`running`, `runnable` or `waiting`); OTP cross-scheduler signals
+and `process_info/1` are unsupported. Snapshot construction is synchronous.
+
 For ABI 26 modules, unmatched function, case, match and if clauses throw an
 exported `ErlangError` at the JavaScript boundary. Its `erlangClass` is the
 string `"error"` and `reason` is an Erlang term: `function_clause`,
@@ -257,6 +268,11 @@ The compiler currently requires host OTP 29 and uses its internal disassembler.
 Moves, equality and ordering branches, selected type tests, jumps, calls
 and returns support integers, floats, atoms, lists, tuples, bitstrings, local PIDs and references. List and tuple
 construction, matching and extraction have partial instruction support.
+`put_tuple2` constructs immutable tuples into ordinary x or y registers,
+including when an element aliases the destination; y destinations require an
+allocated stack slot. `get_tuple_element` likewise accepts x or y destinations,
+including an aliased source and destination. `get_list` accepts distinct x or
+y head and tail destinations, including a source that aliases either destination.
 Compiled literals can nest the supported literal types; a literal containing an
 unsupported type, such as a map, rejects the module. Binary and partial-byte
 bitstring literals are supported, including nested literals, equality and
@@ -291,8 +307,8 @@ Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
 raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIFs,
 and predicates take precedence over registered `erlang` functions of the same
 name and arity. Other callable BIFs are limited to `self/0`,
-`is_process_alive/1`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`, the local
-process dictionary, registry and timer BIFs above and the numeric BIFs described below.
+`is_process_alive/1`, `process_info/2`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`,
+the local process dictionary, registry and timer BIFs above and the numeric BIFs described below.
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.

@@ -204,12 +204,18 @@ conversion and result overflow, aliased destinations and x/y registers.
 Floating registers are not preserved across calls.
 The
 [list fixture](../fixtures/list_slice.erl)
-also exercises nil, list construction and extraction, including an aliased
-`get_list` source and destination. Integer-word and supported allocation-list
+also exercises nil, list construction and extraction. The call and stack
+assembly fixtures additionally cover `get_list` with x/y destinations and an
+aliased source across calls and scheduler yields, including stripped input.
+Integer-word and supported allocation-list
 `test_heap` forms are no-ops; OTP GC, memory exhaustion and scheduler effects
 are not reproduced.
 The [tuple fixture](../fixtures/tuple_slice.erl) exercises construction,
 tagged matching, extraction and the empty tuple literal. The
+[call](../fixtures/calls.erl) and [stack assembly](../fixtures/raw_stack.S)
+fixtures also exercise `put_tuple2` and `get_tuple_element` with y-register
+destinations, including aliased y operands and an empty tuple, across calls and scheduler yields.
+They are tested in OTP, Node and Chromium, including stripped input. The
 [literal fixture](../fixtures/literal_terms.erl) exercises nested proper and
 improper lists and tuples, plus binary and partial-byte bitstring literals, in
 moves, comparisons and construction, including stripped input. The
@@ -329,8 +335,8 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 62 | `catch/2` | active | not specified | ? | N | N | N | N | OTP: Installs a handler using a y register and handler label; continues into protected code. |
 | 63 | `catch_end/1` | active | not specified | ? | N | N | N | N | OTP: Uses the active y-register handler tag to leave or enter the corresponding handler. |
 | 64 | `move/2` | active | Source Destination | ? | N | P | P | P | OTP: Term source and x/y destination; assembler also encodes typed registers and literal-table values. Raw evidence: Atom, integer or x-register source to x destination; x source to y destination. Beam2JS: Ordinary x/y register or supported integer/float/atom/list/tuple/bitstring literal to ordinary x/y register; fallthrough. |
-| 65 | `get_list/3` | active | Source Head Tail | ? | N | P | P | P | OTP: Cons source and head/tail destinations; validator requires a cons. Beam2JS: Supported nonempty list source and distinct x destinations; captures the source before writes. |
-| 66 | `get_tuple_element/3` | active | Source Element Destination | ? | N | P | P | P | OTP: Tuple source, zero-based position and destination; validator requires a suitable tuple. Beam2JS: Supported tuple source, zero-based index and x destination; invalid source or index raises a host error. |
+| 65 | `get_list/3` | active | Source Head Tail | ? | N | P | P | P | OTP: Cons source and head/tail destinations; validator requires a cons. Beam2JS: Supported nonempty list source and distinct ordinary x or y destinations; captures the source before writes, including when it aliases either destination. |
+| 66 | `get_tuple_element/3` | active | Source Element Destination | ? | N | P | P | P | OTP: Tuple source, zero-based position and destination; validator requires a suitable tuple. Beam2JS: Supported tuple source, zero-based index and ordinary x or y destination; source is read before writing, including when it aliases the destination. Invalid source or index raises a host error. |
 | 67 | `set_tuple_element/3` | active | NewElement Tuple Position | ? | N | N | N | N | OTP: New value, tuple and position; destructive update. OTP 29 compiler no longer emits it. |
 | 68 | `put_string/3` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 69 | `put_list/3` | active | not specified | ? | N | P | P | P | OTP: Head and tail terms and destination; constructs a cons. Beam2JS: Supported head and tail terms to x destination; constructs an immutable cons. |
@@ -428,7 +434,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 161 | `raw_raise/0` | active | (none) | ? | N | N | N | N | OTP: Class in x0, reason in x1, raw trace in x2; raises or continues with badarg in x0 for invalid class. |
 | 162 | `get_hd/2` | active | Source Head | ? | N | P | P | P | OTP: Cons source and destination; validator requires a cons. Beam2JS: Supported nonempty list source and x destination; invalid source raises a host error. |
 | 163 | `get_tl/2` | active | Source Tail | ? | N | P | P | P | OTP: Cons source and destination; validator requires a cons. Beam2JS: Supported nonempty list source and x destination; invalid source raises a host error. |
-| 164 | `put_tuple2/2` | active | Destination Elements | ? | N | P | P | P | OTP: Destination and list of term operands; constructs a tuple. Beam2JS: Supported element operands and x destination; constructs an immutable tuple. |
+| 164 | `put_tuple2/2` | active | Destination Elements | ? | N | P | P | P | OTP: Destination and list of term operands; constructs a tuple. Beam2JS: Supported element operands and ordinary x or y destination; constructs an immutable tuple before writing the destination, including when an element aliases it. |
 | 165 | `bs_get_tail/3` | active | Ctx Dst Live | ? | N | N | N | N | OTP: Match context, destination and live count; returns the remaining bitstring. |
 | 166 | `bs_start_match3/4` | active | Fail Bin Live Dst | ? | N | N | N | N | OTP: Failure label, binary, live count and destination; starts a match or branches. |
 | 167 | `bs_get_position/3` | active | Ctx Dst Live | ? | N | N | N | N | OTP: Match context, destination and live count; saves the match position. |

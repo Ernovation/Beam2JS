@@ -185,6 +185,14 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   and raises `badarg` for non-PIDs or non-local PIDs. Callable forms are tested
   for runnable, executing, completed and failed processes in Node and Chromium,
   including stripped input. Cross-runtime PIDs are treated as non-local.
+- `process_info/2` supports local PID queries for `messages`,
+  `message_queue_len`, `dictionary`, `{dictionary, Key}`,
+  `registered_name` and cooperative scheduler `status`, individually or
+  in an ordered list. Dead local PIDs return `undefined`; invalid PIDs and
+  item specifications raise `badarg`. Other valid items produce a host
+  diagnostic for live processes. OTP, Node and Chromium tests cover snapshots,
+  ordering, lifecycle and invalid arguments, including stripped input.
+  Cross-scheduler signals and the remaining information items are unsupported.
 - `make_ref/0` creates an opaque unique local reference; `is_reference/1`
   supports callable, body and guard forms. OTP, Node and Chromium tests cover
   uniqueness, equality, ordering relative to atoms and PIDs, and messaging,
@@ -517,7 +525,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `pre_loaded/0` | bif | yes | ? | no | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `process_flag/2` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `process_info/1` | hbif | yes | process / scheduling | no | ? | ? | ? | not implemented |
-| `erlang` | `process_info/2` | hbif | yes | process / scheduling | no | ? | ? | ? | not implemented |
+| `erlang` | `process_info/2` | hbif | yes | process / scheduling | no | reads selected local process state | badarg for invalid PID or item | process runtime | callable-only |
 | `erlang` | `processes/0` | bif | yes | process / scheduling | no | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `put/2` | hbif | yes | process dictionary | no | updates the calling process dictionary | ? | process runtime | callable-only |
 | `erlang` | `raise/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
