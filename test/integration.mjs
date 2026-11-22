@@ -12,7 +12,7 @@ const run = (command, args) => execFileSync(command, args, {encoding: 'utf8', ti
 
 try {
   run('erlc', ['-o', dir, 'fixtures/slice.erl', 'fixtures/slice_helper.erl',
-    'fixtures/unsupported.erl', 'fixtures/on_load.erl']);
+    'fixtures/unsupported.erl', 'fixtures/on_load.erl', 'fixtures/receive_timeout.erl']);
   const slice = join(dir, 'slice.beam');
   const output = join(dir, 'slice.mjs');
   const helperOutput = join(dir, 'slice_helper.mjs');
@@ -21,7 +21,7 @@ try {
   const arithmeticOutput = join(dir, 'arithmetic.mjs');
   run(compiler, [join(dir, 'unsupported.beam'), arithmeticOutput]);
   const firstOutput = readFileSync(output, 'utf8');
-  assert.match(firstOutput, /runtime\.registerModule\(19,/);
+  assert.match(firstOutput, /runtime\.registerModule\(23,/);
   run(compiler, [slice, output]);
   assert.equal(readFileSync(output, 'utf8'), firstOutput, 'emission must be deterministic');
 
@@ -57,7 +57,7 @@ try {
   assert.throws(() => runtime.invoke('slice', 'private', [42n]), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'module_info', []), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'id', [42]), /supported Erlang terms/);
-  for (const version of [1, 18, 20]) {
+  for (const version of [1, 18, 19, 20, 21, 22, 24]) {
     assert.throws(() => runtime.registerModule(version, 'bad', []), /unsupported runtime ABI/);
   }
 
@@ -83,6 +83,11 @@ try {
     {encoding: 'utf8', timeout: 30000});
   assert.notEqual(onLoad.status, 0);
   assert.match(onLoad.stderr, /unsupported instruction on_load/);
+  assert.throws(() => readFileSync(missingOutput), {code: 'ENOENT'});
+  const timedReceive = spawnSync(compiler, [join(dir, 'receive_timeout.beam'), missingOutput],
+    {encoding: 'utf8', timeout: 30000});
+  assert.notEqual(timedReceive.status, 0);
+  assert.match(timedReceive.stderr, /unsupported instruction (timeout|\{wait_timeout,)/);
   assert.throws(() => readFileSync(missingOutput), {code: 'ENOENT'});
   const malformed = join(dir, 'malformed.beam');
   writeFileSync(malformed, 'not a BEAM file');

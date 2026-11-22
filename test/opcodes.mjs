@@ -1170,8 +1170,6 @@ try {
     assert.equal(readFileSync(preserved, 'utf8'), 'existing output');
   }
   for (const [file, error] of [
-    ['raw_bifs.beam', /self_pid\/0 instruction .*unsupported instruction \{bif,self/],
-    ['raw_bifs-stripped.beam', /self_pid\/0 instruction .*unsupported instruction \{bif,self/],
     ['bitwise_live_limit.beam', /unsupported instruction \{gc_bif/],
     ['length_live_limit.beam', /unsupported instruction \{gc_bif,length/],
     ['bit_size_live_limit.beam', /unsupported instruction \{gc_bif,bit_size/],

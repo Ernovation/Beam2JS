@@ -165,6 +165,18 @@ export function arithmeticResults(runtime) {
     ['raw_arithmetic_body', 'add_y', [bad, 8n]],
     ['raw_arithmetic_body', 'negate', [f(0)]],
     ['raw_arithmetic_body', 'negate', [bad]],
+    ['erlang', 'abs', [-huge]], ['erlang', 'abs', [f(-0)]], ['erlang', 'abs', [bad]],
+    ['erlang', 'trunc', [f(-1.9)]], ['erlang', 'trunc', [huge]], ['erlang', 'trunc', [bad]],
+    ['erlang', 'round', [f(-1.5)]], ['erlang', 'round', [f(0.49999999999999994)]],
+    ['erlang', 'round', [bad]],
+    ['erlang', 'floor', [f(-Number.MIN_VALUE)]], ['erlang', 'floor', [huge]], ['erlang', 'floor', [bad]],
+    ['erlang', 'ceil', [f(Number.MIN_VALUE)]], ['erlang', 'ceil', [f(-1.9)]], ['erlang', 'ceil', [bad]],
+    ['erlang', 'float', [9007199254740993n]], ['erlang', 'float', [floatOverflowTie - 1n]],
+    ['erlang', 'float', [floatOverflowTie]], ['erlang', 'float', [f(-0)]], ['erlang', 'float', [bad]],
+    ['raw_bif_body', 'abs_call_tail', [f(-0)]], ['raw_bif_body', 'abs_call_tail', [bad]],
+    ['raw_bif_body', 'round_call_last', [f(-1.5)]], ['raw_bif_body', 'round_call_last', [bad]],
+    ['raw_bif_body', 'float_call', [9007199254740993n]], ['raw_bif_body', 'float_call', [huge]],
+    ['calls', 'numeric_bif_remote', [f(-0)]], ['calls', 'numeric_bif_remote', [bad]],
   ];
 
   function format(value) {

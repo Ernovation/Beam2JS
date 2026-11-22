@@ -3,9 +3,10 @@
           {bits_y,1},{part_alias,3},{part2_alias,2},{part_literal,0},
           {predicate_tail,1},{predicate_last,1},{predicate_call,1},
           {head_call_tail,1},{element_call_last,2},{length_call,1},
-          {bits_call_tail,1},{part2_call_last,2},{part3_call,3}]}.
+          {bits_call_tail,1},{part2_call_last,2},{part3_call,3},
+          {abs_call_tail,1},{round_call_last,1},{float_call,1}]}.
 {attributes,[]}.
-{labels,35}.
+{labels,41}.
 
 {function,head_y,1,2}.
 {label,1}.
@@ -142,6 +143,30 @@ return.
 {label,28}.
 {allocate,0,1}.
 {call_ext,1,{extfunc,erlang,length,1}}.
+{test_heap,3,1}.
+{put_tuple2,{x,0},{list,[{atom,result},{x,0}]}}.
+{deallocate,0}.
+return.
+
+{function,abs_call_tail,1,36}.
+{label,35}.
+{func_info,{atom,raw_bif_body},{atom,abs_call_tail},1}.
+{label,36}.
+{call_ext_only,1,{extfunc,erlang,abs,1}}.
+
+{function,round_call_last,1,38}.
+{label,37}.
+{func_info,{atom,raw_bif_body},{atom,round_call_last},1}.
+{label,38}.
+{allocate,0,1}.
+{call_ext_last,1,{extfunc,erlang,round,1},0}.
+
+{function,float_call,1,40}.
+{label,39}.
+{func_info,{atom,raw_bif_body},{atom,float_call},1}.
+{label,40}.
+{allocate,0,1}.
+{call_ext,1,{extfunc,erlang,float,1}}.
 {test_heap,3,1}.
 {put_tuple2,{x,0},{list,[{atom,result},{x,0}]}}.
 {deallocate,0}.

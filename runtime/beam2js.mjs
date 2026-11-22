@@ -3,15 +3,35 @@ const consCells = new WeakMap();
 const tuples = new WeakMap();
 const bitstrings = new WeakMap();
 const hostHandles = new WeakMap();
+const pids = new WeakMap();
 let nextHostHandleId = 0n;
+let nextPidId = 0n;
 const nil = Object.freeze({});
 const callableBifs = new Map([
   'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
-  'is_list', 'is_tuple', 'is_binary', 'is_bitstring',
+  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid',
 ].map(name => [JSON.stringify([name, 1]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
 }]));
+callableBifs.set(JSON.stringify(['self', 0]), {
+  exported: true,
+  run: (rt, args, state, budget, pid) => ({type: 'return', value: pid}),
+});
+callableBifs.set(JSON.stringify(['is_process_alive', 1]), {
+  exported: true,
+  run: (rt, args) => ({type: 'return', value: rt.atom(rt.isProcessAlive(args[0]) ? 'true' : 'false')}),
+});
+callableBifs.set(JSON.stringify(['spawn', 3]), {
+  exported: true,
+  run: (rt, args) => ({type: 'spawn', args}),
+});
+for (const name of ['send', '!']) {
+  callableBifs.set(JSON.stringify([name, 2]), {
+    exported: true,
+    run: (rt, args) => ({type: 'return', value: rt.sendPidMessage(...args)}),
+  });
+}
 function addGuardedBifs(entries, guard) {
   for (const [name, arity] of entries) {
     callableBifs.set(JSON.stringify([name, arity]), {
@@ -28,6 +48,8 @@ addGuardedBifs([['hd', 1], ['tl', 1], ['length', 1], ['tuple_size', 1], ['elemen
   (rt, name, args) => rt.guardListTuple(name, ...args));
 addGuardedBifs([['bit_size', 1], ['byte_size', 1], ['binary_part', 2], ['binary_part', 3]],
   (rt, name, args) => rt.guardBitstringBif(name, ...args));
+addGuardedBifs([['abs', 1], ['trunc', 1], ['round', 1], ['floor', 1], ['ceil', 1], ['float', 1]],
+  (rt, name, args) => rt.guardArithmetic(name, ...args));
 
 function isAtom(value) {
   return typeof value === 'symbol' && Symbol.keyFor(value) !== undefined;
@@ -36,7 +58,7 @@ function isAtom(value) {
 function isTerm(value) {
   return typeof value === 'bigint' || isAtom(value) || floats.has(value) ||
     value === nil || consCells.has(value) || tuples.has(value) || bitstrings.has(value) ||
-    hostHandles.has(value);
+    hostHandles.has(value) || pids.has(value);
 }
 
 function termType(value) {
@@ -48,6 +70,7 @@ function termType(value) {
   if (tuples.has(value)) return 'tuple';
   if (bitstrings.has(value)) return 'bitstring';
   if (hostHandles.has(value)) return 'host_handle';
+  if (pids.has(value)) return 'pid';
   throw new TypeError('unsupported Erlang term');
 }
 
@@ -82,8 +105,29 @@ export class ErlangError extends Error {
 
 export class Runtime {
   #hostObjects = new WeakMap();
+  #processes = new WeakMap();
+  #pidHandles = new WeakMap();
+  #pidProcesses = new WeakMap();
+  #localPids = new WeakSet();
+  #livePids = new WeakSet();
+  #ready = [];
+  #waiting = new Set(); // Keep blocked processes alive even without an external PID reference.
+  #readyHead = 0;
+  #scheduled = 0;
+  #schedulerCount;
+  #reductionLimit;
+  #onProcessError;
 
-  constructor() {
+  constructor({schedulers = 1, reductionLimit = 1000,
+    onProcessError = (pid, error) => console.error('Erlang-spawned process failed:', error)} = {}) {
+    if (!Number.isSafeInteger(schedulers) || schedulers < 1 ||
+        !Number.isSafeInteger(reductionLimit) || reductionLimit < 1) {
+      throw new RangeError('schedulers and reductionLimit must be positive safe integers');
+    }
+    if (typeof onProcessError !== 'function') throw new TypeError('onProcessError must be a function');
+    this.#schedulerCount = schedulers;
+    this.#reductionLimit = reductionLimit;
+    this.#onProcessError = onProcessError;
     this.modules = new Map();
   }
 
@@ -414,7 +458,7 @@ export class Runtime {
   }
 
   compare(left, right) {
-    const rank = {integer: 0, float: 0, atom: 1, host_handle: 2, tuple: 3, nil: 4, cons: 5, bitstring: 6};
+    const rank = {integer: 0, float: 0, atom: 1, host_handle: 2, pid: 3, tuple: 4, nil: 5, cons: 6, bitstring: 7};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -430,6 +474,10 @@ export class Runtime {
       } else if (aType === 'host_handle') {
         const x = hostHandles.get(a).id;
         const y = hostHandles.get(b).id;
+        if (x !== y) return x < y ? -1 : 1;
+      } else if (aType === 'pid') {
+        const x = pids.get(a);
+        const y = pids.get(b);
         if (x !== y) return x < y ? -1 : 1;
       } else if (aType === 'atom') {
         const leftChars = Symbol.keyFor(a)[Symbol.iterator]();
@@ -475,6 +523,7 @@ export class Runtime {
       case 'is_list': return actual === 'nil' || actual === 'cons';
       case 'is_nonempty_list': return actual === 'cons';
       case 'is_tuple': return actual === 'tuple';
+      case 'is_pid': return actual === 'pid';
       case 'is_binary':
         return actual === 'bitstring' && bitstrings.get(value)[1] % 8 === 0;
       case 'is_bitstr':
@@ -484,7 +533,7 @@ export class Runtime {
   }
 
   registerModule(version, name, functions) {
-    if (version !== 19) {
+    if (version !== 23) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);
@@ -498,38 +547,241 @@ export class Runtime {
   }
 
   invoke(module, name, args) {
+    const process = this.#newProcess(module, name, args);
+    process.status = 'running';
+    try {
+      const result = this.#runProcess(process, Infinity);
+      if (result.waiting) throw new Error('synchronous invocation cannot wait for a message');
+      if (!result.done) throw new Error('unexpected yield in synchronous invocation');
+      return result.value;
+    } finally {
+      this.#finishProcess(process, 'completed');
+    }
+  }
+
+  isProcessAlive(pid) {
+    if (!isTerm(pid)) throw new TypeError('expected a supported Erlang term');
+    if (!this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
+    return this.#livePids.has(pid);
+  }
+
+  spawnProcess(module, name, args) {
+    const process = this.#newProcess(module, name, args);
+    const result = new Promise((resolve, reject) => {
+      process.resolve = resolve;
+      process.reject = reject;
+    });
+    const handle = Object.freeze({pid: process.pid, result});
+    this.#processes.set(handle, process);
+    this.#pidHandles.set(process.pid, handle);
+    this.#enqueue(process);
+    return handle;
+  }
+
+  processHandle(pid) {
+    const handle = this.#pidHandles.get(pid);
+    if (!handle) throw new TypeError('expected a scheduled process PID from this runtime');
+    return handle;
+  }
+
+  sendPidMessage(destination, message) {
+    if (!isTerm(destination) || !isTerm(message)) throw new TypeError('expected supported Erlang terms');
+    if (this.#localPids.has(destination)) {
+      const process = this.#pidProcesses.get(destination);
+      if (process) this.#deliverMessage(process, message);
+      return message;
+    }
+    if (pids.has(destination)) throw new Error('sending to a non-local PID is unsupported');
+    const address = tuples.get(destination);
+    if (address?.length === 2 && isAtom(address[0]) && isAtom(address[1])) {
+      throw new Error('sending to a registered name on a node is unsupported');
+    }
+    this.raiseError(this.atom('badarg'));
+  }
+
+  sendMessage(handle, message) {
+    const process = this.#getProcess(handle);
+    if (!isTerm(message)) throw new TypeError('message must be a supported Erlang term');
+    if (process.status === 'completed' || process.status === 'failed') {
+      throw new Error('cannot send a message to a terminated process');
+    }
+    this.#deliverMessage(process, message);
+  }
+
+  #deliverMessage(process, message) {
+    process.mailbox.push(message);
+    if (process.status === 'waiting') {
+      this.#waiting.delete(process);
+      process.status = 'runnable';
+      this.#enqueue(process);
+    }
+  }
+
+  processMailbox(handle) {
+    return this.#getProcess(handle).mailbox.slice();
+  }
+
+  receiveMessage(pid) {
+    const process = this.#receiveProcess(pid);
+    return process.mailbox[process.receiveIndex] ?? null;
+  }
+
+  advanceMessage(pid) {
+    const process = this.#receiveProcess(pid);
+    if (process.receiveIndex >= process.mailbox.length) throw new Error('no current mailbox message');
+    process.receiveIndex++;
+  }
+
+  removeMessage(pid) {
+    const process = this.#receiveProcess(pid);
+    if (process.receiveIndex >= process.mailbox.length) throw new Error('no current mailbox message');
+    process.mailbox.splice(process.receiveIndex, 1);
+    process.receiveIndex = 0;
+  }
+
+  #receiveProcess(pid) {
+    const process = this.#pidProcesses.get(pid);
+    if (!process || process.status !== 'running') throw new Error('receive requires the running process');
+    return process;
+  }
+
+  #getProcess(handle) {
+    const process = this.#processes.get(handle);
+    if (!process) throw new TypeError('expected a process from this runtime');
+    return process;
+  }
+
+  #newProcess(module, name, args) {
     if (!Array.isArray(args) || args.some(value => !isTerm(value))) {
       throw new TypeError('arguments must be supported Erlang terms');
     }
-    let external = true;
-    let fn;
-    let state;
-    const continuations = [];
-    while (true) {
-      if (!fn) {
-        if (!Array.isArray(args) || args.some(value => !isTerm(value))) {
+    const pid = Object.freeze({});
+    pids.set(pid, nextPidId++);
+    this.#localPids.add(pid);
+    this.#livePids.add(pid);
+    const process = {
+      pid, module, name, args: args.slice(), external: true, fn: undefined, state: undefined,
+      continuations: [], mailbox: [], receiveIndex: 0, status: 'runnable',
+    };
+    this.#pidProcesses.set(pid, process);
+    return process;
+  }
+
+  #spawnErlang([module, name, list]) {
+    if (!isAtom(module) || !isAtom(name)) this.raiseError(this.atom('badarg'));
+    const args = [];
+    while (consCells.has(list)) {
+      const [head, tail] = consCells.get(list);
+      args.push(head);
+      list = tail;
+    }
+    if (list !== nil) this.raiseError(this.atom('badarg'));
+    const handle = this.spawnProcess(Symbol.keyFor(module), Symbol.keyFor(name), args);
+    if (args.length > 255) {
+      this.#processes.get(handle).startError = new Error(`unsupported function arity: ${args.length}`);
+    }
+    handle.result.catch(error => this.#onProcessError(handle.pid, error));
+    return handle.pid;
+  }
+
+  #enqueue(process) {
+    this.#ready.push(process);
+    this.#schedule();
+  }
+
+  #schedule() {
+    while (this.#scheduled < this.#schedulerCount &&
+           this.#scheduled < this.#ready.length - this.#readyHead) {
+      this.#scheduled++;
+      setTimeout(() => this.#runScheduled(), 0);
+    }
+  }
+
+  #runScheduled() {
+    this.#scheduled--;
+    const process = this.#ready[this.#readyHead++];
+    if (this.#readyHead === this.#ready.length) {
+      this.#ready = [];
+      this.#readyHead = 0;
+    } else if (this.#readyHead >= 1024 && this.#readyHead * 2 >= this.#ready.length) {
+      this.#ready = this.#ready.slice(this.#readyHead);
+      this.#readyHead = 0;
+    }
+    process.status = 'running';
+    try {
+      const result = this.#runProcess(process, this.#reductionLimit);
+      if (result.done) {
+        this.#finishProcess(process, 'completed');
+        process.resolve(result.value);
+      } else if (result.waiting) {
+        process.status = 'waiting';
+        this.#waiting.add(process);
+      } else {
+        process.status = 'runnable';
+        this.#enqueue(process);
+      }
+    } catch (error) {
+      this.#finishProcess(process, 'failed');
+      process.reject(error);
+    }
+    this.#schedule();
+  }
+
+  #finishProcess(process, status) {
+    process.status = status;
+    this.#livePids.delete(process.pid);
+    this.#pidProcesses.delete(process.pid);
+    process.fn = undefined;
+    process.state = undefined;
+    process.args = [];
+    process.continuations = [];
+  }
+
+  #runProcess(process, limit) {
+    if (process.startError) throw process.startError;
+    const budget = {remaining: limit};
+    while (budget.remaining > 0) {
+      if (!process.fn) {
+        if (!Array.isArray(process.args) || process.args.some(value => !isTerm(value))) {
           throw new TypeError('arguments must be supported Erlang terms');
         }
-        fn = external && module === 'erlang' ? callableBifs.get(JSON.stringify([name, args.length])) : undefined;
-        if (!fn) fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
-        if (!fn || (external && !fn.exported)) {
+        const {external, module, name, args} = process;
+        process.fn = external && module === 'erlang' ? callableBifs.get(JSON.stringify([name, args.length])) : undefined;
+        if (!process.fn) process.fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
+        if (!process.fn || (external && !process.fn.exported)) {
           throw new Error(`undefined or unsupported function: ${module}:${name}/${args.length}`);
         }
       }
-      const action = fn.run(this, args.slice(), state);
+      const previous = budget.remaining;
+      let action = process.fn.run(this, process.args.slice(), process.state, budget, process.pid);
+      if (budget.remaining === previous) budget.remaining--;
+      if (action.type === 'spawn') {
+        action = {type: 'return', value: this.#spawnErlang(action.args)};
+      }
       if (action.type === 'return') {
         if (!isTerm(action.value)) throw new TypeError('return value must be a supported Erlang term');
-        if (continuations.length === 0) return action.value;
-        ({fn, state} = continuations.pop());
-        args = [action.value];
+        if (process.continuations.length === 0) return {done: true, value: action.value};
+        ({fn: process.fn, state: process.state} = process.continuations.pop());
+        process.args = [action.value];
       } else if (action.type === 'call' || action.type === 'tail') {
-        if (action.type === 'call') continuations.push({fn, state: action.state});
-        ({module, name, args, external} = action);
-        fn = undefined;
-        state = undefined;
+        if (action.type === 'call') process.continuations.push({fn: process.fn, state: action.state});
+        ({module: process.module, name: process.name, args: process.args, external: process.external} = action);
+        process.fn = undefined;
+        process.state = undefined;
+      } else if (action.type === 'yield') {
+        process.state = action.state;
+        process.args = action.registers;
+        return {done: false};
+      } else if (action.type === 'wait') {
+        process.state = action.state;
+        process.args = action.registers;
+        // A message can arrive between an exhausted scan and wait across a yield.
+        if (process.receiveIndex < process.mailbox.length) continue;
+        return {done: false, waiting: true};
       } else {
         throw new Error(`unsupported runtime action: ${action.type}`);
       }
     }
+    return {done: false};
   }
 }

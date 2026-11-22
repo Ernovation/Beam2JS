@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 
 const inventory = readFileSync(new URL('../docs/bifs-otp-29.1.2.md', import.meta.url), 'utf8');
-const rows = [...inventory.matchAll(/^\| `([^`]+)` \| `([^`]+)\/(\d+)` \| (bif|ubif|hbif|runtime) \| (yes|no) \| ([^|]+) \| (BIF|operator|no) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| (not implemented|instruction-and-callable|guard-instruction-only|body-and-guard-instruction-only|arithmetic-instruction-only) \|$/gm)];
+const rows = [...inventory.matchAll(/^\| `([^`]+)` \| `([^`]+)\/(\d+)` \| (bif|ubif|hbif|runtime) \| (yes|no) \| ([^|]+) \| (BIF|operator|no) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| (not implemented|instruction-and-callable|callable-only|guard-instruction-only|body-and-guard-instruction-only|arithmetic-instruction-only) \|$/gm)];
 assert.equal(rows.length, 556);
 const byKey = new Map(rows.map(row => [`${row[1]}:${row[2]}/${row[3]}`, row]));
 assert.equal(byKey.size, rows.length, 'duplicate BIF identity');
@@ -18,19 +18,21 @@ assert.equal(row('erlang:apply/2')[4], 'runtime');
 assert.equal(row('erlang:yield/0')[4], 'runtime');
 assert.equal(row('erlang:is_atom/1')[7], 'BIF');
 for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float', 'is_list',
-  'is_tuple', 'is_binary', 'is_bitstring']) {
+  'is_tuple', 'is_binary', 'is_bitstring', 'is_pid']) {
   assert.equal(row(`erlang:${name}/1`)[11], 'instruction-and-callable');
 }
 for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
-  'bit_size/1', 'byte_size/1', 'binary_part/2', 'binary_part/3']) {
+  'bit_size/1', 'byte_size/1', 'binary_part/2', 'binary_part/3',
+  'abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1', 'self/0']) {
   assert.equal(row(`erlang:${name}`)[11], 'instruction-and-callable');
 }
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 18);
+assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 27);
+assert.equal(row('erlang:is_process_alive/1')[11], 'callable-only');
+assert.equal(row('erlang:spawn/3')[11], 'callable-only');
+assert.equal(row('erlang:send/2')[11], 'callable-only');
 assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
-for (const name of ['abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1']) {
-  assert.equal(row(`erlang:${name}`)[11], 'body-and-guard-instruction-only');
-}
-assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 6);
+assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 0);
 for (const name of ['+/2', '-/1', '-/2', '*/2', '//2',
   'band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2']) {
   assert.equal(row(`erlang:${name}`)[11], 'arithmetic-instruction-only');
@@ -68,6 +70,11 @@ assert.match(row('erlang:binary_part/3')[9], /badarg.*out-of-bounds/);
 assert.match(row('erlang:binary_part/2')[9], /badarg.*out-of-bounds/);
 assert.match(row('erlang:self/0')[8], /calling process identity/);
 assert.equal(row('erlang:self/0')[10], 'process runtime');
+assert.match(row('erlang:is_process_alive/1')[9], /badarg.*non-local PID/);
+assert.match(row('erlang:spawn/3')[9], /badarg.*improper/);
+assert.equal(row('erlang:spawn/3')[10], 'process runtime');
+assert.match(row('erlang:send/2')[9], /badarg.*invalid destination/);
+assert.equal(row('erlang:!/2')[10], 'process runtime');
 assert.match(row('os:getenv/1')[10], /OS \/ host/);
 assert.ok(byKey.has('lists:member/2'));
 assert.ok(!byKey.has('lists:map/2'));

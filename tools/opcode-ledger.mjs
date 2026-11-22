@@ -38,7 +38,13 @@ const partial = new Map([
   ['deallocate', 'Matching stack size 0..1024; removes the allocated frame.'],
   ['init_yregs', 'Nonempty ordered distinct y-register list with indices 0..1023; clears slots to nil. Frame bounds are checked at runtime; full register validation is not implemented.'],
   ['trim', 'Nonnegative count and remaining size 0..1024; discards low-index y slots and renumbers the rest. Frame size is checked at runtime.'],
-  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary or is_bitstring BIF with zero failure label; hd, tl and tuple_size with guard or zero failure label; invalid zero-label calls raise badarg. Supported term source and x destination only.'],
+  ['bif0', 'Normalized nofail self/0 to ordinary x or y destination; returns the current process PID.'],
+  ['send', 'Sends x1 to a local PID in x0 and returns the message in x0; dead local PIDs discard it, invalid destinations raise badarg. Distributed PIDs and registered-name node tuples are unsupported.'],
+  ['loop_rec', 'Reads the current mailbox message into an x register, or branches to a nonzero label when the scan is exhausted.'],
+  ['loop_rec_end', 'Advances the mailbox scan and branches to a nonzero label.'],
+  ['remove_message', 'Removes the current mailbox message and resets the receive cursor; timeout state is unsupported.'],
+  ['wait', 'Suspends a scheduled process at a nonzero receive label until a message arrives; synchronous invocation cannot block.'],
+  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary, is_bitstring or is_pid BIF with zero failure label; hd, tl and tuple_size with guard or zero failure label; invalid zero-label calls raise badarg. Supported term source and x destination only.'],
   ['bif2', 'Normalized element BIF with supported index and tuple operands, x destination and guard or zero failure label; invalid arguments branch or raise badarg.'],
   ['gc_bif1', 'Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Unary minus and bnot with zero label raise badarith; zero-label length, bit_size and byte_size raise badarg; abs, trunc, round, floor, ceil and float with zero label also raise badarg. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
   ['gc_bif2', 'Normalized band, bor, bxor, div, rem, +, -, * and / guards and binary_part/2 guard, supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments, ranges, zero divisors or float overflow branch. Zero-label band, bor, bxor, div, rem, +, -, * and / raise badarith; zero-label binary_part/2 raises badarg. Binary slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
@@ -51,8 +57,8 @@ const partial = new Map([
   ['put_tuple2', 'Supported element operands and x destination; constructs an immutable tuple.'],
   ['get_tuple_element', 'Supported tuple source, zero-based index and x destination; invalid source or index raises a host error.'],
   ['test_arity', 'Supported tuple source and nonnegative safe-integer arity; invalid source raises a host error.'],
-  ['is_lt', 'Supported integer/float/atom/list/tuple/bitstring operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
-  ['is_ge', 'Supported integer/float/atom/list/tuple/bitstring operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
+  ['is_lt', 'Supported integer/float/atom/list/tuple/bitstring/PID operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
+  ['is_ge', 'Supported integer/float/atom/list/tuple/bitstring/PID operands; fallthrough or nonzero label. Tested in Node and Chromium.'],
   ['is_eq', 'Supported operands; numeric equality including mixed numbers and nested compound terms.'],
   ['is_ne', 'Supported operands; numeric inequality including mixed numbers and nested compound terms.'],
   ['is_eq_exact', 'Supported operands; structural list/tuple/bitstring equality and distinct signed float zeros.'],
@@ -60,6 +66,7 @@ const partial = new Map([
   ['is_integer', 'Supported operands only; type-test branch.'],
   ['is_number', 'Supported operands only; type-test branch.'],
   ['is_atom', 'Supported operands only; type-test branch.'],
+  ['is_pid', 'Supported operands only; type-test branch for local PIDs.'],
   ['is_boolean', 'Supported operands only; true and false are atoms.'],
   ['is_float', 'Supported operands only; type-test branch.'],
   ['is_nil', 'Supported operands only; branches unless source is the empty list.'],
@@ -382,8 +389,8 @@ The tested \`hd/1\` and \`+/2\` forms branch on guard failure with a nonzero
 label but raise \`badarg\` and \`badarith\` respectively with label zero.
 \`bif0/2\` has no failure-label operand; the disassembler represents its
 tested \`self/0\` form with \`nofail\`. These are selected forms, not complete
-coverage of BIFs or operands. Beam2JS rejects this full fixture because it
-includes unsupported \`self/0\`. Separately, it supports selected
+coverage of BIFs or operands. Beam2JS supports this fixture and the
+compiler-generated x and y destination forms of \`self/0\`. It also supports selected
 non-failing normalized type-predicate BIF instructions for supported operands;
 the compiler-generated and assembly fixtures are tested against OTP in Node
 and Chromium, including stripped input. Nonzero-label \`hd/1\`, \`tl/1\`,

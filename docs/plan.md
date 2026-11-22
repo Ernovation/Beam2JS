@@ -106,8 +106,8 @@ untrusted-input safety claim is made without tests and a completed audit.
   unary negation and binary `+`, `-`, `*` and `/` instructions support guard
   and zero-label forms; the latter raise `badarith` on invalid inputs or overflow.
   `abs/1`, `trunc/1`, `round/1`, `floor/1`, `ceil/1` and `float/1` support
-  guard and zero-label forms; the latter raise `badarg` for invalid input or
-  float conversion overflow. Floating-register conversion,
+  guard, zero-label and callable forms; the latter two raise `badarg` for
+  invalid input or float conversion overflow. Floating-register conversion,
   moves, addition, subtraction, multiplication, division and negation are also
   supported for ordinary floating-point expressions.
 - [ ] Lower the corresponding literal, move, test, comparison, branch, list and
@@ -138,9 +138,10 @@ call stack and provide the control-flow foundation for concurrency.
 
 - [ ] Extend the current synchronous continuation-based call loop to
   process-owned frames, program counters, registers, stack slots and
-  suspension. Versioned actions currently cover calls, tail calls and returns;
-  raise actions, yields and suspensions remain unimplemented. Selected error
-  paths currently propagate through JavaScript using a distinct `ErlangError`.
+  suspension. ABI 23 supports process-owned continuation state and bounded
+  instruction yields in the cooperative scheduler. Actions cover calls, tail
+  calls, returns, yields and indefinite receive waits; raise actions remain unimplemented.
+  Selected error paths propagate through JavaScript using a distinct `ErlangError`.
 - [ ] Lower local and external non-tail calls, tail calls, returns, stack/frame
   instructions and applicable allocation instructions. Preserve effects other
   than garbage collection. A limited slice supports ordinary y slots,
@@ -158,7 +159,8 @@ call stack and provide the control-flow foundation for concurrency.
   and the supported integer bitwise instructions expose `badarith`; selected
   list, tuple, binary and numeric BIF instructions expose `badarg`.
 - [ ] Add reduction/yield checkpoints to calls, loops and potentially
-  long-running runtime operations, ready for a scheduler.
+  long-running runtime operations, ready for a scheduler. Generated instructions
+  now have bounded steps, but runtime operations and host calls do not yield.
 
 **Done when:** Nested local/external calls, deep recursion, tail recursion,
 guard failures and cross-call exceptions match OTP without overflowing the
@@ -172,9 +174,10 @@ BIFs.
 - [ ] Implement a BIF dispatch mechanism keyed by module, name and arity,
   including compiler-emitted specialized BIF instructions and guard forms.
   Preserve exact return values, error classes/reasons and guard failure rules.
-  Nine non-failing type-predicate BIFs and selected list/tuple and binary BIFs
-  support instruction and callable forms for the existing term subset. Selected
-  integer bitwise and arithmetic guard and body BIF instructions are supported;
+  Ten non-failing type-predicate BIFs and selected list/tuple, binary and numeric
+  BIFs support instruction and callable forms for the existing term subset. Selected
+  integer bitwise and other arithmetic guard and body BIF instructions are supported.
+  The process BIFs `self/0`, `is_process_alive/1` and local `spawn/3` are callable;
   other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
@@ -219,10 +222,21 @@ fun form match OTP, including failures and term comparisons.
 
 - [ ] Implement PID identity, process creation and termination, process-owned
   state, a runnable queue and the basic process BIFs such as `self` and `spawn`.
+  Host-created process handles, isolated frames and mailboxes, completion
+  promises and a shared runnable queue are implemented. Opaque local PIDs,
+  `self/0`, `is_pid/1`, local `is_process_alive/1` and `spawn/3` are supported.
+  Child failures are reported to the host; missing targets and arities over 255
+  currently produce host diagnostics rather than OTP `undef`. Other spawn
+  variants are not supported.
 - [ ] Schedule resumable frames with reduction budgets; ensure loops and
   long-running runtime operations yield, and host event loops remain responsive.
+  Configurable cooperative scheduler slots run on one JavaScript event loop;
+  they do not execute in parallel or use workers. Generated instructions yield,
+  while long-running runtime operations and synchronous host calls still block.
 - [ ] Define process isolation and term sharing/copying rules; JavaScript garbage
   collection must not expose mutable state across processes.
+  Supported immutable terms are shared; opaque host handles may refer to mutable
+  host objects and are not an isolation boundary.
 - [ ] Provide deterministic scheduler and clock controls for tests, plus bounded
   handling of host callbacks and asynchronous work.
 - [ ] Test deep recursion, process isolation, termination, fairness and
@@ -239,8 +253,16 @@ OTP in the covered cases.
 - [ ] Implement message sending, per-process mailboxes and ordering guarantees;
   include sending to dead or invalid destinations and registered names as their
   support is added.
+  The host can append supported terms to a process-local FIFO mailbox. Erlang
+  `!` and `send/2` deliver to local PIDs, returning the message and discarding
+  it for dead local PIDs. Invalid destinations raise `badarg`; registered names,
+  name/node tuples and non-local PIDs are unsupported. Full OTP delivery
+  semantics are not implemented.
 - [ ] Lower receive instructions and implement selective receive, mailbox
   scanning, suspension, wakeup and preservation of unmatched messages.
+  Indefinite receives support scanning, suspension and wakeup; timed receives
+  and receive markers are not implemented. A synchronous invocation throws
+  if it would block. Waiting alone does not keep the host event loop alive.
 - [ ] Implement `receive ... after`, monotonic time, timer creation and
   cancellation, with defined timeout/message races and host clock adapters.
 - [ ] Add differential tests for multiple senders, selective receive, mailbox

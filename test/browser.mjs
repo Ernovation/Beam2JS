@@ -10,6 +10,11 @@ import {registerDom} from '../examples/browser/dom.mjs';
 import {callResults} from './call-cases.mjs';
 import {matchResults} from './match-cases.mjs';
 import {arithmeticResults} from './arithmetic-cases.mjs';
+import {schedulerChecks} from './scheduler-cases.mjs';
+import {identityChecks} from './identity-cases.mjs';
+import {spawnChecks} from './spawn-cases.mjs';
+import {sendChecks} from './send-cases.mjs';
+import {receiveChecks} from './receive-cases.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-browser-'));
 const compiler = resolve('_build/default/bin/beam2js');
@@ -19,7 +24,9 @@ const source = path => readFileSync(resolve(path), 'utf8');
 try {
   run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
-    'fixtures/bif_body.erl']);
+    'fixtures/bif_body.erl', 'fixtures/scheduler_fixture.erl', 'fixtures/scheduler_probe.erl',
+    'fixtures/process_identity.erl', 'fixtures/process_spawn.erl', 'fixtures/spawn_probe.erl',
+    'fixtures/process_send.erl', 'fixtures/process_receive.erl']);
   const calls = join(dir, 'calls.beam');
   const stripped = join(dir, 'calls-stripped.beam');
   run('erl', ['-noshell', '-eval',
@@ -33,6 +40,47 @@ try {
     '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
     '{ok,raw_float_registers}=compile:file("fixtures/raw_float_registers.S",' +
     '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{ok,raw_scheduler}=compile:file("fixtures/raw_scheduler.S",' +
+    '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{ok,raw_bifs}=compile:file("fixtures/raw_bifs.S",' +
+    '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{ok,raw_identity}=compile:file("fixtures/raw_identity.S",' +
+    '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{ok,raw_spawn}=compile:file("fixtures/raw_spawn.S",' +
+    '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{ok,raw_send}=compile:file("fixtures/raw_send.S",' +
+    '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{beam_file,process_send,_,_,_,SendFs}=beam_disasm:file(filename:join(Dir,"process_send.beam")), ' +
+    '{function,send,2,_,SendCode}=lists:keyfind(send,2,SendFs), ' +
+    'true=lists:member(send,SendCode), ' +
+    '{beam_file,process_receive,_,_,_,ReceiveFs}=beam_disasm:file(filename:join(Dir,"process_receive.beam")), ' +
+    '{function,wanted,0,_,ReceiveCode}=lists:keyfind(wanted,2,ReceiveFs), ' +
+    'true=lists:any(fun({loop_rec,_,_})->true;(_)->false end,ReceiveCode), ' +
+    'true=lists:any(fun({loop_rec_end,_})->true;(_)->false end,ReceiveCode), ' +
+    'true=lists:member(remove_message,ReceiveCode), ' +
+    'true=lists:any(fun({wait,_})->true;(_)->false end,ReceiveCode), ' +
+    '{beam_file,raw_send,_,_,_,RawSendFs}=beam_disasm:file(filename:join(Dir,"raw_send.beam")), ' +
+    'lists:foreach(fun({Name,Kind}) -> {function,Name,2,_,Code}=lists:keyfind(Name,2,RawSendFs), ' +
+    'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
+    '[{tail,call_ext_only},{last,call_ext_last},{call,call_ext},{operator,call_ext_only}]), ' +
+    '{beam_file,raw_spawn,_,_,_,SpawnFs}=beam_disasm:file(filename:join(Dir,"raw_spawn.beam")), ' +
+    'lists:foreach(fun({Name,Kind}) -> {function,Name,3,_,Code}=lists:keyfind(Name,2,SpawnFs), ' +
+    'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
+    '[{tail,call_ext_only},{last,call_ext_last},{call,call_ext}]), ' +
+    '{beam_file,process_identity,_,_,_,PFs}=beam_disasm:file(filename:join(Dir,"process_identity.beam")), ' +
+    '{function,self_pair,0,_,PIs}=lists:keyfind(self_pair,2,PFs), ' +
+    'true=lists:any(fun({bif,self,nofail,[],{y,_}})->true;(_)->false end,PIs), ' +
+    '{function,pid_guard,1,_,GIs}=lists:keyfind(pid_guard,2,PFs), ' +
+    'true=lists:any(fun({test,is_pid,_,_})->true;(_)->false end,GIs), ' +
+    '{function,pid_body,1,_,PBIs}=lists:keyfind(pid_body,2,PFs), ' +
+    'true=lists:any(fun({bif,is_pid,{f,0},_,_})->true;(_)->false end,PBIs), ' +
+    '{function,alive,1,_,LIs}=lists:keyfind(alive,2,PFs), ' +
+    'true=lists:any(fun({call_ext_only,1,{extfunc,erlang,is_process_alive,1}})->true;(_)->false end,LIs), ' +
+    '{beam_file,raw_identity,_,_,_,RIFs}=beam_disasm:file(filename:join(Dir,"raw_identity.beam")), ' +
+    'lists:foreach(fun({Name,Kind}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,RIFs), ' +
+    'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
+    '[{self_tail,call_ext_only},{self_last,call_ext_last},{self_call,call_ext},' +
+    '{alive_tail,call_ext_only},{alive_last,call_ext_last},{alive_call,call_ext}]), ' +
     '{beam_file,calls,_,_,_,Fs}=beam_disasm:file(filename:join(Dir,"calls.beam")), ' +
     '{function,stack,4,_,Is}=lists:keyfind(stack,2,Fs), ' +
     'true=lists:any(fun({init_yregs,_})->true;(_)->false end,Is), ' +
@@ -65,11 +113,12 @@ try {
     'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
     '[{predicate_tail,call_ext_only},{predicate_last,call_ext_last},{predicate_call,call_ext},' +
     '{head_call_tail,call_ext_only},{element_call_last,call_ext_last},{length_call,call_ext},' +
-    '{bits_call_tail,call_ext_only},{part2_call_last,call_ext_last},{part3_call,call_ext}]), ' +
+    '{bits_call_tail,call_ext_only},{part2_call_last,call_ext_last},{part3_call,call_ext},' +
+    '{abs_call_tail,call_ext_only},{round_call_last,call_ext_last},{float_call,call_ext}]), ' +
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
-    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body"]), halt().', '-extra', dir]);
+    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive"]), halt().', '-extra', dir]);
   for (const [input, output] of [
     [calls, 'calls.mjs'], [stripped, 'calls-stripped.mjs'],
     [join(dir, 'raw_stack.beam'), 'raw_stack.mjs'],
@@ -88,6 +137,28 @@ try {
     [join(dir, 'bif_body-stripped.beam'), 'bif_body-stripped.mjs'],
     [join(dir, 'raw_bif_body.beam'), 'raw_bif_body.mjs'],
     [join(dir, 'raw_bif_body-stripped.beam'), 'raw_bif_body-stripped.mjs'],
+    [join(dir, 'scheduler_fixture.beam'), 'scheduler_fixture.mjs'],
+    [join(dir, 'scheduler_fixture-stripped.beam'), 'scheduler_fixture-stripped.mjs'],
+    [join(dir, 'raw_scheduler.beam'), 'raw_scheduler.mjs'],
+    [join(dir, 'raw_scheduler-stripped.beam'), 'raw_scheduler-stripped.mjs'],
+    [join(dir, 'process_identity.beam'), 'process_identity.mjs'],
+    [join(dir, 'process_identity-stripped.beam'), 'process_identity-stripped.mjs'],
+    [join(dir, 'raw_identity.beam'), 'raw_identity.mjs'],
+    [join(dir, 'raw_identity-stripped.beam'), 'raw_identity-stripped.mjs'],
+    [join(dir, 'process_spawn.beam'), 'process_spawn.mjs'],
+    [join(dir, 'process_spawn-stripped.beam'), 'process_spawn-stripped.mjs'],
+    [join(dir, 'raw_spawn.beam'), 'raw_spawn.mjs'],
+    [join(dir, 'raw_spawn-stripped.beam'), 'raw_spawn-stripped.mjs'],
+    [join(dir, 'process_send.beam'), 'process_send.mjs'],
+    [join(dir, 'process_send-stripped.beam'), 'process_send-stripped.mjs'],
+    [join(dir, 'raw_send.beam'), 'raw_send.mjs'],
+    [join(dir, 'raw_send-stripped.beam'), 'raw_send-stripped.mjs'],
+    [join(dir, 'spawn_probe.beam'), 'spawn_probe.mjs'],
+    [join(dir, 'spawn_probe-stripped.beam'), 'spawn_probe-stripped.mjs'],
+    [join(dir, 'process_receive.beam'), 'process_receive.mjs'],
+    [join(dir, 'process_receive-stripped.beam'), 'process_receive-stripped.mjs'],
+    [join(dir, 'raw_bifs.beam'), 'raw_bifs.mjs'],
+    [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
     [join(dir, 'browser_demo.beam'), 'browser_demo.mjs'],
   ]) {
@@ -99,6 +170,82 @@ try {
     'calls:heap(23,99),calls:stack(11,22,33,44),raw_stack:shift(11,22,33),' +
     'raw_stack:empty(42),calls:depth(lists:seq(1,20000))]),halt().'
   ]).trimEnd().split('\n');
+  const schedulerOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'io:format("~w~n~w~n",[scheduler_fixture:count(11,8),scheduler_fixture:count(22,8)]),halt().',
+  ]).trimEnd().split('\n');
+  const identityOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    '{P,Q}=process_identity:self_pair(), Other=spawn(fun()->ok end), ' +
+    '{Live,Monitor}=spawn_monitor(fun()->receive stop->ok end end), ' +
+    'WasAlive=erlang:is_process_alive(Live), Live!stop, ' +
+    'receive {\'DOWN\',Monitor,process,Live,_}->ok end, ' +
+    'Remote=binary_to_term(<<131,88,100,0,9,"fake@host",0:32,0:32,1:32>>), ' +
+    'Bad=fun(Value)->try erlang:is_process_alive(Value), false catch error:badarg->true end end, ' +
+    'Results=[is_pid(P),P=:=Q,P=:=self(),process_identity:pid_guard(P)=:=yes,' +
+    'process_identity:pid_guard(1)=:=no,process_identity:pid_body(P),' +
+    'not process_identity:pid_body(1),process_identity:compare_self()=:=same,' +
+    'process_identity:compare(Other)=:=different,atom<P,P<{},' +
+    'process_identity:pid_order(P)=:=yes,process_identity:pid_order(atom)=:=no,' +
+    'WasAlive,process_identity:alive_self(),not process_identity:alive(Live),' +
+    'not erlang:is_process_alive(Live),not erlang:is_process_alive(Live),Bad(bad),Bad(Remote)], ' +
+    'io:format("~w~n",[Results]),halt().',
+  ]).trim();
+  const spawnOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'logger:set_primary_config(level,none), ' +
+    'Args=[self(),3,4], Child=process_spawn:start(spawn_probe,record,Args), ' +
+    'Recorded=receive {child,Child,3,4}->true after 30000->false end, ' +
+    '{Parent,Nested}=process_spawn:parent_child(), ' +
+    '{started,Wrapped}=process_spawn:across(spawn_probe,record,Args), ' +
+    'Tail=raw_spawn:tail(spawn_probe,record,Args), Last=raw_spawn:last(spawn_probe,record,Args), ' +
+    '{Call}=raw_spawn:call(spawn_probe,record,Args), ' +
+    'Bad=fun(M,F,A)->try process_spawn:start(M,F,A),false catch error:badarg->true end end, ' +
+    'Missing=process_spawn:start(missing,function,[]), ' +
+    'Large=process_spawn:start(spawn_probe,record,lists:duplicate(256,0)), ' +
+    'Results=[is_pid(Child),Recorded,Parent=/=Nested,is_pid(Wrapped),' +
+    'is_pid(Tail),is_pid(Last),is_pid(Call),Bad(1,record,[]),Bad(spawn_probe,1,[]),' +
+    'Bad(spawn_probe,record,bad),Bad(spawn_probe,record,[1|bad]),is_pid(Missing),is_pid(Large)], ' +
+    'io:format("~w~n",[Results]),halt().',
+  ]).trim();
+  const sendOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'Self=self(), Message={payload,9}, Direct=process_send:send(Self,Message), ' +
+    'Wrapped=process_send:wrapped(Self,wrapped), Callable=process_send:callable(Self,callable), ' +
+    'Tail=raw_send:tail(Self,tail), Last=raw_send:last(Self,last), {Call}=raw_send:call(Self,call), ' +
+    'Operator=raw_send:operator(Self,operator), ' +
+    'Received=[receive V->V after 5000->timeout end || _<-lists:seq(1,7)], ' +
+    'spawn(fun()->process_send:send_two(Self,{one,1},{one,2}) end), ' +
+    'spawn(fun()->process_send:send_two(Self,{two,1},{two,2}) end), ' +
+    'Concurrent=[receive V->V after 5000->timeout end || _<-lists:seq(1,4)], ' +
+    'Ordered=lists:filter(fun({one,_})->true;(_)->false end,Concurrent)=:=[{one,1},{one,2}] andalso ' +
+    'lists:filter(fun({two,_})->true;(_)->false end,Concurrent)=:=[{two,1},{two,2}], ' +
+    'Bad=fun(D)->try process_send:send(D,invalid),false catch error:badarg->true end end, ' +
+    '{P,Ref}=spawn_monitor(fun()->ok end), receive {\'DOWN\',Ref,process,P,_}->ok end, ' +
+    'Dead=process_send:send(P,dead)=:=dead andalso erlang:send(P,Message)=:=Message, ' +
+    'Results=[Direct=:=Message andalso Received=:=[Message,wrapped,callable,tail,last,call,operator], ' +
+    'Wrapped=:={sent,wrapped},Callable=:=callable,Tail=:=tail,Last=:=last,Call=:=call,' +
+    'Operator=:=operator,Ordered,Bad(unregistered),Bad(1),Bad([]),Bad({name,1}),Dead], ' +
+    'io:format("~w~n",[Results]),halt().',
+  ]).trim();
+  const receiveOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'Self=self(), Self!ignored, Self!{wanted,1}, Self!{wanted,2}, ' +
+    'Selected=process_receive:wanted()=:=1 andalso process_receive:wanted()=:=2 andalso ' +
+    '(receive ignored->true after 5000->false end), ' +
+    'Self!{second,2}, Self!{first,1}, Reset=process_receive:two()=:={1,2}, ' +
+    'Self!{number,bad}, Self!{number,-1}, Self!{number,7}, ' +
+    'Guards=process_receive:guarded()=:=7 andalso ' +
+    '(receive {number,bad}->true after 5000->false end) andalso ' +
+    '(receive {number,-1}->true after 5000->false end), ' +
+    'Sync=process_receive:self_select()=:=42 andalso (receive ignored->true after 5000->false end), ' +
+    'P=spawn(fun()->Self!{ready,self()}, V=process_receive:wanted(), ' +
+    '{messages,Ms}=process_info(self(),messages), Self!{done,self(),V,Ms} end), ' +
+    'receive {ready,P}->ok after 5000->erlang:error(timeout) end, P!ignored, P!{wanted,42}, ' +
+    'Wake=receive {done,P,42,[ignored]}->true after 5000->false end, ' +
+    'Q=spawn(fun()->Self!{ready,self()}, V2=process_receive:wanted(), Self!{done,self(),V2} end), ' +
+    'receive {ready,Q}->ok after 5000->erlang:error(timeout) end, ' +
+    'spawn(process_send,send,[Q,{wanted,77}]), ' +
+    'Exchanged=receive {done,Q,77}->true after 5000->false end, ' +
+    'Self!{second,20}, Self!{first,10}, Phases=process_receive:two()=:={10,20}, ' +
+    'Self!raced, Race=receive raced->true after 5000->false end, ' +
+    'io:format("~w~n",[[Selected,Reset,Guards,Sync,Wake,Exchanged,Phases,Race]]),halt().',
+  ]).trim();
   const matchOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Long=lists:seq(1,10000), LongImproper=lists:foldl(fun(X,Acc)->[X|Acc] end,tail,Long), ' +
     'Bin=(fun(<<_:3,B:32/bitstring,_/bitstring>>)->B end)(<<0:3,0,1,2,255,0:1013>>), ' +
@@ -273,7 +420,18 @@ try {
     '{raw_arithmetic_body,add_alias,[3,4]},{raw_arithmetic_body,add_alias,[3,bad]},' +
     '{raw_arithmetic_body,divide_literal,[5]},{raw_arithmetic_body,divide_literal,[bad]},' +
     '{raw_arithmetic_body,add_y,[7,8]},{raw_arithmetic_body,add_y,[bad,8]},' +
-    '{raw_arithmetic_body,negate,[0.0]},{raw_arithmetic_body,negate,[bad]}], ' +
+    '{raw_arithmetic_body,negate,[0.0]},{raw_arithmetic_body,negate,[bad]},' +
+    '{erlang,abs,[-Huge]},{erlang,abs,[-0.0]},{erlang,abs,[bad]},' +
+    '{erlang,trunc,[-1.9]},{erlang,trunc,[Huge]},{erlang,trunc,[bad]},' +
+    '{erlang,round,[-1.5]},{erlang,round,[0.49999999999999994]},{erlang,round,[bad]},' +
+    '{erlang,floor,[-Tiny]},{erlang,floor,[Huge]},{erlang,floor,[bad]},' +
+    '{erlang,ceil,[Tiny]},{erlang,ceil,[-1.9]},{erlang,ceil,[bad]},' +
+    '{erlang,float,[9007199254740993]},{erlang,float,[FloatOverflowTie-1]},' +
+    '{erlang,float,[FloatOverflowTie]},{erlang,float,[-0.0]},{erlang,float,[bad]},' +
+    '{raw_bif_body,abs_call_tail,[-0.0]},{raw_bif_body,abs_call_tail,[bad]},' +
+    '{raw_bif_body,round_call_last,[-1.5]},{raw_bif_body,round_call_last,[bad]},' +
+    '{raw_bif_body,float_call,[9007199254740993]},{raw_bif_body,float_call,[Huge]},' +
+    '{calls,numeric_bif_remote,[-0.0]},{calls,numeric_bif_remote,[bad]}], ' +
     'Format=fun F(V) when is_integer(V) -> integer_to_list(V); ' +
     'F(V) when is_float(V) -> <<Bits:64>> = <<V:64/float>>, io_lib:format("float:~16.16.0b",[Bits]); ' +
     'F(V) when is_atom(V) -> atom_to_list(V); ' +
@@ -312,12 +470,48 @@ try {
     assert.throws(() => rt.invoke('calls', 'depth', [1n]), /function_clause/);
   }
 
+  for (const suffix of ['', '-stripped']) {
+    const modules = await Promise.all([
+      `scheduler_fixture${suffix}.mjs`, `raw_scheduler${suffix}.mjs`,
+      `raw_float_registers${suffix}.mjs`, `calls${suffix}.mjs`, `arithmetic_body${suffix}.mjs`,
+      'slice_helper.mjs',
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.deepEqual(await schedulerChecks(Runtime, ErlangError, rt => {
+      for (const module of modules) module.register(rt);
+    }), schedulerOracle);
+    const identityModules = await Promise.all([
+      `process_identity${suffix}.mjs`, `raw_identity${suffix}.mjs`, `raw_bifs${suffix}.mjs`,
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.equal(await identityChecks(Runtime, rt => {
+      for (const module of identityModules) module.register(rt);
+    }), identityOracle);
+    const spawnModules = await Promise.all([
+      `process_spawn${suffix}.mjs`, `raw_spawn${suffix}.mjs`, `process_identity${suffix}.mjs`,
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.equal(await spawnChecks(Runtime, rt => {
+      for (const module of spawnModules) module.register(rt);
+    }), spawnOracle);
+    const sendModules = await Promise.all([
+      `process_send${suffix}.mjs`, `raw_send${suffix}.mjs`, `process_spawn${suffix}.mjs`,
+      `spawn_probe${suffix}.mjs`,
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.equal(await sendChecks(Runtime, rt => {
+      for (const module of sendModules) module.register(rt);
+    }), sendOracle);
+    const receiveModules = await Promise.all([
+      `process_receive${suffix}.mjs`, `process_send${suffix}.mjs`,
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.equal(await receiveChecks(Runtime, rt => {
+      for (const module of receiveModules) module.register(rt);
+    }), receiveOracle);
+  }
+
   const missingDependency = new Runtime();
   (await import(pathToFileURL(join(dir, 'calls.mjs')))).register(missingDependency);
   assert.throws(() => missingDependency.invoke('calls', 'remote', [1n]),
     /undefined or unsupported function: slice_helper:id\/1/);
   const nestedHostError = new Error('nested host failure');
-  missingDependency.registerModule(19, 'slice_helper', [{
+  missingDependency.registerModule(23, 'slice_helper', [{
     name: 'id', arity: 1, exported: true,
     run: () => { throw nestedHostError; },
   }]);
@@ -325,11 +519,13 @@ try {
     error => error === nestedHostError && !(error instanceof ErlangError));
 
   const bifRuntime = new Runtime();
-  bifRuntime.registerModule(19, 'erlang', [
+  bifRuntime.registerModule(23, 'erlang', [
     {name: 'is_atom', arity: 1, exported: true, run: () => ({type: 'return', value: bifRuntime.atom('shadow')})},
     {name: 'hd', arity: 1, exported: true, run: () => ({type: 'return', value: bifRuntime.atom('shadow')})},
     {name: 'hd', arity: 2, exported: true, run: (_, [value]) => ({type: 'return', value})},
     {name: 'binary_part', arity: 2, exported: true, run: () => ({type: 'return', value: bifRuntime.atom('shadow')})},
+    {name: 'abs', arity: 1, exported: true, run: () => ({type: 'return', value: bifRuntime.atom('shadow')})},
+    {name: 'abs', arity: 2, exported: true, run: (_, [value]) => ({type: 'return', value})},
     {name: 'other', arity: 1, exported: true, run: (_, [value]) => ({type: 'return', value})},
   ]);
   assert.equal(bifRuntime.invoke('erlang', 'is_atom', [bifRuntime.atom('ok')]), bifRuntime.atom('true'));
@@ -349,6 +545,11 @@ try {
   assert.deepEqual(Array.from(bifRuntime.bitstringBytes(part)), [2, 3]);
   assert.throws(() => bifRuntime.invoke('erlang', 'binary_part', [sourceBytes]), /undefined or unsupported/);
   assert.throws(() => bifRuntime.invoke('erlang', 'binary_part', [sourceBytes, 0n, -1n]),
+    error => error instanceof ErlangError && error.erlangClass === 'error' && error.reason === bifRuntime.atom('badarg'));
+  assert.equal(bifRuntime.invoke('erlang', 'abs', [-3n]), 3n);
+  assert.equal(bifRuntime.invoke('erlang', 'abs', [1n, 2n]), 1n);
+  assert.throws(() => bifRuntime.invoke('erlang', 'round', []), /undefined or unsupported/);
+  assert.throws(() => bifRuntime.invoke('erlang', 'abs', [bifRuntime.hostHandle({})]),
     error => error instanceof ErlangError && error.erlangClass === 'error' && error.reason === bifRuntime.atom('badarg'));
   assert.equal(bifRuntime.invoke('erlang', 'other', [1n]), 1n);
   assert.throws(() => bifRuntime.invoke('erlang', 'is_atom', []), /undefined or unsupported/);
@@ -370,13 +571,13 @@ try {
   assert.throws(() => rt.hostValue({}), /host handle/);
   assert.throws(() => new Runtime().hostValue(handle), /host handle/);
   assert.throws(() => rt.invoke('missing', 'f', [{}]), /supported Erlang terms/);
-  rt.registerModule(19, 'bad_host', [{
+  rt.registerModule(23, 'bad_host', [{
     name: 'invalid', arity: 0, exported: true,
     run: () => ({type: 'return', value: {}}),
   }]);
   assert.throws(() => rt.invoke('bad_host', 'invalid', []), /return value/);
   const hostError = new Error('host failure');
-  rt.registerModule(19, 'throwing_host', [{
+  rt.registerModule(23, 'throwing_host', [{
     name: 'fail', arity: 0, exported: true,
     run: () => { throw hostError; },
   }]);
@@ -485,12 +686,24 @@ try {
       ['/test/call-cases.mjs', ['text/javascript', source('test/call-cases.mjs')]],
       ['/test/match-cases.mjs', ['text/javascript', source('test/match-cases.mjs')]],
       ['/test/arithmetic-cases.mjs', ['text/javascript', source('test/arithmetic-cases.mjs')]],
+      ['/test/scheduler-cases.mjs', ['text/javascript', source('test/scheduler-cases.mjs')]],
+      ['/test/identity-cases.mjs', ['text/javascript', source('test/identity-cases.mjs')]],
+      ['/test/spawn-cases.mjs', ['text/javascript', source('test/spawn-cases.mjs')]],
+      ['/test/send-cases.mjs', ['text/javascript', source('test/send-cases.mjs')]],
+      ['/test/receive-cases.mjs', ['text/javascript', source('test/receive-cases.mjs')]],
       ...['calls.mjs', 'calls-stripped.mjs', 'raw_stack.mjs', 'raw_stack-stripped.mjs',
         'match_failures.mjs', 'match_failures-stripped.mjs', 'raw_failures.mjs',
         'raw_failures-stripped.mjs', 'arithmetic_body.mjs', 'arithmetic_body-stripped.mjs',
         'raw_arithmetic_body.mjs', 'raw_arithmetic_body-stripped.mjs',
         'raw_float_registers.mjs', 'raw_float_registers-stripped.mjs',
         'bif_body.mjs', 'bif_body-stripped.mjs', 'raw_bif_body.mjs', 'raw_bif_body-stripped.mjs',
+        'scheduler_fixture.mjs', 'scheduler_fixture-stripped.mjs', 'raw_scheduler.mjs', 'raw_scheduler-stripped.mjs',
+        'process_identity.mjs', 'process_identity-stripped.mjs', 'raw_identity.mjs', 'raw_identity-stripped.mjs',
+        'process_spawn.mjs', 'process_spawn-stripped.mjs', 'raw_spawn.mjs', 'raw_spawn-stripped.mjs',
+        'process_send.mjs', 'process_send-stripped.mjs', 'raw_send.mjs', 'raw_send-stripped.mjs',
+        'spawn_probe.mjs', 'spawn_probe-stripped.mjs',
+        'process_receive.mjs', 'process_receive-stripped.mjs',
+        'raw_bifs.mjs', 'raw_bifs-stripped.mjs',
         'slice_helper.mjs'].map(file =>
         [`/${file}`, ['text/javascript', readFileSync(join(dir, file), 'utf8')]]),
     ]);
@@ -507,14 +720,24 @@ try {
     assert.deepEqual(errors, []);
     let timer;
     const browserResults = await Promise.race([page.evaluate(async () => {
-      const {Runtime} = await import('/runtime/beam2js.mjs');
+      const {Runtime, ErlangError} = await import('/runtime/beam2js.mjs');
       const {registerDom} = await import('/examples/browser/dom.mjs');
       const {callResults} = await import('/test/call-cases.mjs');
       const {matchResults} = await import('/test/match-cases.mjs');
       const {arithmeticResults} = await import('/test/arithmetic-cases.mjs');
+      const {schedulerChecks} = await import('/test/scheduler-cases.mjs');
+      const {identityChecks} = await import('/test/identity-cases.mjs');
+      const {spawnChecks} = await import('/test/spawn-cases.mjs');
+      const {sendChecks} = await import('/test/send-cases.mjs');
+      const {receiveChecks} = await import('/test/receive-cases.mjs');
       const results = [];
       const matches = [];
       const arithmetic = [];
+      const scheduled = [];
+      const identity = [];
+      const spawned = [];
+      const sent = [];
+      const received = [];
       for (const [file, raw, match, rawFail, body, rawBody, rawFloat, bifBody, rawBifBody] of [
         ['/calls.mjs', '/raw_stack.mjs', '/match_failures.mjs', '/raw_failures.mjs',
           '/arithmetic_body.mjs', '/raw_arithmetic_body.mjs', '/raw_float_registers.mjs',
@@ -538,6 +761,41 @@ try {
         matches.push(matchResults(runtime));
         arithmetic.push(arithmeticResults(runtime));
       }
+      for (const suffix of ['', '-stripped']) {
+        const modules = await Promise.all([
+          `/scheduler_fixture${suffix}.mjs`, `/raw_scheduler${suffix}.mjs`,
+          `/raw_float_registers${suffix}.mjs`, `/calls${suffix}.mjs`, `/arithmetic_body${suffix}.mjs`,
+          '/slice_helper.mjs',
+        ].map(file => import(file)));
+        scheduled.push(await schedulerChecks(Runtime, ErlangError, rt => {
+          for (const module of modules) module.register(rt);
+        }));
+        const identityModules = await Promise.all([
+          `/process_identity${suffix}.mjs`, `/raw_identity${suffix}.mjs`, `/raw_bifs${suffix}.mjs`,
+        ].map(file => import(file)));
+        identity.push(await identityChecks(Runtime, rt => {
+          for (const module of identityModules) module.register(rt);
+        }));
+        const spawnModules = await Promise.all([
+          `/process_spawn${suffix}.mjs`, `/raw_spawn${suffix}.mjs`, `/process_identity${suffix}.mjs`,
+        ].map(file => import(file)));
+        spawned.push(await spawnChecks(Runtime, rt => {
+          for (const module of spawnModules) module.register(rt);
+        }));
+        const sendModules = await Promise.all([
+          `/process_send${suffix}.mjs`, `/raw_send${suffix}.mjs`, `/process_spawn${suffix}.mjs`,
+          `/spawn_probe${suffix}.mjs`,
+        ].map(file => import(file)));
+        sent.push(await sendChecks(Runtime, rt => {
+          for (const module of sendModules) module.register(rt);
+        }));
+        const receiveModules = await Promise.all([
+          `/process_receive${suffix}.mjs`, `/process_send${suffix}.mjs`,
+        ].map(file => import(file)));
+        received.push(await receiveChecks(Runtime, rt => {
+          for (const module of receiveModules) module.register(rt);
+        }));
+      }
       const runtime = new Runtime();
       registerDom(runtime, document);
       const binary = value => {
@@ -548,13 +806,15 @@ try {
       const sameHandle = handle === runtime.invoke('dom', 'element_by_id', [binary('message')]);
       runtime.invoke('dom', 'append_text', [handle, binary(' <b>å</b>')]);
       const element = document.getElementById('message');
-      return {results, matches, arithmetic, sameHandle, text: element.textContent, children: element.children.length};
+      return {results, matches, arithmetic, scheduled, identity, spawned, sent, received, sameHandle, text: element.textContent, children: element.children.length};
     }), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('browser call tests timed out')), 30000);
     })]).finally(() => clearTimeout(timer));
     assert.deepEqual(browserResults, {
       results: [oracle, oracle], matches: [matchOracle, matchOracle],
-      arithmetic: [arithmeticOracle, arithmeticOracle], sameHandle: true,
+      arithmetic: [arithmeticOracle, arithmeticOracle], scheduled: [schedulerOracle, schedulerOracle],
+      identity: [identityOracle, identityOracle], spawned: [spawnOracle, spawnOracle],
+      sent: [sendOracle, sendOracle], received: [receiveOracle, receiveOracle], sameHandle: true,
       text: 'Hello from Erlang! <b>å</b>', children: 0,
     });
   } finally {

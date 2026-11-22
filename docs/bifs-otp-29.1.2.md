@@ -35,10 +35,11 @@ They are release/build observations, not proof of Beam2JS support.
   investigation and differential tests.
 - **Host**: known broad dependencies are noted; `?` means not investigated,
   not host-independent. Categories are broad families, not complete semantics.
-- **Beam2JS**: `instruction-and-callable` means the listed normalized BIF
-  instruction and external callable BIF are supported for the implemented integer,
-  float, atom, list, tuple and bitstring terms. Failing list, tuple and binary BIFs
+- **Beam2JS**: `instruction-and-callable` means the corresponding normalized
+  instruction (including `send/0` for `!/2`) and external callable BIF are supported for the implemented integer,
+  float, atom, list, tuple, bitstring and local PID terms. Failing list, tuple, binary and numeric BIFs
   branch in guards and raise `badarg` in body and callable forms.
+  `callable-only` means external calls are supported without a specialized BIF instruction.
   `guard-instruction-only` means the listed BIF instruction is supported
   only with a nonzero guard failure label, for the implemented terms.
   `body-and-guard-instruction-only` covers both guard and zero-label forms
@@ -118,7 +119,9 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   body. Nonzero-label guard instructions are tested in the same arithmetic
   fixtures, including large integers, subnormals, aliased destinations and
   stripped input. Zero-label forms are tested in the body and assembly fixtures
-  above; OTP resource limits and scheduling are not implemented.
+  above; callable forms are tested in Node and Chromium, including external
+  tail calls from [assembly](../fixtures/raw_bif_body.S).
+  OTP resource limits and scheduling are not implemented.
 - `trunc/1`, `round/1`, `floor/1` and `ceil/1` accept integers and
   floats and return integers; non-numbers raise `badarg` in a body.
   `trunc/1` rounds toward zero, `round/1` rounds to the nearest integer
@@ -126,13 +129,15 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   Nonzero-label guards are tested in the same arithmetic fixtures, including
   half-integer boundaries, signed zeros, large numbers, aliased destinations
   and stripped input. Zero-label forms are tested in the body and assembly
-  fixtures above; OTP resource limits and scheduling are not implemented.
+  fixtures above; callable forms are tested in Node and Chromium.
+  OTP resource limits and scheduling are not implemented.
 - `float/1` converts an integer to a float or returns a float unchanged,
   including the sign of zero. Non-numbers and integer-to-float overflow raise
   `badarg` in a body. Nonzero-label guards are tested in the same arithmetic
   fixtures, including conversion rounding and overflow boundaries, aliased
   destinations and stripped input. Zero-label forms are tested in the body
-  and assembly fixtures above; OTP resource limits and scheduling are not implemented.
+  and assembly fixtures above; callable forms are tested in Node and Chromium,
+  including external non-tail calls. OTP resource limits and scheduling are not implemented.
 - Binary `//2` converts both operands to floats and always returns a float.
   Non-numbers, zero divisors, integer-to-float conversion overflow and float
   result overflow raise `badarith` in a body. Its nonzero-label guard
@@ -171,7 +176,27 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   slices copy synchronously.
 - `self/0` returns the calling process's PID; distinct processes have
   distinct live identities. It depends on a process runtime, not a pure
-  host-value conversion.
+  host-value conversion. Beam2JS supports the instruction and callable forms,
+  plus `is_pid/1` and PID type-test instructions for local process identities.
+  Tests cover yields, calls, terminated processes and reentrant host invocations
+  in Node and Chromium, including stripped input. PID ordering within the runtime
+  is an implementation-defined local order, not a distributed OTP identity.
+- `is_process_alive/1` returns whether a local PID identifies a live process,
+  and raises `badarg` for non-PIDs or non-local PIDs. Callable forms are tested
+  for runnable, executing, completed and failed processes in Node and Chromium,
+  including stripped input. Cross-runtime PIDs are treated as non-local.
+- `spawn/3` returns a new PID and schedules a local child; non-atom module or
+  function arguments and improper argument lists raise `badarg` in the parent.
+  Tests cover direct, tail and non-tail calls in Node and Chromium, including
+  stripped input. Missing or private targets and more than 255 arguments fail
+  asynchronously with a host diagnostic, rather than OTP's `undef`. Argument
+  traversal is synchronous; monitors and timed receive are unsupported.
+- `!/2` and `send/2` return the sent term and append it to a live local
+  PID's mailbox; a dead local PID discards the message. Invalid destinations
+  and unregistered atoms raise `badarg`. Distributed PIDs and registered-name
+  node tuples are unsupported. The `send` instruction and callable forms are
+  tested against OTP in Node and Chromium, including stripped input and per-sender
+  ordering; registered names and timed receive are not implemented.
 - OTP emits a non-failing `bif` instruction for direct body calls to the
   seven predicates in [this fixture](../fixtures/bif_predicates.erl) and
   `is_list/1` in the [list fixture](../fixtures/list_slice.erl) and
@@ -187,8 +212,8 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   `is_bitstring/1` accepts partial-byte bitstrings too.
 
 Failure of these guard BIFs or operators in a guard fails the guard rather than
-propagating the body exception. Apart from the nine type predicates and the
-list, tuple and binary BIFs above, the Beam2JS runtime does not implement these
+propagating the body exception. Apart from the type predicates, process and message BIFs and the
+list, tuple, binary and numeric BIFs above, the Beam2JS runtime does not implement these
 callable BIFs. Beam2JS lowers the nonzero-label `hd/1`, `tl/1`, `length/1`,
 `tuple_size/1`, `element/2`, `bit_size/1`, `byte_size/1` and
 `binary_part/2` and `binary_part/3` guard
@@ -262,7 +287,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erl_debugger` | `unregister/2` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erl_debugger` | `whereis/0` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erl_debugger` | `xregs_count/1` | bif | yes | debugger | no | ? | ? | ? | not implemented |
-| `erlang` | `!/2` | bif | yes | message / timer | no | ? | ? | ? | not implemented |
+| `erlang` | `!/2` | bif | yes | message / timer | no | sends a message to a local PID | badarg for invalid destination | process runtime | instruction-and-callable |
 | `erlang` | `*/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | arithmetic-instruction-only |
 | `erlang` | `++/2` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `+/1` | ubif | yes | arithmetic | operator | optimizer-pure | ? | ? | not implemented |
@@ -279,7 +304,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `==/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `>/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `>=/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
-| `erlang` | `abs/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | body-and-guard-instruction-only |
+| `erlang` | `abs/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `adler32/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `adler32/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `adler32_combine/3` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -313,7 +338,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `call_on_load_function/1` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
 | `erlang` | `cancel_timer/1` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
 | `erlang` | `cancel_timer/2` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
-| `erlang` | `ceil/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | body-and-guard-instruction-only |
+| `erlang` | `ceil/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `check_old_code/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `crc32/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `crc32/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -356,12 +381,12 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `external_size/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `finish_after_on_load/2` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
 | `erlang` | `finish_loading/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `float/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input or integer-to-float overflow | ? | body-and-guard-instruction-only |
+| `erlang` | `float/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input or integer-to-float overflow | ? | instruction-and-callable |
 | `erlang` | `float_to_binary/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `float_to_binary/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `float_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `float_to_list/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
-| `erlang` | `floor/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | body-and-guard-instruction-only |
+| `erlang` | `floor/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `fun_info/2` | bif | yes | function / call | no | ? | ? | ? | not implemented |
 | `erlang` | `fun_info_mfa/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `fun_to_list/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -399,9 +424,9 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `is_map/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `is_map_key/2` | ubif | yes | map | BIF | optimizer-pure | {badmap,Map} for non-map | ? | not implemented |
 | `erlang` | `is_number/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
-| `erlang` | `is_pid/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
+| `erlang` | `is_pid/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_port/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
-| `erlang` | `is_process_alive/1` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
+| `erlang` | `is_process_alive/1` | bif | yes | process / scheduling | no | reads process liveness | badarg for non-PID or non-local PID | process runtime | callable-only |
 | `erlang` | `is_record/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `is_record/2` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `is_record/3` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |
@@ -476,9 +501,9 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `registered/0` | bif | yes | process registry | no | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `rem/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for zero divisor or non-integer input | ? | arithmetic-instruction-only |
 | `erlang` | `resume_process/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `round/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | body-and-guard-instruction-only |
-| `erlang` | `self/0` | ubif | yes | process / scheduling | BIF | reads calling process identity | optimizer-safe | process runtime | not implemented |
-| `erlang` | `send/2` | bif | yes | message / timer | no | ? | ? | ? | not implemented |
+| `erlang` | `round/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
+| `erlang` | `self/0` | ubif | yes | process / scheduling | BIF | reads calling process identity | optimizer-safe | process runtime | instruction-and-callable |
+| `erlang` | `send/2` | bif | yes | message / timer | no | sends a message to a local PID | badarg for invalid destination | process runtime | callable-only |
 | `erlang` | `send/3` | bif | yes | message / timer | no | ? | ? | ? | not implemented |
 | `erlang` | `send_after/3` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
 | `erlang` | `send_after/4` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
@@ -489,7 +514,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `setelement/3` | bif | yes | tuple | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `setnode/2` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
 | `erlang` | `size/1` | ubif | yes | ? | BIF | optimizer-pure | ? | ? | not implemented |
-| `erlang` | `spawn/3` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
+| `erlang` | `spawn/3` | bif | yes | process / scheduling | no | schedules a local process | badarg for non-atom module/function or improper argument list | process runtime | callable-only |
 | `erlang` | `spawn_link/3` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `spawn_opt/4` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `spawn_request_abandon/1` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
@@ -516,7 +541,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `tl/1` | ubif | yes | list / tuple | BIF | optimizer-pure | badarg for empty or non-cons input | ? | instruction-and-callable |
 | `erlang` | `trace_delivered/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `trace_info/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `trunc/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | body-and-guard-instruction-only |
+| `erlang` | `trunc/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `tuple_size/1` | ubif | yes | tuple | BIF | optimizer-pure | badarg for non-tuple | ? | instruction-and-callable |
 | `erlang` | `tuple_to_list/1` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `unalias/1` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |

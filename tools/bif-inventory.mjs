@@ -166,18 +166,26 @@ const details = new Map([
   ['maps:is_key/2', {exceptions: '{badmap,Map} for non-map'}],
   ['erlang:list_to_atom/1', {effects: 'may add a permanent atom to the global atom table'}],
   ['erlang:self/0', {effects: 'reads calling process identity', host: 'process runtime'}],
+  ['erlang:is_process_alive/1', {effects: 'reads process liveness',
+    exceptions: 'badarg for non-PID or non-local PID', host: 'process runtime'}],
+  ['erlang:spawn/3', {effects: 'schedules a local process',
+    exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
+  ['erlang:!/2', {effects: 'sends a message to a local PID',
+    exceptions: 'badarg for invalid destination', host: 'process runtime'}],
+  ['erlang:send/2', {effects: 'sends a message to a local PID',
+    exceptions: 'badarg for invalid destination', host: 'process runtime'}],
 ]);
 const instructionAndCallable = new Set([
   'erlang:is_integer/1', 'erlang:is_number/1', 'erlang:is_atom/1',
   'erlang:is_boolean/1', 'erlang:is_float/1', 'erlang:is_list/1', 'erlang:is_tuple/1',
-  'erlang:is_binary/1', 'erlang:is_bitstring/1',
+  'erlang:is_binary/1', 'erlang:is_bitstring/1', 'erlang:is_pid/1', 'erlang:self/0', 'erlang:!/2',
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
-]);
-const guardInstructionOnly = new Set();
-const bodyAndGuardInstructionOnly = new Set([
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
 ]);
+const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:spawn/3', 'erlang:send/2']);
+const guardInstructionOnly = new Set();
+const bodyAndGuardInstructionOnly = new Set();
 const arithmeticInstructionOnly = new Set([
   'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2',
   'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1',
@@ -186,7 +194,7 @@ const arithmeticInstructionOnly = new Set([
 for (const name of details.keys()) {
   if (!entries.some(entry => key(entry) === name)) throw new Error(`unknown BIF detail: ${name}`);
 }
-for (const name of [...instructionAndCallable, ...guardInstructionOnly, ...bodyAndGuardInstructionOnly,
+for (const name of [...instructionAndCallable, ...callableOnly, ...guardInstructionOnly, ...bodyAndGuardInstructionOnly,
   ...arithmeticInstructionOnly]) {
   if (!entries.some(entry => key(entry) === name)) throw new Error(`unknown BIF instruction: ${name}`);
 }
@@ -231,10 +239,11 @@ They are release/build observations, not proof of Beam2JS support.
   investigation and differential tests.
 - **Host**: known broad dependencies are noted; \`?\` means not investigated,
   not host-independent. Categories are broad families, not complete semantics.
-- **Beam2JS**: \`instruction-and-callable\` means the listed normalized BIF
-  instruction and external callable BIF are supported for the implemented integer,
-  float, atom, list, tuple and bitstring terms. Failing list, tuple and binary BIFs
+- **Beam2JS**: \`instruction-and-callable\` means the corresponding normalized
+  instruction (including \`send/0\` for \`!/2\`) and external callable BIF are supported for the implemented integer,
+  float, atom, list, tuple, bitstring and local PID terms. Failing list, tuple, binary and numeric BIFs
   branch in guards and raise \`badarg\` in body and callable forms.
+  \`callable-only\` means external calls are supported without a specialized BIF instruction.
   \`guard-instruction-only\` means the listed BIF instruction is supported
   only with a nonzero guard failure label, for the implemented terms.
   \`body-and-guard-instruction-only\` covers both guard and zero-label forms
@@ -314,7 +323,9 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   body. Nonzero-label guard instructions are tested in the same arithmetic
   fixtures, including large integers, subnormals, aliased destinations and
   stripped input. Zero-label forms are tested in the body and assembly fixtures
-  above; OTP resource limits and scheduling are not implemented.
+  above; callable forms are tested in Node and Chromium, including external
+  tail calls from [assembly](../fixtures/raw_bif_body.S).
+  OTP resource limits and scheduling are not implemented.
 - \`trunc/1\`, \`round/1\`, \`floor/1\` and \`ceil/1\` accept integers and
   floats and return integers; non-numbers raise \`badarg\` in a body.
   \`trunc/1\` rounds toward zero, \`round/1\` rounds to the nearest integer
@@ -322,13 +333,15 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   Nonzero-label guards are tested in the same arithmetic fixtures, including
   half-integer boundaries, signed zeros, large numbers, aliased destinations
   and stripped input. Zero-label forms are tested in the body and assembly
-  fixtures above; OTP resource limits and scheduling are not implemented.
+  fixtures above; callable forms are tested in Node and Chromium.
+  OTP resource limits and scheduling are not implemented.
 - \`float/1\` converts an integer to a float or returns a float unchanged,
   including the sign of zero. Non-numbers and integer-to-float overflow raise
   \`badarg\` in a body. Nonzero-label guards are tested in the same arithmetic
   fixtures, including conversion rounding and overflow boundaries, aliased
   destinations and stripped input. Zero-label forms are tested in the body
-  and assembly fixtures above; OTP resource limits and scheduling are not implemented.
+  and assembly fixtures above; callable forms are tested in Node and Chromium,
+  including external non-tail calls. OTP resource limits and scheduling are not implemented.
 - Binary \`//2\` converts both operands to floats and always returns a float.
   Non-numbers, zero divisors, integer-to-float conversion overflow and float
   result overflow raise \`badarith\` in a body. Its nonzero-label guard
@@ -367,7 +380,27 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   slices copy synchronously.
 - \`self/0\` returns the calling process's PID; distinct processes have
   distinct live identities. It depends on a process runtime, not a pure
-  host-value conversion.
+  host-value conversion. Beam2JS supports the instruction and callable forms,
+  plus \`is_pid/1\` and PID type-test instructions for local process identities.
+  Tests cover yields, calls, terminated processes and reentrant host invocations
+  in Node and Chromium, including stripped input. PID ordering within the runtime
+  is an implementation-defined local order, not a distributed OTP identity.
+- \`is_process_alive/1\` returns whether a local PID identifies a live process,
+  and raises \`badarg\` for non-PIDs or non-local PIDs. Callable forms are tested
+  for runnable, executing, completed and failed processes in Node and Chromium,
+  including stripped input. Cross-runtime PIDs are treated as non-local.
+- \`spawn/3\` returns a new PID and schedules a local child; non-atom module or
+  function arguments and improper argument lists raise \`badarg\` in the parent.
+  Tests cover direct, tail and non-tail calls in Node and Chromium, including
+  stripped input. Missing or private targets and more than 255 arguments fail
+  asynchronously with a host diagnostic, rather than OTP's \`undef\`. Argument
+  traversal is synchronous; monitors and timed receive are unsupported.
+- \`!/2\` and \`send/2\` return the sent term and append it to a live local
+  PID's mailbox; a dead local PID discards the message. Invalid destinations
+  and unregistered atoms raise \`badarg\`. Distributed PIDs and registered-name
+  node tuples are unsupported. The \`send\` instruction and callable forms are
+  tested against OTP in Node and Chromium, including stripped input and per-sender
+  ordering; registered names and timed receive are not implemented.
 - OTP emits a non-failing \`bif\` instruction for direct body calls to the
   seven predicates in [this fixture](../fixtures/bif_predicates.erl) and
   \`is_list/1\` in the [list fixture](../fixtures/list_slice.erl) and
@@ -383,8 +416,8 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   \`is_bitstring/1\` accepts partial-byte bitstrings too.
 
 Failure of these guard BIFs or operators in a guard fails the guard rather than
-propagating the body exception. Apart from the nine type predicates and the
-list, tuple and binary BIFs above, the Beam2JS runtime does not implement these
+propagating the body exception. Apart from the type predicates, process and message BIFs and the
+list, tuple, binary and numeric BIFs above, the Beam2JS runtime does not implement these
 callable BIFs. Beam2JS lowers the nonzero-label \`hd/1\`, \`tl/1\`, \`length/1\`,
 \`tuple_size/1\`, \`element/2\`, \`bit_size/1\`, \`byte_size/1\` and
 \`binary_part/2\` and \`binary_part/3\` guard
@@ -410,7 +443,8 @@ const rows = entries.map(entry => {
   const exceptions = [entry.alwaysRaises ? 'always-raises' : entry.safe ? 'optimizer-safe' : null,
     detail?.exceptions].filter(Boolean).join('; ') || '?';
   const support = instructionAndCallable.has(key(entry)) ? 'instruction-and-callable' :
-    guardInstructionOnly.has(key(entry)) ? 'guard-instruction-only' :
+    callableOnly.has(key(entry)) ? 'callable-only' :
+      guardInstructionOnly.has(key(entry)) ? 'guard-instruction-only' :
       bodyAndGuardInstructionOnly.has(key(entry)) ? 'body-and-guard-instruction-only' :
         arithmeticInstructionOnly.has(key(entry)) ? 'arithmetic-instruction-only' : 'not implemented';
   return `| \`${cell(entry.module)}\` | \`${cell(entry.name)}/${entry.arity}\` | ${entry.kind} | ${entry.builtin ? 'yes' : 'no'} | ${categoryOf(entry)} | ${guard} | ${cell(effect)} | ${cell(exceptions)} | ${detail?.host ?? hostDependency(entry)} | ${support} |`;

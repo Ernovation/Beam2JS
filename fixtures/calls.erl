@@ -1,6 +1,7 @@
 -module(calls).
 -export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, depth/1,
-         match_remote/1, bif_remote/1, callable_bif_remote/1, binary_bif_remote/3]).
+         match_remote/1, bif_remote/1, callable_bif_remote/1, binary_bif_remote/3,
+         numeric_bif_remote/1]).
 
 local(Value) ->
     identity(identity(Value)).
@@ -45,6 +46,10 @@ callable_bif_remote(Value) ->
 
 binary_bif_remote(Value, Start, Length) ->
     Result = raw_bif_body:part3_call(Value, Start, Length),
+    {ok, Result}.
+
+numeric_bif_remote(Value) ->
+    Result = raw_bif_body:float_call(Value),
     {ok, Result}.
 
 identity(Value) ->

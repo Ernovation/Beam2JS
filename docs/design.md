@@ -110,6 +110,17 @@ cooperative scheduling. Yield checks must also cover loops and long-running
 runtime operations, not just function calls. The precise ABI is to be fixed and
 tested in the first implementation slice.
 
+The current ABI 23 slice stores each process's execution state and mailbox
+separately and schedules bounded generated-instruction segments from a shared
+queue. Indefinite receives suspend off the queue and resume on message delivery.
+Configurable scheduler slots cooperate on one event loop, not parallel workers.
+Before moving scheduling to workers, the runtime must define
+exclusive process ownership and transfer, synchronized mailbox ordering,
+module availability and term transport. In particular, the current WeakMap
+term representations and opaque host handles cannot simply be shared across
+worker realms. Runtime operations and host calls also need yield or isolation
+strategies before responsiveness can be guaranteed.
+
 The runtime owns:
 
 - Erlang term representations, identity, exact and numeric equality, ordering,
