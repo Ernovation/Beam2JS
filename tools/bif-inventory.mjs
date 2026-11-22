@@ -167,22 +167,40 @@ const details = new Map([
   ['erlang:list_to_atom/1', {effects: 'may add a permanent atom to the global atom table'}],
   ['erlang:self/0', {effects: 'reads calling process identity', host: 'process runtime'}],
   ['erlang:make_ref/0', {effects: 'creates a unique local reference', host: 'runtime identity'}],
+  ['erlang:monotonic_time/0', {effects: 'reads the runtime monotonic clock', host: 'clock / scheduler'}],
+  ['erlang:monotonic_time/1', {effects: 'reads the runtime monotonic clock in the requested unit',
+    exceptions: 'badarg for invalid time unit', host: 'clock / scheduler'}],
   ['erlang:is_process_alive/1', {effects: 'reads process liveness',
     exceptions: 'badarg for non-PID or non-local PID', host: 'process runtime'}],
   ['erlang:spawn/3', {effects: 'schedules a local process',
     exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
-  ['erlang:!/2', {effects: 'sends a message to a local PID',
+  ['erlang:register/2', {effects: 'registers a local process name',
+    exceptions: 'badarg for invalid or already registered name or process', host: 'process runtime'}],
+  ['erlang:unregister/1', {effects: 'removes a local process name',
+    exceptions: 'badarg for unregistered or non-atom name', host: 'process runtime'}],
+  ['erlang:whereis/1', {effects: 'looks up a local process name',
+    exceptions: 'badarg for non-atom name', host: 'process runtime'}],
+  ['erlang:registered/0', {effects: 'lists local registered names', host: 'process runtime'}],
+  ['erlang:!/2', {effects: 'sends a message to a local PID or registered name',
     exceptions: 'badarg for invalid destination', host: 'process runtime'}],
-  ['erlang:send/2', {effects: 'sends a message to a local PID',
+  ['erlang:send/2', {effects: 'sends a message to a local PID or registered name',
     exceptions: 'badarg for invalid destination', host: 'process runtime'}],
-  ['erlang:send_after/3', {effects: 'schedules a message to a local PID',
+  ['erlang:send_after/3', {effects: 'schedules a message to a local PID or name',
     exceptions: 'badarg for negative or non-integer delay or invalid destination', host: 'clock / scheduler'}],
-  ['erlang:start_timer/3', {effects: 'schedules a timeout tuple to a local PID',
+  ['erlang:send_after/4', {effects: 'schedules a relative or absolute message to a local PID or name',
+    exceptions: 'badarg for invalid arguments or options', host: 'clock / scheduler'}],
+  ['erlang:start_timer/3', {effects: 'schedules a timeout tuple to a local PID or name',
     exceptions: 'badarg for negative or non-integer delay or invalid destination', host: 'clock / scheduler'}],
+  ['erlang:start_timer/4', {effects: 'schedules a relative or absolute timeout tuple to a local PID or name',
+    exceptions: 'badarg for invalid arguments or options', host: 'clock / scheduler'}],
   ['erlang:read_timer/1', {effects: 'reads remaining timer time',
     exceptions: 'badarg for non-reference', host: 'clock / scheduler'}],
+  ['erlang:read_timer/2', {effects: 'reads remaining timer time, optionally asynchronously',
+    exceptions: 'badarg for non-reference or invalid options', host: 'clock / scheduler'}],
   ['erlang:cancel_timer/1', {effects: 'cancels a timer',
     exceptions: 'badarg for non-reference', host: 'clock / scheduler'}],
+  ['erlang:cancel_timer/2', {effects: 'cancels a timer, optionally asynchronously',
+    exceptions: 'badarg for non-reference or invalid options', host: 'clock / scheduler'}],
 ]);
 const instructionAndCallable = new Set([
   'erlang:is_integer/1', 'erlang:is_number/1', 'erlang:is_atom/1',
@@ -194,7 +212,11 @@ const instructionAndCallable = new Set([
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
-  'erlang:send_after/3', 'erlang:start_timer/3', 'erlang:read_timer/1', 'erlang:cancel_timer/1']);
+  'erlang:monotonic_time/0', 'erlang:monotonic_time/1',
+  'erlang:send_after/3', 'erlang:send_after/4', 'erlang:start_timer/3', 'erlang:start_timer/4',
+  'erlang:read_timer/1', 'erlang:cancel_timer/1',
+  'erlang:read_timer/2', 'erlang:cancel_timer/2',
+  'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0']);
 const guardInstructionOnly = new Set();
 const bodyAndGuardInstructionOnly = new Set();
 const arithmeticInstructionOnly = new Set([
@@ -411,19 +433,29 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   stripped input. Missing or private targets and more than 255 arguments fail
   asynchronously with a host diagnostic, rather than OTP's \`undef\`. Argument
   traversal is synchronous; monitors are unsupported.
+- \`register/2\`, \`unregister/1\`, \`whereis/1\` and \`registered/0\`
+  support local process names. A process may have one name, which is removed
+  when it exits. Registry behavior and invalid inputs are tested against OTP
+  in Node and Chromium, including stripped input. Ports and distributed
+  registries are unsupported.
 - \`!/2\` and \`send/2\` return the sent term and append it to a live local
-  PID's mailbox; a dead local PID discards the message. Invalid destinations
+  PID or registered name's mailbox; a dead local PID discards the message. Invalid destinations
   and unregistered atoms raise \`badarg\`. Distributed PIDs and registered-name
   node tuples are unsupported. The \`send\` instruction and callable forms are
   tested against OTP in Node and Chromium, including stripped input and per-sender
-  ordering; registered names are not implemented.
-- \`send_after/3\` and \`start_timer/3\` schedule messages to local PIDs and
-  return references; \`read_timer/1\` and \`cancel_timer/1\` return remaining
-  milliseconds or \`false\`. Timers are canceled when the destination exits.
+  ordering.
+- \`send_after/3,4\` and \`start_timer/3,4\` schedule messages to local PIDs or names and
+  return references. The four-argument forms accept relative and absolute
+  deadlines using the runtime clock; \`monotonic_time/0,1\` reads that clock.
+  \`read_timer/1\` and \`cancel_timer/1\` return remaining
+  milliseconds or \`false\`. Their two-argument forms also support asynchronous
+  access and, for cancellation, suppressing result information.
+  PID-addressed timers are canceled when the destination
+  exits; names are resolved when the timer expires.
   OTP, Node and Chromium tests cover delivery and cancellation, including
-  stripped input. Delays above 4294967295 milliseconds and registered-name
-  destinations produce host diagnostics; options and distributed timers are
-  unsupported.
+  stripped input. Relative delays and future absolute deadlines more than
+  4294967295 milliseconds away, or absolute deadlines outside safe-integer
+  precision, produce host diagnostics. Distributed timers are unsupported.
 - OTP emits a non-failing \`bif\` instruction for direct body calls to the
   seven predicates in [this fixture](../fixtures/bif_predicates.erl) and
   \`is_list/1\` in the [list fixture](../fixtures/list_slice.erl) and

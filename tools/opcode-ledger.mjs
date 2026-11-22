@@ -39,7 +39,7 @@ const partial = new Map([
   ['init_yregs', 'Nonempty ordered distinct y-register list with indices 0..1023; clears slots to nil. Frame bounds are checked at runtime; full register validation is not implemented.'],
   ['trim', 'Nonnegative count and remaining size 0..1024; discards low-index y slots and renumbers the rest. Frame size is checked at runtime.'],
   ['bif0', 'Normalized nofail self/0 to ordinary x or y destination; returns the current process PID.'],
-  ['send', 'Sends x1 to a local PID in x0 and returns the message in x0; dead local PIDs discard it, invalid destinations raise badarg. Distributed PIDs and registered-name node tuples are unsupported.'],
+  ['send', 'Sends x1 to a local PID or registered name in x0 and returns the message in x0; dead local PIDs discard it, invalid destinations raise badarg. Distributed PIDs and registered-name node tuples are unsupported.'],
   ['loop_rec', 'Reads the current mailbox message into an x register, or branches to a nonzero label when the scan is exhausted.'],
   ['loop_rec_end', 'Advances the mailbox scan and branches to a nonzero label.'],
   ['remove_message', 'Removes the current mailbox message, resets the receive cursor and cancels an active receive timer.'],

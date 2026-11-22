@@ -113,7 +113,7 @@ tested in the first implementation slice.
 The current ABI 25 slice stores each process's execution state and mailbox
 separately and schedules bounded generated-instruction segments from a shared
 queue. Receives suspend off the queue and resume on message delivery or a
-monotonic receive timer. Local PID timer BIFs support relative delays and
+monotonic receive timer. Local PID and registered-name timer BIFs support relative delays and
 cancellation; broader timer options and full OTP race semantics remain future work.
 Configurable scheduler slots cooperate on one event loop, not parallel workers.
 Before moving scheduling to workers, the runtime must define

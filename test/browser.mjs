@@ -18,6 +18,8 @@ import {receiveChecks} from './receive-cases.mjs';
 import {timeoutChecks} from './timeout-cases.mjs';
 import {referenceChecks} from './reference-cases.mjs';
 import {timerBifChecks} from './timer-bif-cases.mjs';
+import {timerOptionChecks} from './timer-option-cases.mjs';
+import {registryChecks} from './registry-cases.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-browser-'));
 const compiler = resolve('_build/default/bin/beam2js');
@@ -30,7 +32,8 @@ try {
     'fixtures/bif_body.erl', 'fixtures/scheduler_fixture.erl', 'fixtures/scheduler_probe.erl',
     'fixtures/process_identity.erl', 'fixtures/process_spawn.erl', 'fixtures/spawn_probe.erl',
     'fixtures/process_send.erl', 'fixtures/process_receive.erl', 'fixtures/receive_timeout.erl',
-    'fixtures/receive_probe.erl', 'fixtures/process_reference.erl', 'fixtures/process_timer.erl']);
+    'fixtures/receive_probe.erl', 'fixtures/process_reference.erl', 'fixtures/process_timer.erl',
+    'fixtures/process_registry.erl']);
   const calls = join(dir, 'calls.beam');
   const stripped = join(dir, 'calls-stripped.beam');
   run('erl', ['-noshell', '-eval',
@@ -68,6 +71,23 @@ try {
     'true=lists:member({call_ext_only,3,{extfunc,erlang,send_after,3}},TimerTail), ' +
     '{function,wrapped,3,_,TimerCall}=lists:keyfind(wrapped,2,TimerFs), ' +
     'true=lists:member({call_ext,3,{extfunc,erlang,start_timer,3}},TimerCall), ' +
+    '{function,send_opts,4,_,TimerOptionsTail}=lists:keyfind(send_opts,2,TimerFs), ' +
+    'true=lists:member({call_ext_only,4,{extfunc,erlang,send_after,4}},TimerOptionsTail), ' +
+    '{function,wrapped_opts,4,_,TimerOptionsCall}=lists:keyfind(wrapped_opts,2,TimerFs), ' +
+    'true=lists:member({call_ext,4,{extfunc,erlang,start_timer,4}},TimerOptionsCall), ' +
+    '{function,read_opts,2,_,ReadOptions}=lists:keyfind(read_opts,2,TimerFs), ' +
+    'true=lists:member({call_ext_only,2,{extfunc,erlang,read_timer,2}},ReadOptions), ' +
+    '{function,cancel_opts,2,_,CancelOptions}=lists:keyfind(cancel_opts,2,TimerFs), ' +
+    'true=lists:member({call_ext_only,2,{extfunc,erlang,cancel_timer,2}},CancelOptions), ' +
+    '{function,now_in,1,_,NowCode}=lists:keyfind(now_in,2,TimerFs), ' +
+    'true=lists:member({call_ext_only,1,{extfunc,erlang,monotonic_time,1}},NowCode), ' +
+    '{function,native_now,0,_,NativeNowCode}=lists:keyfind(native_now,2,TimerFs), ' +
+    'true=lists:member({call_ext_only,0,{extfunc,erlang,monotonic_time,0}},NativeNowCode), ' +
+    '{beam_file,process_registry,_,_,_,RegistryFs}=beam_disasm:file(filename:join(Dir,"process_registry.beam")), ' +
+    '{function,bind,2,_,RegistryTail}=lists:keyfind(bind,2,RegistryFs), ' +
+    'true=lists:member({call_ext_only,2,{extfunc,erlang,register,2}},RegistryTail), ' +
+    '{function,wrapped,2,_,RegistryCall}=lists:keyfind(wrapped,2,RegistryFs), ' +
+    'true=lists:member({call_ext,2,{extfunc,erlang,register,2}},RegistryCall), ' +
     '{beam_file,raw_reference,_,_,_,RawRefFs}=beam_disasm:file(filename:join(Dir,"raw_reference.beam")), ' +
     'lists:foreach(fun({Name,Kind}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,RawRefFs), ' +
     'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
@@ -149,7 +169,7 @@ try {
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
-    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer"]), halt().', '-extra', dir]);
+    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry"]), halt().', '-extra', dir]);
   for (const [input, output] of [
     [calls, 'calls.mjs'], [stripped, 'calls-stripped.mjs'],
     [join(dir, 'raw_stack.beam'), 'raw_stack.mjs'],
@@ -196,6 +216,8 @@ try {
     [join(dir, 'raw_reference-stripped.beam'), 'raw_reference-stripped.mjs'],
     [join(dir, 'process_timer.beam'), 'process_timer.mjs'],
     [join(dir, 'process_timer-stripped.beam'), 'process_timer-stripped.mjs'],
+    [join(dir, 'process_registry.beam'), 'process_registry.mjs'],
+    [join(dir, 'process_registry-stripped.beam'), 'process_registry-stripped.mjs'],
     [join(dir, 'raw_bifs.beam'), 'raw_bifs.mjs'],
     [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
@@ -345,6 +367,121 @@ try {
     'io:format("~w~n",[[is_reference(R),is_integer(Initial) andalso Initial>0 andalso Initial=<10000,' +
     'is_integer(Remaining) andalso Remaining>0 andalso Remaining=<10000,Absent,Delivered,Wrapped,NotTimer]' +
     '++BadCases++[Dead,Exit]]),halt().',
+  ]).trim();
+  const timerOptionOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'Self=self(), Bad=fun(F)->try F(),false catch error:badarg->true end end, ' +
+    'DefaultRef=process_timer:send_opts(5,Self,default,[]), ' +
+    'CreatedDefault=is_reference(DefaultRef) andalso receive default->true after 5000->false end, ' +
+    'Name=beam2js_timer_options, true=register(Name,Self), ' +
+    'NamedRef=process_timer:start_opts(5,Name,named,[{abs,false}]), ' +
+    'ConfiguredRelative=receive {timeout,NamedRef,named}->true after 5000->false end, ' +
+    'true=unregister(Name), {started,WrapperRef}=process_timer:wrapped_opts(100000,Self,wrapped,[{abs,true},{abs,false}]), ' +
+    'DuplicateRelative=is_integer(erlang:cancel_timer(WrapperRef)), ' +
+    'InvalidCreation=lists:all(fun(X)->X end,[Bad(fun()->process_timer:send_opts(1,Self,bad,[{abs,yes}]) end),' +
+    'Bad(fun()->process_timer:start_opts(1,Self,bad,[{async,false}]) end),' +
+    'Bad(fun()->process_timer:send_opts(1,Self,bad,[bad]) end),' +
+    'Bad(fun()->process_timer:send_opts(1,Self,bad,[{abs,false}|tail]) end),' +
+    'Bad(fun()->process_timer:start_opts(1,Self,bad,bad) end),' +
+    'Bad(fun()->process_timer:send_opts(1,Self,bad,[{abs}]) end),' +
+    'Bad(fun()->process_timer:start_opts(-1,Self,bad,[{abs,false}]) end),' +
+    'Bad(fun()->process_timer:send_opts(bad,Self,bad,[{abs,true}]) end),' +
+    'Bad(fun()->process_timer:start_opts(1,123,bad,[{abs,true}]) end),' +
+    'Bad(fun()->process_timer:send_opts(1,Self,bad,[{abs,true},{info,true}]) end)]), ' +
+    'AbsRef=process_timer:send_opts(process_timer:now()+10,Self,absolute,[{abs,true}]), ' +
+    'AbsolutePid=is_reference(AbsRef) andalso receive absolute->true after 5000->false end, ' +
+    'true=register(Name,Self), ' +
+    'AbsNamedRef=process_timer:start_opts(process_timer:now()+10,Name,named_absolute,[{abs,true}]), ' +
+    'AbsoluteNamed=receive {timeout,AbsNamedRef,named_absolute}->true after 5000->false end, ' +
+    'true=unregister(Name), ' +
+    'PastRef=process_timer:send_opts(process_timer:now()-100,Self,past,[{abs,false},{abs,true}]), ' +
+    'AbsolutePast=is_reference(PastRef) andalso receive past->true after 5000->false end, ' +
+    'Units=[second,seconds,millisecond,milli_seconds,microsecond,micro_seconds,nanosecond,' +
+    'nano_seconds,native,perf_counter,3,1000,1 bsl 80], ' +
+    'MonotonicValid=lists:all(fun(U)->Before=erlang:monotonic_time(U), Value=process_timer:now_in(U), ' +
+    'After=erlang:monotonic_time(U), Before=<Value andalso Value=<After end,Units) andalso ' +
+    'begin BeforeNative=erlang:monotonic_time(), Native=process_timer:native_now(), ' +
+    'AfterNative=erlang:monotonic_time(), BeforeNative=<Native andalso Native=<AfterNative end, ' +
+    'MonotonicInvalid=lists:all(fun(U)->Bad(fun()->process_timer:now_in(U) end) end,[0,-1,bad,1.0]), ' +
+    'New=fun()->erlang:send_after(100000,Self,timer) end, R=New(), ' +
+    'Valid=fun(V)->is_integer(V) andalso V>0 andalso V=<100000 end, ' +
+    'Defaults=Valid(process_timer:read_opts(R,[])) andalso ' +
+    'Valid(erlang:read_timer(R,[{async,false}])), ' +
+    'DuplicateSync=Valid(process_timer:read_opts(R,[{async,true},{async,false}])), ' +
+    '{ok,{read_timer,R,Read}}=process_timer:read_reply(R,[{async,true}]), AsyncRead=Valid(Read), ' +
+    '{ok,{read_timer,R,Dup}}=process_timer:read_reply(R,[{async,false},{async,true}]), DuplicateAsync=Valid(Dup), ' +
+    'Missing=make_ref(), AsyncMissing=process_timer:read_reply(Missing,[{async,true}])=:={ok,{read_timer,Missing,false}}, ' +
+    'C=New(), {ok,{cancel_timer,C,CVal}}=process_timer:cancel_reply(C,[{async,true},{info,true}]), ' +
+    'AsyncCancel=Valid(CVal) andalso erlang:read_timer(C)=:=false, ' +
+    'N=New(), NoInfo=process_timer:cancel_no_reply(N,[{async,true},{info,false}])=:={ok,no_reply} ' +
+    'andalso erlang:read_timer(N)=:=false, ' +
+    'S=New(), SyncSilent=process_timer:cancel_opts(S,[{info,true},{info,false}])=:=ok ' +
+    'andalso erlang:read_timer(S)=:=false, ' +
+    'I=New(), SyncInfo=Valid(process_timer:cancel_opts(I,[{info,false},{info,true}])), ' +
+    'Invalid=lists:all(fun(X)->X end,[Bad(fun()->process_timer:read_opts(R,[{info,false}]) end),' +
+    'Bad(fun()->process_timer:cancel_opts(R,[{async,yes}]) end),' +
+    'Bad(fun()->process_timer:cancel_opts(R,[{unknown,true}]) end),' +
+    'Bad(fun()->process_timer:read_opts(R,[bad]) end),' +
+    'Bad(fun()->process_timer:cancel_opts(R,[{async,true}|tail]) end),' +
+    'Bad(fun()->process_timer:read_opts(R,bad) end),' +
+    'Bad(fun()->process_timer:cancel_opts(bad,[{async,true},{info,false}]) end),' +
+    'Bad(fun()->process_timer:read_opts(R,[{async}]) end)]) andalso Valid(erlang:read_timer(R)), ' +
+    'erlang:cancel_timer(R), Expired=erlang:send_after(1,Self,expired), ' +
+    'receive expired->ok after 5000->erlang:error(timeout) end, ' +
+    'AsyncExpired=process_timer:cancel_reply(Expired,[{async,true}])=:={ok,{cancel_timer,Expired,false}}, ' +
+    'io:format("~w~n",[[CreatedDefault,ConfiguredRelative,DuplicateRelative,InvalidCreation,' +
+    'AbsolutePid,AbsoluteNamed,AbsolutePast,MonotonicValid,MonotonicInvalid,' +
+    'Defaults,DuplicateSync,AsyncRead,DuplicateAsync,AsyncMissing,AsyncCancel,' +
+    'NoInfo,SyncSilent,SyncInfo,Invalid,AsyncExpired]]),halt().',
+  ]).trim();
+  const registryOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'logger:set_primary_config(level,none), Self=self(), Name=beam2js_registry_test, Other=beam2js_registry_other, ' +
+    'Empty=process_registry:lookup(Name)=:=undefined andalso not lists:member(Name,process_registry:names()), ' +
+    '{P,PM}=spawn_monitor(fun()->A=receive V1->V1 end,B=receive V2->V2 end,Self!{pair,A,B} end), ' +
+    '{Sp,SM}=spawn_monitor(fun()->receive V3->Self!{spare,V3} end end), ' +
+    '{bound,true}=process_registry:wrapped(Name,P), ' +
+    'Bound=process_registry:lookup(Name)=:=P andalso lists:member(Name,process_registry:names()), ' +
+    'Bad=fun(F)->try F(),false catch error:badarg->true end end, ' +
+    'Invalid=lists:all(fun(X)->X end,[Bad(fun()->process_registry:bind(Name,P) end),' +
+    'Bad(fun()->process_registry:bind(Name,Sp) end),Bad(fun()->process_registry:bind(Other,P) end),' +
+    'Bad(fun()->process_registry:bind(undefined,Sp) end),Bad(fun()->process_registry:bind(1,Sp) end),' +
+    'Bad(fun()->process_registry:bind(Other,1) end),Bad(fun()->process_registry:lookup(1) end),' +
+    'Bad(fun()->process_registry:unbind(Other) end),Bad(fun()->process_registry:unbind(1) end)]), ' +
+    'Sent=process_send:send(Name,one)=:=one andalso erlang:send(Name,two)=:=two, ' +
+    'Delivered=Sent andalso receive {pair,one,two}->true after 5000->false end, ' +
+    'receive {\'DOWN\',PM,process,P,_}->ok after 5000->erlang:error(timeout) end, ' +
+    'Removed=process_registry:lookup(Name)=:=undefined andalso not lists:member(Name,process_registry:names()) ' +
+    'andalso Bad(fun()->process_registry:bind(Other,P) end), ' +
+    '{Former,FM}=spawn_monitor(fun()->receive finish->ok end end), ' +
+    'true=process_registry:bind(Name,Former), true=process_registry:unbind(Name), ' +
+    'true=process_registry:bind(Name,Sp), Former!finish, ' +
+    'receive {\'DOWN\',FM,process,Former,_}->ok after 5000->erlang:error(timeout) end, ' +
+    'Reused=process_registry:lookup(Name)=:=Sp andalso (Name!reused)=:=reused ' +
+    'andalso receive {spare,reused}->true after 5000->false end, ' +
+    'receive {\'DOWN\',SM,process,Sp,_}->ok after 5000->erlang:error(timeout) end, ' +
+    '{SelfChild,SCM}=spawn_monitor(fun()->{SP,SQ}=process_registry:self_bind(Name),Self!{self_result,SP=:=SQ} end), ' +
+    'SelfResult=receive {self_result,true}->true after 5000->false end, ' +
+    'receive {\'DOWN\',SCM,process,SelfChild,_}->ok after 5000->erlang:error(timeout) end, ' +
+    'SelfOK=SelfResult andalso process_registry:lookup(Name)=:=undefined, ' +
+    '{Fail,FailM}=spawn_monitor(fun()->receive go->erlang:error(registry_failure) end end), ' +
+    'true=process_registry:bind(Name,Fail), Fail!go, ' +
+    'receive {\'DOWN\',FailM,process,Fail,_}->ok after 5000->erlang:error(timeout) end, ' +
+    'FailureCleanup=process_registry:lookup(Name)=:=undefined, ' +
+    'Later=erlang:send_after(100,Name,late), ' +
+    '{Late,LM}=spawn_monitor(fun()->receive late->Self!late_delivered end end), ' +
+    'true=process_registry:bind(Name,Late), ' +
+    'LateBound=(receive late_delivered->true after 5000->false end) andalso erlang:read_timer(Later)=:=false, ' +
+    'receive {\'DOWN\',LM,process,Late,_}->ok after 5000->erlang:error(timeout) end, ' +
+    '{Old,OM}=spawn_monitor(fun()->receive stop->ok end end), true=process_registry:bind(Name,Old), ' +
+    'Timer=erlang:start_timer(200,Name,tick), Old!stop, ' +
+    'receive {\'DOWN\',OM,process,Old,_}->ok after 5000->erlang:error(timeout) end, ' +
+    'StillTimer=is_integer(erlang:read_timer(Timer)), ' +
+    '{Replacement,RM}=spawn_monitor(fun()->receive {timeout,Timer,tick}->Self!timer_delivered end end), ' +
+    'true=process_registry:bind(Name,Replacement), ' +
+    'Reregistered=StillTimer andalso receive timer_delivered->true after 5000->false end, ' +
+    'receive {\'DOWN\',RM,process,Replacement,_}->ok after 5000->erlang:error(timeout) end, ' +
+    'Lost=erlang:send_after(5,Name,lost), receive after 50->ok end, ' +
+    'Disappeared=erlang:read_timer(Lost)=:=false andalso process_registry:lookup(Name)=:=undefined, ' +
+    'io:format("~w~n",[[Empty,Bound,Invalid,Delivered,Removed,Reused,SelfOK,FailureCleanup,LateBound,Reregistered,Disappeared]]),halt().',
   ]).trim();
   const matchOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Long=lists:seq(1,10000), LongImproper=lists:foldl(fun(X,Acc)->[X|Acc] end,tail,Long), ' +
@@ -614,6 +751,13 @@ try {
     assert.equal(await timeoutChecks(Runtime, rt => timeoutModule.register(rt)), timeoutOracle);
     const timerModule = await import(pathToFileURL(join(dir, `process_timer${suffix}.mjs`)));
     assert.equal(await timerBifChecks(Runtime, rt => timerModule.register(rt)), timerBifOracle);
+    assert.equal(await timerOptionChecks(Runtime, rt => timerModule.register(rt)), timerOptionOracle);
+    const registryModules = await Promise.all([
+      `process_registry${suffix}.mjs`, `process_send${suffix}.mjs`,
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.equal(await registryChecks(Runtime, rt => {
+      for (const module of registryModules) module.register(rt);
+    }), registryOracle);
   }
 
   const missingDependency = new Runtime();
@@ -803,6 +947,8 @@ try {
       ['/test/receive-cases.mjs', ['text/javascript', source('test/receive-cases.mjs')]],
       ['/test/timeout-cases.mjs', ['text/javascript', source('test/timeout-cases.mjs')]],
       ['/test/timer-bif-cases.mjs', ['text/javascript', source('test/timer-bif-cases.mjs')]],
+      ['/test/timer-option-cases.mjs', ['text/javascript', source('test/timer-option-cases.mjs')]],
+      ['/test/registry-cases.mjs', ['text/javascript', source('test/registry-cases.mjs')]],
       ['/test/reference-cases.mjs', ['text/javascript', source('test/reference-cases.mjs')]],
       ...['calls.mjs', 'calls-stripped.mjs', 'raw_stack.mjs', 'raw_stack-stripped.mjs',
         'match_failures.mjs', 'match_failures-stripped.mjs', 'raw_failures.mjs',
@@ -820,6 +966,7 @@ try {
         'process_reference.mjs', 'process_reference-stripped.mjs',
         'raw_reference.mjs', 'raw_reference-stripped.mjs',
         'process_timer.mjs', 'process_timer-stripped.mjs',
+        'process_registry.mjs', 'process_registry-stripped.mjs',
         'raw_bifs.mjs', 'raw_bifs-stripped.mjs',
         'slice_helper.mjs'].map(file =>
         [`/${file}`, ['text/javascript', readFileSync(join(dir, file), 'utf8')]]),
@@ -849,6 +996,8 @@ try {
       const {receiveChecks} = await import('/test/receive-cases.mjs');
       const {timeoutChecks} = await import('/test/timeout-cases.mjs');
       const {timerBifChecks} = await import('/test/timer-bif-cases.mjs');
+      const {timerOptionChecks} = await import('/test/timer-option-cases.mjs');
+      const {registryChecks} = await import('/test/registry-cases.mjs');
       const {referenceChecks} = await import('/test/reference-cases.mjs');
       const results = [];
       const matches = [];
@@ -860,6 +1009,8 @@ try {
       const received = [];
       const timeouts = [];
       const timerBifs = [];
+      const timerOptions = [];
+      const registries = [];
       const refs = [];
       for (const [file, raw, match, rawFail, body, rawBody, rawFloat, bifBody, rawBifBody] of [
         ['/calls.mjs', '/raw_stack.mjs', '/match_failures.mjs', '/raw_failures.mjs',
@@ -928,6 +1079,13 @@ try {
         timeouts.push(await timeoutChecks(Runtime, rt => timeoutModule.register(rt)));
         const timerModule = await import(`/process_timer${suffix}.mjs`);
         timerBifs.push(await timerBifChecks(Runtime, rt => timerModule.register(rt)));
+        timerOptions.push(await timerOptionChecks(Runtime, rt => timerModule.register(rt)));
+        const registryModules = await Promise.all([
+          `/process_registry${suffix}.mjs`, `/process_send${suffix}.mjs`,
+        ].map(file => import(file)));
+        registries.push(await registryChecks(Runtime, rt => {
+          for (const module of registryModules) module.register(rt);
+        }));
       }
       const runtime = new Runtime();
       registerDom(runtime, document);
@@ -939,7 +1097,7 @@ try {
       const sameHandle = handle === runtime.invoke('dom', 'element_by_id', [binary('message')]);
       runtime.invoke('dom', 'append_text', [handle, binary(' <b>å</b>')]);
       const element = document.getElementById('message');
-      return {results, matches, arithmetic, scheduled, identity, refs, spawned, sent, received, timeouts, timerBifs, sameHandle, text: element.textContent, children: element.children.length};
+      return {results, matches, arithmetic, scheduled, identity, refs, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
     }), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('browser call tests timed out')), 30000);
     })]).finally(() => clearTimeout(timer));
@@ -949,7 +1107,9 @@ try {
       identity: [identityOracle, identityOracle], refs: [referenceOracle, referenceOracle],
       spawned: [spawnOracle, spawnOracle],
       sent: [sendOracle, sendOracle], received: [receiveOracle, receiveOracle],
-      timeouts: [timeoutOracle, timeoutOracle], timerBifs: [timerBifOracle, timerBifOracle], sameHandle: true,
+      timeouts: [timeoutOracle, timeoutOracle], timerBifs: [timerBifOracle, timerBifOracle],
+      timerOptions: [timerOptionOracle, timerOptionOracle],
+      registries: [registryOracle, registryOracle], sameHandle: true,
       text: 'Hello from Erlang! <b>å</b>', children: 0,
     });
   } finally {

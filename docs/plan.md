@@ -189,8 +189,8 @@ BIFs.
   BIFs support instruction and callable forms for the existing term subset. Selected
   integer bitwise and other arithmetic guard and body BIF instructions are supported.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
-  `make_ref/0` are callable, as are the local timer BIFs described in phase 8;
-  other callable BIFs remain unimplemented.
+  `make_ref/0` are callable, as are the local timer and registry BIFs described
+  in phases 8 and 10; other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
   and relevant binary operations as their term support becomes available.
@@ -272,8 +272,10 @@ OTP in the covered cases.
   `!` and `send/2` deliver to local PIDs, returning the message and discarding
   it for dead local PIDs. Messages from the same sender retain their order.
   Invalid destinations raise `badarg`.
-- [ ] Extend delivery to registered names, name/node tuples and non-local PIDs
-  and complete OTP delivery semantics.
+- [x] Deliver messages to locally registered names, with `badarg` for an
+  unregistered name.
+- [ ] Extend delivery to name/node tuples and non-local PIDs and complete OTP
+  delivery semantics.
 - [x] Lower the supported receive instructions for indefinite and timed
   selective receive, including mailbox scanning, suspension, wakeup and
   preservation of unmatched messages. A synchronous invocation throws if it
@@ -287,8 +289,24 @@ OTP in the covered cases.
   4294967295 milliseconds. Cancel timers when their destination exits and
   test delivery, cancellation and timer references against OTP in Node and
   Chromium, including stripped input.
+- [x] Support timer destinations by registered name, resolved at expiration.
+  Name-addressed timers survive process termination and discard messages if
+  the name is unregistered at expiration.
+- [x] Support `read_timer/2` and `cancel_timer/2` with synchronous or
+  asynchronous access and the supported `async` and `info` options. Test
+  replies, invalid options and cancellation against OTP in Node and Chromium,
+  including stripped input. The cooperative runtime performs access immediately.
+- [x] Support relative `send_after/4` and `start_timer/4` with empty options or
+  `{abs, false}`, including option validation and duplicate-option precedence.
+  Test local PID and named destinations against OTP in Node and Chromium,
+  including stripped input.
+- [x] Support absolute `send_after/4` and `start_timer/4` deadlines and
+  `monotonic_time/0,1` using the runtime clock. Test local PID and named
+  destinations, past deadlines, time units and invalid inputs against OTP in
+  Node and Chromium, including stripped input. Host precision and timer-range
+  limits are documented.
 - [ ] Complete timer BIFs and OTP timer/scheduler semantics, including larger
-  delays, registered names, absolute times and options.
+  delays and deadlines, distributed destinations and cross-scheduler timing.
 - [x] Add differential tests for multiple senders, selective receive, mailbox
   ordering, zero and delayed timeouts and cancellation. Per-sender ordering
   checks allow different interleavings.
@@ -325,6 +343,10 @@ normal, exceptional and race cases.
 
 **Goal:** Expand from language features to practical applications.
 
+- [x] Implement local process registration with `register/2`, `unregister/1`,
+  `whereis/1` and `registered/0`, including name cleanup on process exit.
+  Test registry operations and named messaging and timers against OTP in Node
+  and Chromium, including stripped input.
 - [ ] Implement additional BIF families from the inventory, including process
   registry and information, references, timers, conversions and other commonly
   used operations. Specify supported options and resource limits per BIF.

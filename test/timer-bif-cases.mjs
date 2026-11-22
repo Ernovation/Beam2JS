@@ -171,18 +171,13 @@ export async function timerBifChecks(Runtime, registerModules) {
   check(syncErrors instanceof AggregateError && syncErrors.errors[0] === processError &&
     /clear failed/.test(syncErrors.errors[1].message),
   'synchronous process and timer cleanup errors were not both reported');
-  for (const [delay, destination, pattern] of [
-    [4294967296n, timed.pid, /timer delays above/],
-    [1n, atom('name'), /registered names/],
-  ]) {
-    let unsupported = false;
-    try {
-      call('send_later', [delay, destination, atom('x')]);
-    } catch (error) {
-      unsupported = pattern.test(error.message);
-    }
-    check(unsupported, 'unsupported timer input did not report a host diagnostic');
+  let unsupported = false;
+  try {
+    call('send_later', [4294967296n, timed.pid, atom('x')]);
+  } catch (error) {
+    unsupported = /timer delays above/.test(error.message);
   }
+  check(unsupported, 'unsupported timer delay did not report a host diagnostic');
   const real = new Runtime();
   registerModules(real);
   const realReceiver = real.spawnProcess('process_timer', 'receive_one', []);

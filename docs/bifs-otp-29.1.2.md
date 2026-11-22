@@ -196,19 +196,29 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   stripped input. Missing or private targets and more than 255 arguments fail
   asynchronously with a host diagnostic, rather than OTP's `undef`. Argument
   traversal is synchronous; monitors are unsupported.
+- `register/2`, `unregister/1`, `whereis/1` and `registered/0`
+  support local process names. A process may have one name, which is removed
+  when it exits. Registry behavior and invalid inputs are tested against OTP
+  in Node and Chromium, including stripped input. Ports and distributed
+  registries are unsupported.
 - `!/2` and `send/2` return the sent term and append it to a live local
-  PID's mailbox; a dead local PID discards the message. Invalid destinations
+  PID or registered name's mailbox; a dead local PID discards the message. Invalid destinations
   and unregistered atoms raise `badarg`. Distributed PIDs and registered-name
   node tuples are unsupported. The `send` instruction and callable forms are
   tested against OTP in Node and Chromium, including stripped input and per-sender
-  ordering; registered names are not implemented.
-- `send_after/3` and `start_timer/3` schedule messages to local PIDs and
-  return references; `read_timer/1` and `cancel_timer/1` return remaining
-  milliseconds or `false`. Timers are canceled when the destination exits.
+  ordering.
+- `send_after/3,4` and `start_timer/3,4` schedule messages to local PIDs or names and
+  return references. The four-argument forms accept relative and absolute
+  deadlines using the runtime clock; `monotonic_time/0,1` reads that clock.
+  `read_timer/1` and `cancel_timer/1` return remaining
+  milliseconds or `false`. Their two-argument forms also support asynchronous
+  access and, for cancellation, suppressing result information.
+  PID-addressed timers are canceled when the destination
+  exits; names are resolved when the timer expires.
   OTP, Node and Chromium tests cover delivery and cancellation, including
-  stripped input. Delays above 4294967295 milliseconds and registered-name
-  destinations produce host diagnostics; options and distributed timers are
-  unsupported.
+  stripped input. Relative delays and future absolute deadlines more than
+  4294967295 milliseconds away, or absolute deadlines outside safe-integer
+  precision, produce host diagnostics. Distributed timers are unsupported.
 - OTP emits a non-failing `bif` instruction for direct body calls to the
   seven predicates in [this fixture](../fixtures/bif_predicates.erl) and
   `is_list/1` in the [list fixture](../fixtures/list_slice.erl) and
@@ -299,7 +309,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erl_debugger` | `unregister/2` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erl_debugger` | `whereis/0` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erl_debugger` | `xregs_count/1` | bif | yes | debugger | no | ? | ? | ? | not implemented |
-| `erlang` | `!/2` | bif | yes | message / timer | no | sends a message to a local PID | badarg for invalid destination | process runtime | instruction-and-callable |
+| `erlang` | `!/2` | bif | yes | message / timer | no | sends a message to a local PID or registered name | badarg for invalid destination | process runtime | instruction-and-callable |
 | `erlang` | `*/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | arithmetic-instruction-only |
 | `erlang` | `++/2` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `+/1` | ubif | yes | arithmetic | operator | optimizer-pure | ? | ? | not implemented |
@@ -349,7 +359,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `byte_size/1` | ubif | yes | binary / bitstring | BIF | optimizer-pure | badarg for non-bitstring input | ? | instruction-and-callable |
 | `erlang` | `call_on_load_function/1` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
 | `erlang` | `cancel_timer/1` | bif | yes | message / timer | no | cancels a timer | badarg for non-reference | clock / scheduler | callable-only |
-| `erlang` | `cancel_timer/2` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
+| `erlang` | `cancel_timer/2` | bif | yes | message / timer | no | cancels a timer, optionally asynchronously | badarg for non-reference or invalid options | clock / scheduler | callable-only |
 | `erlang` | `ceil/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `check_old_code/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `crc32/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -478,8 +488,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `monitor/3` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
 | `erlang` | `monitor_node/2` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
 | `erlang` | `monitor_node/3` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
-| `erlang` | `monotonic_time/0` | bif | yes | clock / calendar | no | ? | ? | clock / scheduler | not implemented |
-| `erlang` | `monotonic_time/1` | bif | yes | clock / calendar | no | ? | ? | clock / scheduler | not implemented |
+| `erlang` | `monotonic_time/0` | bif | yes | clock / calendar | no | reads the runtime monotonic clock | ? | clock / scheduler | callable-only |
+| `erlang` | `monotonic_time/1` | bif | yes | clock / calendar | no | reads the runtime monotonic clock in the requested unit | badarg for invalid time unit | clock / scheduler | callable-only |
 | `erlang` | `nif_error/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `nif_error/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `node/0` | ubif | yes | distribution | BIF | ? | optimizer-safe | ? | not implemented |
@@ -507,18 +517,18 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `put/2` | hbif | yes | process dictionary | no | ? | ? | ? | not implemented |
 | `erlang` | `raise/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
 | `erlang` | `read_timer/1` | bif | yes | message / timer | no | reads remaining timer time | badarg for non-reference | clock / scheduler | callable-only |
-| `erlang` | `read_timer/2` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
+| `erlang` | `read_timer/2` | bif | yes | message / timer | no | reads remaining timer time, optionally asynchronously | badarg for non-reference or invalid options | clock / scheduler | callable-only |
 | `erlang` | `ref_to_list/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `register/2` | bif | yes | process registry | no | ? | ? | ? | not implemented |
-| `erlang` | `registered/0` | bif | yes | process registry | no | ? | optimizer-safe | ? | not implemented |
+| `erlang` | `register/2` | bif | yes | process registry | no | registers a local process name | badarg for invalid or already registered name or process | process runtime | callable-only |
+| `erlang` | `registered/0` | bif | yes | process registry | no | lists local registered names | optimizer-safe | process runtime | callable-only |
 | `erlang` | `rem/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for zero divisor or non-integer input | ? | arithmetic-instruction-only |
 | `erlang` | `resume_process/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `round/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `self/0` | ubif | yes | process / scheduling | BIF | reads calling process identity | optimizer-safe | process runtime | instruction-and-callable |
-| `erlang` | `send/2` | bif | yes | message / timer | no | sends a message to a local PID | badarg for invalid destination | process runtime | callable-only |
+| `erlang` | `send/2` | bif | yes | message / timer | no | sends a message to a local PID or registered name | badarg for invalid destination | process runtime | callable-only |
 | `erlang` | `send/3` | bif | yes | message / timer | no | ? | ? | ? | not implemented |
-| `erlang` | `send_after/3` | bif | yes | message / timer | no | schedules a message to a local PID | badarg for negative or non-integer delay or invalid destination | clock / scheduler | callable-only |
-| `erlang` | `send_after/4` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
+| `erlang` | `send_after/3` | bif | yes | message / timer | no | schedules a message to a local PID or name | badarg for negative or non-integer delay or invalid destination | clock / scheduler | callable-only |
+| `erlang` | `send_after/4` | bif | yes | message / timer | no | schedules a relative or absolute message to a local PID or name | badarg for invalid arguments or options | clock / scheduler | callable-only |
 | `erlang` | `seq_trace/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `seq_trace_info/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `seq_trace_print/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -531,8 +541,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `spawn_opt/4` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `spawn_request_abandon/1` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `split_binary/2` | bif | yes | binary / bitstring | no | optimizer-pure | ? | ? | not implemented |
-| `erlang` | `start_timer/3` | bif | yes | message / timer | no | schedules a timeout tuple to a local PID | badarg for negative or non-integer delay or invalid destination | clock / scheduler | callable-only |
-| `erlang` | `start_timer/4` | bif | yes | message / timer | no | ? | ? | clock / scheduler | not implemented |
+| `erlang` | `start_timer/3` | bif | yes | message / timer | no | schedules a timeout tuple to a local PID or name | badarg for negative or non-integer delay or invalid destination | clock / scheduler | callable-only |
+| `erlang` | `start_timer/4` | bif | yes | message / timer | no | schedules a relative or absolute timeout tuple to a local PID or name | badarg for invalid arguments or options | clock / scheduler | callable-only |
 | `erlang` | `statistics/1` | bif | yes | runtime system | no | ? | ? | ? | not implemented |
 | `erlang` | `subtract/2` | bif | yes | list / tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `system_flag/2` | bif | yes | runtime system | no | ? | ? | ? | not implemented |
@@ -563,8 +573,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `universaltime_to_localtime/1` | bif | yes | clock / calendar | no | ? | ? | ? | not implemented |
 | `erlang` | `universaltime_to_posixtime/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `unlink/1` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
-| `erlang` | `unregister/1` | bif | yes | process registry | no | ? | ? | ? | not implemented |
-| `erlang` | `whereis/1` | bif | yes | process registry | no | ? | ? | ? | not implemented |
+| `erlang` | `unregister/1` | bif | yes | process registry | no | removes a local process name | badarg for unregistered or non-atom name | process runtime | callable-only |
+| `erlang` | `whereis/1` | bif | yes | process registry | no | looks up a local process name | badarg for non-atom name | process runtime | callable-only |
 | `erlang` | `xor/2` | ubif | yes | boolean | operator | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `yield/0` | runtime | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `error_logger` | `warning_map/0` | bif | yes | ? | no | ? | ? | ? | not implemented |

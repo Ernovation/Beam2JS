@@ -47,6 +47,7 @@ assert.match(row('init_yregs'), /Beam2JS: Nonempty ordered distinct y-register l
 assert.match(row('trim'), /Beam2JS:.*discards low-index y slots/);
 assert.match(row('bif0'), /Beam2JS:.*self\/0.*x or y destination/);
 assert.match(row('send'), /Beam2JS:.*local PID.*dead local PIDs.*badarg/);
+assert.match(row('send'), /registered name/);
 assert.match(row('loop_rec'), /Beam2JS:.*mailbox message.*x register/);
 assert.match(row('loop_rec_end'), /Beam2JS:.*Advances the mailbox scan/);
 assert.match(row('remove_message'), /Beam2JS:.*resets the receive cursor/);

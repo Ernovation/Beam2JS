@@ -160,13 +160,20 @@ original error. A throwing callback produces an unhandled promise rejection.
 Host-created `spawnProcess` failures remain observable through `result`.
 PIDs remain valid after termination and may be passed in terms or messages,
 but `sendMessage` requires the host handle, not a PID.
+`erlang:register/2`, `unregister/1`, `whereis/1` and `registered/0` support
+local process names. Each `Runtime` has its own registry; a live local process
+can have at most one name, and a name is removed when the process exits.
+`undefined` cannot be registered. Missing names return `undefined` from
+`whereis/1`; invalid registrations and unregistrations raise `badarg`.
+`registered/0` returns a list in unspecified order. Registered ports and
+distributed registries are unsupported.
+
 Erlang `Destination ! Message`, `erlang:'!'/2` and `erlang:send/2` append
-supported terms to a live local PID's mailbox and return the message. Messages
+supported terms to a live local PID or registered name's mailbox and return the message. Messages
 from one sender retain their order; sending to a terminated local PID returns
 the message without delivery. Invalid destinations, including unregistered
 atoms, raise `badarg`.
-Registered names, name/node tuples and non-local PIDs are not supported;
-name/node tuples and non-local PIDs raise a host diagnostic rather than being
+Name/node tuples and non-local PIDs are not supported and raise a host diagnostic rather than being
 silently dropped.
 PID ordering is an implementation-defined local order; node identity, PID
 serialization and distributed PIDs are not supported.
@@ -194,15 +201,38 @@ without a timer does not keep the host event loop alive. Receive markers and
 monitors are not supported.
 
 `erlang:send_after/3` and `erlang:start_timer/3` schedule a message to a local
-PID and return a reference. `start_timer/3` sends `{timeout, Ref, Message}`;
-`send_after/3` sends the message itself. `erlang:read_timer/1` and
+PID or name and return a reference. `start_timer/3` sends `{timeout, Ref, Message}`;
+`send_after/3` sends the message itself. The four-argument forms accept `[]`
+or a list of `{abs, Boolean}` options; the last option wins. A final
+`{abs, true}` interprets the first argument as an absolute monotonic deadline
+in milliseconds; past deadlines fire asynchronously as soon as possible.
+`erlang:monotonic_time/0` and `/1` read the same clock, so
+`erlang:monotonic_time(millisecond)` can be used to construct deadlines.
+The clock origin is host-dependent, not OTP or Unix time. `/0` uses a nominal
+nanosecond native unit, and `/1` accepts `native`, `perf_counter`, `second`,
+`millisecond`, `microsecond`, `nanosecond`, their deprecated plural aliases,
+or a positive integer number of units per second; conversions round down.
+Clock readings are quantized to nanoseconds, but actual precision is limited
+by the host clock and JavaScript numbers. Clock values must have a safe-integer
+millisecond floor for these operations. Absolute deadlines must be safe
+integers and no more than 4294967295 milliseconds ahead; unsupported values
+produce host diagnostics. `erlang:read_timer/1` and
 `erlang:cancel_timer/1` return remaining milliseconds or `false`. A timer is
-automatically canceled when its destination exits, not when its creator exits.
+addressed to a PID and automatically canceled when that process exits, not when
+its creator exits. A timer addressed to a name resolves the name on expiry;
+it survives process termination and drops its message if the name is unregistered.
 Timers use the same clock adapter and may fire late; clock errors in timer
 callbacks are thrown to the host. Supported relative delays are 0 through
-4294967295 milliseconds. Larger delays and registered-name destinations produce
-host diagnostics, even where OTP accepts them. Timer options, absolute times,
-registered names and distributed destinations remain unsupported.
+4294967295 milliseconds. Larger delays produce host diagnostics, even where OTP
+accepts them. `read_timer/2` accepts `{async, Boolean}` and `cancel_timer/2`
+accepts `{async, Boolean}` and `{info, Boolean}` in a proper options list.
+Invalid options raise `badarg`.
+Asynchronous calls return `ok` and, when info is enabled, send
+`{read_timer, Ref, Result}` or `{cancel_timer, Ref, Result}` to the caller.
+With `{info, false}`, cancellation returns `ok` and sends no reply.
+The cooperative runtime performs these operations and queues replies immediately;
+cross-scheduler timing is not reproduced. Distributed destinations remain
+unsupported.
 
 The positive integer options `schedulers` and `reductionLimit` default to 1
 and 1000. Scheduler slots share a runnable queue and cooperate on one
@@ -254,7 +284,7 @@ raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIF
 and predicates take precedence over registered `erlang` functions of the same
 name and arity. Other callable BIFs are limited to `self/0`,
 `is_process_alive/1`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`, the local
-timer BIFs above and the numeric BIFs described below.
+registry and timer BIFs above and the numeric BIFs described below.
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.

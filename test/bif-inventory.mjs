@@ -32,7 +32,14 @@ assert.equal(row('erlang:is_process_alive/1')[11], 'callable-only');
 assert.equal(row('erlang:spawn/3')[11], 'callable-only');
 assert.equal(row('erlang:send/2')[11], 'callable-only');
 assert.equal(row('erlang:make_ref/0')[11], 'callable-only');
-for (const name of ['send_after/3', 'start_timer/3', 'read_timer/1', 'cancel_timer/1']) {
+assert.equal(row('erlang:monotonic_time/0')[11], 'callable-only');
+assert.equal(row('erlang:monotonic_time/1')[11], 'callable-only');
+for (const name of ['send_after/3', 'send_after/4', 'start_timer/3', 'start_timer/4',
+  'read_timer/1', 'read_timer/2',
+  'cancel_timer/1', 'cancel_timer/2']) {
+  assert.equal(row(`erlang:${name}`)[11], 'callable-only');
+}
+for (const name of ['register/2', 'unregister/1', 'whereis/1', 'registered/0']) {
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }
 assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
@@ -80,8 +87,14 @@ assert.equal(row('erlang:spawn/3')[10], 'process runtime');
 assert.match(row('erlang:send/2')[9], /badarg.*invalid destination/);
 assert.equal(row('erlang:!/2')[10], 'process runtime');
 assert.match(row('erlang:make_ref/0')[8], /unique local reference/);
+assert.match(row('erlang:monotonic_time/1')[9], /badarg.*invalid time unit/);
 assert.match(row('erlang:send_after/3')[8], /local PID/);
+assert.match(row('erlang:send_after/4')[9], /badarg.*invalid.*options/);
 assert.match(row('erlang:cancel_timer/1')[9], /badarg.*non-reference/);
+assert.match(row('erlang:read_timer/2')[9], /badarg.*invalid options/);
+assert.match(row('erlang:cancel_timer/2')[8], /asynchronously/);
+assert.match(row('erlang:register/2')[9], /badarg.*already registered/);
+assert.match(row('erlang:whereis/1')[9], /badarg.*non-atom/);
 assert.match(row('os:getenv/1')[10], /OS \/ host/);
 assert.ok(byKey.has('lists:member/2'));
 assert.ok(!byKey.has('lists:map/2'));

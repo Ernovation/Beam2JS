@@ -24,6 +24,14 @@ callableBifs.set(JSON.stringify(['make_ref', 0]), {
   exported: true,
   run: rt => ({type: 'return', value: rt.makeRef()}),
 });
+callableBifs.set(JSON.stringify(['monotonic_time', 0]), {
+  exported: true,
+  run: rt => ({type: 'return', value: rt.monotonicTime(rt.atom('native'))}),
+});
+callableBifs.set(JSON.stringify(['monotonic_time', 1]), {
+  exported: true,
+  run: (rt, [unit]) => ({type: 'return', value: rt.monotonicTime(unit)}),
+});
 callableBifs.set(JSON.stringify(['is_process_alive', 1]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isProcessAlive(args[0]) ? 'true' : 'false')}),
@@ -31,6 +39,22 @@ callableBifs.set(JSON.stringify(['is_process_alive', 1]), {
 callableBifs.set(JSON.stringify(['spawn', 3]), {
   exported: true,
   run: (rt, args) => ({type: 'spawn', args}),
+});
+callableBifs.set(JSON.stringify(['register', 2]), {
+  exported: true,
+  run: (rt, args) => ({type: 'return', value: rt.registerProcess(...args)}),
+});
+callableBifs.set(JSON.stringify(['unregister', 1]), {
+  exported: true,
+  run: (rt, [name]) => ({type: 'return', value: rt.unregisterProcess(name)}),
+});
+callableBifs.set(JSON.stringify(['whereis', 1]), {
+  exported: true,
+  run: (rt, [name]) => ({type: 'return', value: rt.whereisProcess(name)}),
+});
+callableBifs.set(JSON.stringify(['registered', 0]), {
+  exported: true,
+  run: rt => ({type: 'return', value: rt.registeredProcesses()}),
 });
 for (const name of ['send', '!']) {
   callableBifs.set(JSON.stringify([name, 2]), {
@@ -43,11 +67,23 @@ for (const name of ['send_after', 'start_timer']) {
     exported: true,
     run: (rt, args) => ({type: 'return', value: rt.startTimer(name, ...args)}),
   });
+  callableBifs.set(JSON.stringify([name, 4]), {
+    exported: true,
+    run: (rt, [delay, destination, message, options]) => ({
+      type: 'return', value: rt.startTimerWithOptions(name, delay, destination, message, options),
+    }),
+  });
 }
 for (const name of ['read_timer', 'cancel_timer']) {
   callableBifs.set(JSON.stringify([name, 1]), {
     exported: true,
     run: (rt, [ref]) => ({type: 'return', value: rt.accessTimer(ref, name === 'cancel_timer')}),
+  });
+  callableBifs.set(JSON.stringify([name, 2]), {
+    exported: true,
+    run: (rt, [ref, options], state, budget, pid) => ({
+      type: 'return', value: rt.accessTimerWithOptions(ref, options, name === 'cancel_timer', pid),
+    }),
   });
 }
 function addGuardedBifs(entries, guard) {
@@ -129,6 +165,7 @@ export class Runtime {
   #pidProcesses = new WeakMap();
   #localPids = new WeakSet();
   #livePids = new WeakSet();
+  #registered = new Map();
   #ready = [];
   #waiting = new Set(); // Keep blocked processes alive even without an external PID reference.
   #readyHead = 0;
@@ -633,11 +670,48 @@ export class Runtime {
     return handle;
   }
 
+  registerProcess(name, pid) {
+    const process = this.#pidProcesses.get(pid);
+    if (!isAtom(name) || name === this.atom('undefined') || !process ||
+        process.status === 'completed' || process.status === 'failed' ||
+        this.#registered.has(name) || process.registeredName !== undefined) {
+      this.raiseError(this.atom('badarg'));
+    }
+    this.#registered.set(name, process);
+    process.registeredName = name;
+    return this.atom('true');
+  }
+
+  unregisterProcess(name) {
+    const process = this.#registered.get(name);
+    if (!isAtom(name) || !process) this.raiseError(this.atom('badarg'));
+    this.#registered.delete(name);
+    process.registeredName = undefined;
+    return this.atom('true');
+  }
+
+  whereisProcess(name) {
+    if (!isAtom(name)) this.raiseError(this.atom('badarg'));
+    return this.#registered.get(name)?.pid ?? this.atom('undefined');
+  }
+
+  registeredProcesses() {
+    let names = nil;
+    for (const name of this.#registered.keys()) names = this.cons(name, names);
+    return names;
+  }
+
   sendPidMessage(destination, message) {
     if (!isTerm(destination) || !isTerm(message)) throw new TypeError('expected supported Erlang terms');
     if (this.#localPids.has(destination)) {
       const process = this.#pidProcesses.get(destination);
       if (process) this.#deliverMessage(process, message);
+      return message;
+    }
+    if (isAtom(destination)) {
+      const process = this.#registered.get(destination);
+      if (!process) this.raiseError(this.atom('badarg'));
+      this.#deliverMessage(process, message);
       return message;
     }
     if (pids.has(destination)) throw new Error('sending to a non-local PID is unsupported');
@@ -648,21 +722,34 @@ export class Runtime {
     this.raiseError(this.atom('badarg'));
   }
 
-  startTimer(kind, delay, destination, message) {
-    if (typeof delay !== 'bigint' || delay < 0n) this.raiseError(this.atom('badarg'));
-    if (delay > 4294967295n) throw new Error('timer delays above 4294967295 ms are unsupported');
+  startTimer(kind, delay, destination, message, absolute = false) {
+    if (typeof delay !== 'bigint' || (!absolute && delay < 0n)) this.raiseError(this.atom('badarg'));
+    if (!absolute && delay > 4294967295n) throw new Error('timer delays above 4294967295 ms are unsupported');
     if (!isTerm(destination) || !isTerm(message)) throw new TypeError('expected supported Erlang terms');
-    if (!this.#localPids.has(destination)) {
-      if (isAtom(destination)) throw new Error('timers to registered names are unsupported');
-      this.raiseError(this.atom('badarg'));
+    if (!this.#localPids.has(destination) && !isAtom(destination)) this.raiseError(this.atom('badarg'));
+    let deadline;
+    if (absolute) {
+      if (delay < -9007199254740991n || delay > 9007199254740991n) {
+        throw new RangeError('absolute timer deadline exceeds supported clock precision');
+      }
+      const now = this.#clockNow();
+      const milliseconds = Math.floor(now);
+      if (!Number.isSafeInteger(milliseconds)) throw new RangeError('clock exceeds supported millisecond precision');
+      if (delay - BigInt(milliseconds) > 4294967295n) {
+        throw new RangeError('absolute timer deadline is more than 4294967295 ms ahead');
+      }
+      deadline = Number(delay);
     }
     const ref = this.makeRef();
     const process = this.#pidProcesses.get(destination);
-    if (!process) return ref;
-    const timer = {ref, process, message, kind, deadline: this.#clockNow() + Number(delay)};
+    if (!process && !isAtom(destination)) return ref;
+    const timer = {ref, process, destination, message, kind,
+      deadline: absolute ? deadline : this.#clockNow() + Number(delay)};
     this.#timers.set(ref, timer);
-    process.bifTimers ??= new Set();
-    process.bifTimers.add(timer);
+    if (process) {
+      process.bifTimers ??= new Set();
+      process.bifTimers.add(timer);
+    }
     try {
       this.#scheduleBifTimer(timer);
     } catch (error) {
@@ -672,21 +759,59 @@ export class Runtime {
     return ref;
   }
 
-  accessTimer(ref, cancel) {
+  startTimerWithOptions(kind, delay, destination, message, options) {
+    const {abs} = this.#parseTimerOptions(options, {abs: false});
+    return this.startTimer(kind, delay, destination, message, abs);
+  }
+
+  accessTimer(ref, cancel, info = true) {
     if (!references.has(ref)) this.raiseError(this.atom('badarg'));
     const timer = this.#timers.get(ref);
-    if (!timer) return this.atom('false');
-    const remaining = BigInt(Math.max(0, Math.ceil(timer.deadline - this.#clockNow())));
-    if (cancel) {
+    const remaining = timer && info
+      ? BigInt(Math.max(0, Math.ceil(timer.deadline - this.#clockNow())))
+      : this.atom('false');
+    if (timer && cancel) {
       this.#forgetBifTimer(timer);
       this.#clock.clearTimeout(timer.handle);
     }
-    return remaining;
+    return info ? remaining : this.atom('ok');
+  }
+
+  accessTimerWithOptions(ref, options, cancel, pid) {
+    const {async, info = true} = this.#parseTimerOptions(options,
+      cancel ? {async: false, info: true} : {async: false});
+    const result = this.accessTimer(ref, cancel, info);
+    if (!async) return result;
+    if (info) {
+      const process = this.#pidProcesses.get(pid);
+      if (!process || process.status !== 'running') throw new Error('timer access requires the running process');
+      this.#deliverMessage(process, this.tuple([
+        this.atom(cancel ? 'cancel_timer' : 'read_timer'), ref, result,
+      ]));
+    }
+    return this.atom('ok');
+  }
+
+  #parseTimerOptions(options, defaults) {
+    const result = {...defaults};
+    while (consCells.has(options)) {
+      const [option, tail] = consCells.get(options);
+      const pair = tuples.get(option);
+      if (!pair || pair.length !== 2 || !isAtom(pair[0]) ||
+          !Object.hasOwn(result, Symbol.keyFor(pair[0])) ||
+          (pair[1] !== this.atom('true') && pair[1] !== this.atom('false'))) {
+        this.raiseError(this.atom('badarg'));
+      }
+      result[Symbol.keyFor(pair[0])] = pair[1] === this.atom('true');
+      options = tail;
+    }
+    if (options !== nil) this.raiseError(this.atom('badarg'));
+    return result;
   }
 
   #forgetBifTimer(timer) {
     this.#timers.delete(timer.ref);
-    timer.process.bifTimers.delete(timer);
+    timer.process?.bifTimers.delete(timer);
   }
 
   #scheduleBifTimer(timer) {
@@ -701,7 +826,8 @@ export class Runtime {
         this.#forgetBifTimer(timer);
         const message = timer.kind === 'start_timer'
           ? this.tuple([this.atom('timeout'), timer.ref, timer.message]) : timer.message;
-        this.#deliverMessage(timer.process, message);
+        const process = timer.process ?? this.#registered.get(timer.destination);
+        if (process) this.#deliverMessage(process, message);
       } catch (error) {
         this.#forgetBifTimer(timer);
         throw error;
@@ -856,6 +982,10 @@ export class Runtime {
 
   #finishProcess(process, status) {
     process.status = status;
+    if (process.registeredName !== undefined) {
+      this.#registered.delete(process.registeredName);
+      process.registeredName = undefined;
+    }
     const errors = [];
     try {
       this.#clearReceiveTimer(process);
@@ -892,6 +1022,33 @@ export class Runtime {
     const now = this.#clock.now();
     if (typeof now !== 'number' || !Number.isFinite(now)) throw new TypeError('clock.now must return a finite number');
     return now;
+  }
+
+  monotonicTime(unit) {
+    let units;
+    if (typeof unit === 'bigint' && unit > 0n) units = unit;
+    else if (isAtom(unit)) {
+      switch (Symbol.keyFor(unit)) {
+        case 'second':
+        case 'seconds': units = 1n; break;
+        case 'millisecond':
+        case 'milli_seconds': units = 1000n; break;
+        case 'microsecond':
+        case 'micro_seconds': units = 1000000n; break;
+        case 'nanosecond':
+        case 'nano_seconds':
+        case 'native':
+        case 'perf_counter': units = 1000000000n; break;
+        default: this.raiseError(this.atom('badarg'));
+      }
+    } else this.raiseError(this.atom('badarg'));
+    const now = this.#clockNow();
+    const milliseconds = Math.floor(now);
+    if (!Number.isSafeInteger(milliseconds)) throw new RangeError('clock exceeds supported millisecond precision');
+    const whole = Math.trunc(now);
+    const nanoseconds = BigInt(whole) * 1000000n + BigInt(Math.floor((now - whole) * 1000000));
+    const scaled = nanoseconds * units;
+    return scaled >= 0n ? scaled / 1000000000n : -((-scaled + 999999999n) / 1000000000n);
   }
 
   #scheduleReceiveTimer(process, timer) {
