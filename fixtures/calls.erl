@@ -1,8 +1,8 @@
 -module(calls).
 -export([local/1, remote/1, nested/2, wrapped/1, heap/2, stack/4, stack_tuple/2, stack_element/1,
-         stack_list_head/1, stack_list_tail/1, depth/1,
+         stack_list_head/1, stack_list_tail/1, stack_list/2, stack_hd/2, stack_tl/2, depth/1,
          match_remote/1, bif_remote/1, callable_bif_remote/1, binary_bif_remote/3,
-         numeric_bif_remote/1]).
+         numeric_bif_remote/1, arithmetic_bif_remote/2]).
 
 local(Value) ->
     identity(identity(Value)).
@@ -45,6 +45,19 @@ stack_list_tail([Head | Tail]) ->
     Value = slice_helper:id(Head),
     {Value, Tail}.
 
+stack_list(Head, Tail) ->
+    List = [Head | Tail],
+    Value = slice_helper:id(Head),
+    {List, Value}.
+
+stack_hd([Head | _], Other) ->
+    Value = slice_helper:id(Other),
+    {Head, Value}.
+
+stack_tl([_ | Tail], Other) ->
+    Value = slice_helper:id(Other),
+    {Tail, Value}.
+
 depth([]) ->
     done;
 depth([_ | Rest]) ->
@@ -68,6 +81,10 @@ binary_bif_remote(Value, Start, Length) ->
 
 numeric_bif_remote(Value) ->
     Result = raw_bif_body:float_call(Value),
+    {ok, Result}.
+
+arithmetic_bif_remote(Left, Right) ->
+    Result = raw_bif_body:multiply_call(Left, Right),
     {ok, Result}.
 
 identity(Value) ->

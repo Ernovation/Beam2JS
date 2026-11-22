@@ -6,6 +6,7 @@
     "test:browser": "node test/browser.mjs",
     "test:execution": "node test/opcodes.mjs",
     "test:opcodes": "node test/opcode-ledger.mjs && node test/raw-opcodes.mjs && node test/obsolete-opcodes.mjs",
+    "test:sudoku": "node test/sudoku.mjs",
     "test:toolchain": "node test/toolchain.mjs"
   },
   "devDependencies": {

@@ -37,13 +37,15 @@ They are release/build observations, not proof of Beam2JS support.
   not host-independent. Categories are broad families, not complete semantics.
 - **Beam2JS**: `instruction-and-callable` means the corresponding normalized
   instruction (including `send/0` for `!/2`) and external callable BIF are supported for the implemented integer,
-  float, atom, list, tuple, bitstring, local PID and local reference terms. Failing list, tuple, binary and numeric BIFs
-  branch in guards and raise `badarg` in body and callable forms.
+  float, atom, list, tuple, bitstring, local PID and local reference terms. Failing list, tuple, binary and
+  selected numeric BIFs branch in guards and raise `badarg` in body and callable forms;
+  supported arithmetic operators instead raise `badarith`.
   `callable-only` means external calls are supported without a specialized BIF instruction.
   `guard-instruction-only` means the listed BIF instruction is supported
   only with a nonzero guard failure label, for the implemented terms.
-  `body-and-guard-instruction-only` covers both guard and zero-label forms
-  of selected numeric BIF instructions, including `badarg` failures.
+  `body-and-guard-instruction-only` covers selected zero-label BIF
+  instructions and their guard forms. For exact equality, the guard form is
+  the comparison test instruction; neither form dispatches a callable BIF.
   `arithmetic-instruction-only` covers both guard and zero-label forms of
   selected arithmetic instructions, including `badarith` failures and the
   supported floating-point-register sequence. Implemented forms are
@@ -113,7 +115,8 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   in [body](../fixtures/arithmetic_body.erl) and
   [assembly](../fixtures/raw_arithmetic_body.S) and
   [floating-register](../fixtures/raw_float_registers.S) fixtures, including
-  signed zero and overflow. OTP resource limits and scheduling are not implemented.
+  signed zero and overflow. Callable forms, including external calls, are tested
+  in Node and Chromium. OTP resource limits and scheduling are not implemented.
 - `abs/1` accepts integers and floats, preserves their type and turns
   negative float zero into positive zero; non-numbers raise `badarg` in a
   body. Nonzero-label guard instructions are tested in the same arithmetic
@@ -147,8 +150,8 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   [assembly](../fixtures/raw_arithmetic_body.S), while the floating-register
   sequence for ordinary division is tested in the
   [body](../fixtures/arithmetic_body.erl) and
-  [assembly](../fixtures/raw_float_registers.S) fixtures. OTP resource limits
-  and scheduling are not implemented.
+  [assembly](../fixtures/raw_float_registers.S) fixtures. Callable forms are
+  tested in Node and Chromium. OTP resource limits and scheduling are not implemented.
 - `band/2`, `bor/2`, `bxor/2` and `bnot/1` operate on signed
   integers and raise `badarith` for non-integers in a body. Their
   nonzero-label guard instructions are tested against OTP in Node and
@@ -323,18 +326,18 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erl_debugger` | `whereis/0` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erl_debugger` | `xregs_count/1` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erlang` | `!/2` | bif | yes | message / timer | no | sends a message to a local PID or registered name | badarg for invalid destination | process runtime | instruction-and-callable |
-| `erlang` | `*/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | arithmetic-instruction-only |
+| `erlang` | `*/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
 | `erlang` | `++/2` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `+/1` | ubif | yes | arithmetic | operator | optimizer-pure | ? | ? | not implemented |
-| `erlang` | `+/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | arithmetic-instruction-only |
+| `erlang` | `+/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
 | `erlang` | `--/2` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
-| `erlang` | `-/1` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input | ? | arithmetic-instruction-only |
-| `erlang` | `-/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | arithmetic-instruction-only |
-| `erlang` | `//2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input, zero divisor or float conversion/result overflow | ? | arithmetic-instruction-only |
+| `erlang` | `-/1` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input | ? | instruction-and-callable |
+| `erlang` | `-/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
+| `erlang` | `//2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input, zero divisor or float conversion/result overflow | ? | instruction-and-callable |
 | `erlang` | `/=/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `</2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `=/=/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
-| `erlang` | `=:=/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
+| `erlang` | `=:=/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | body-and-guard-instruction-only |
 | `erlang` | `=</2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `==/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `>/2` | ubif | yes | comparison | operator | optimizer-pure | optimizer-safe | ? | not implemented |

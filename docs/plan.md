@@ -115,9 +115,15 @@ untrusted-input safety claim is made without tests and a completed audit.
   Integer bitwise `band`, `bor`, `bxor` and `bnot`, integer `div` and `rem`,
   unary negation and binary `+`, `-`, `*` and `/` instructions support guard
   and zero-label forms; the latter raise `badarith` on invalid inputs or overflow.
+  Unary negation and binary arithmetic operators also support callable BIF forms.
+  The bitwise, `div`, `rem`, unary negation and binary arithmetic forms support
+  ordinary x and y destinations, including aliased operands, without changing
+  the destination on guard failure.
   `abs/1`, `trunc/1`, `round/1`, `floor/1`, `ceil/1` and `float/1` support
   guard, zero-label and callable forms; the latter two raise `badarg` for
-  invalid input or float conversion overflow. Floating-register conversion,
+  invalid input or float conversion overflow. These instructions also support
+  x and y destinations, including an aliased source, without writing on guard
+  failure. Floating-register conversion,
   moves, addition, subtraction, multiplication, division and negation are also
   supported for ordinary floating-point expressions.
 - [ ] Lower the corresponding literal, move, test, comparison, branch, list and
@@ -126,15 +132,20 @@ untrusted-input safety claim is made without tests and a completed audit.
   partial-byte bitstring values, are supported;
   unsupported literal values still reject the module. Tagged tuple matching
   and selected value and tuple-arity branches are also supported. Type-tagged
-  x-register sources are read without validating their hints; type-tagged y
-  registers and type-tagged operands without the disassembler's required type table remain
-  unsupported. Selected `hd`, `tl`, `length`, `tuple_size` and `element`
+  x- and y-register sources are read without validating their hints; type-tagged
+  operands without the disassembler's required type table remain unsupported.
+  The zero-label `=:=/2` instruction returns exact-equality boolean atoms, but
+  callable `erlang:'=:='/2` is not implemented. Selected `hd`, `tl`, `length`, `tuple_size` and `element`
   instructions branch on invalid input in guards or raise `badarg` in zero-label
   forms. `bit_size`, `byte_size` and `binary_part` instructions likewise branch
   in guards or raise `badarg` in zero-label forms.
   `is_binary` and `is_bitstr` test instructions distinguish byte-sized
   binaries from other bitstrings.
   Length traversal is synchronous and does not yield to a scheduler.
+- [x] Support type-tagged y-register reads and the zero-label exact-equality
+  BIF instruction with ordinary x and y destinations. Test typed stack reads and
+  aliased operands against OTP in Node and Chromium, including stripped input;
+  separately check register bounds and missing frames.
 - [x] Support `put_tuple2` construction into ordinary x and y registers,
   including aliased source operands. Test compiler-generated and assembly
   forms, empty tuples, calls and scheduler yields against OTP in Node and
@@ -147,6 +158,59 @@ untrusted-input safety claim is made without tests and a completed audit.
   including a source aliased with either destination. Test compiler-generated
   and assembly forms, improper lists, calls and scheduler yields against OTP
   in Node and Chromium, including stripped input.
+- [x] Support `put_list` construction into ordinary x and y registers,
+  including either or both source operands aliased with the destination. Test
+  compiler-generated and assembly forms, proper and improper lists, calls and
+  scheduler yields against OTP in Node and Chromium, including stripped input.
+- [x] Support `get_hd` and `get_tl` extraction into ordinary x and y registers,
+  including an aliased source. Test compiler-generated and assembly forms,
+  improper lists, calls and scheduler yields against OTP in Node and Chromium,
+  including stripped input.
+- [x] Support ordinary x and y destinations for `hd`, `tl`, `tuple_size` and
+  `element` BIF instructions, including aliased operands. Test zero-label
+  exceptions, guard branches without destination writes, calls and scheduler
+  yields against OTP in Node and Chromium, including stripped input.
+- [x] Support ordinary x and y destinations for `length` GC-BIF instructions,
+  including an aliased source. Test zero-label exceptions, guard branches without
+  destination writes, long lists, calls and scheduler yields against OTP in
+  Node and Chromium, including stripped input. Traversal remains synchronous.
+- [x] Support ordinary x and y destinations for `bit_size` and `byte_size`
+  GC-BIF instructions, including an aliased source. Test partial-bitstring
+  rounding, guard failures without destination writes, zero-label exceptions,
+  calls and scheduler yields against OTP in Node and Chromium, including stripped input.
+- [x] Support ordinary x and y destinations for both `binary_part` GC-BIF
+  arities, including aliased operands. Test guard failures without destination
+  writes, zero-label exceptions, negative lengths, calls, stack trimming and
+  scheduler yields against OTP in Node and Chromium, including stripped input.
+- [x] Support ordinary x and y destinations for the eleven non-failing type
+  predicate BIF instructions, including an aliased source. Test supported term
+  types, calls and scheduler yields against OTP in Node and Chromium, including
+  stripped input.
+- [x] Support ordinary x and y destinations for `band`, `bor`, `bxor` and
+  `bnot` GC-BIF instructions, including aliased operands. Test guard failures
+  without destination writes, zero-label exceptions, large and negative integers,
+  calls, stack trimming and scheduler yields against OTP in Node and Chromium,
+  including stripped input.
+- [x] Support ordinary x and y destinations for integer `div` and `rem`
+  GC-BIF instructions, including aliased operands. Test guard failures without
+  destination writes, zero-label exceptions, zero divisors, large and negative
+  integers, calls, stack trimming and scheduler yields against OTP in Node and
+  Chromium, including stripped input.
+- [x] Support ordinary x and y destinations for binary `+`, `-`, `*` and `/`
+  GC-BIF instructions, including aliased operands. Test guard failures without
+  destination writes, zero-label exceptions, integer and float edge cases,
+  calls, stack trimming and scheduler yields against OTP in Node and Chromium,
+  including stripped input. OTP emits floating-register instructions for
+  compiler-generated division; the division GC-BIF forms use assembly fixtures.
+- [x] Support ordinary x and y destinations for unary negation and `abs/1`
+  GC-BIF instructions, including an aliased source. Test guard failures without
+  destination writes, zero-label exceptions, large integers, signed zero,
+  calls and scheduler yields against OTP in Node and Chromium, including stripped input.
+- [x] Support ordinary x and y destinations for `trunc/1`, `round/1`, `floor/1`,
+  `ceil/1` and `float/1` GC-BIF instructions, including an aliased source.
+  Test guard failures without destination writes, zero-label exceptions,
+  rounding and float conversion boundaries, calls and scheduler yields against
+  OTP in Node and Chromium, including stripped input.
 - [x] Test unusual atoms, large and negative integers, float boundaries,
   improper lists, nested terms, matching and failed guards against OTP.
 
@@ -199,20 +263,28 @@ BIFs.
   Preserve exact return values, error classes/reasons and guard failure rules.
   Eleven non-failing type-predicate BIFs and selected list/tuple, binary and numeric
   BIFs support instruction and callable forms for the existing term subset. Selected
-  integer bitwise and other arithmetic guard and body BIF instructions are supported.
+  integer bitwise guard and body BIF instructions are supported. Unary negation and
+  binary `+`, `-`, `*` and `/` support instructions and callable BIF forms.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
   `make_ref/0` are callable, as are the local timer, dictionary, process-info and registry BIFs
   described in phases 8 and 10; other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
   and relevant binary operations as their term support becomes available.
+- [x] Support callable `erlang` unary `-` and binary `+`, `-`, `*` and `/`,
+  including external calls and `badarith` exceptions. Compare integer, float,
+  overflow and failure behavior with OTP in Node and Chromium, including stripped
+  callers and forced scheduler yields.
 - [ ] Implement dynamic `apply`/function resolution and the supported portions
   of module introspection, including `module_info`, rather than treating BIFs
   as ordinary missing external modules.
 - [ ] Prioritize further BIFs using the inventory and actual fixture/application
   usage. Mark host-dependent or unavailable operations explicitly.
 - [ ] Run representative pure Erlang modules and selected OTP library
-  functions, recording missing BIFs and instructions as actionable gaps.
+  functions, recording missing BIFs and instructions as actionable gaps. A
+  [Sudoku solver](../examples/sudoku/sudoku.erl) now runs in OTP, Node and
+  Chromium, including stripped input; this does not establish general OTP
+  library support.
 
 **Done when:** The published core BIF set passes differential success, guard,
 error and boundary tests, and representative non-concurrent programs run.

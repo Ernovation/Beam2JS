@@ -159,6 +159,12 @@ try {
     'true=lists:any(fun({get_list,_,{y,_},{x,_}})->true;(_)->false end,ListHeadStack), ' +
     '{function,stack_list_tail,1,_,ListTailStack}=lists:keyfind(stack_list_tail,2,Fs), ' +
     'true=lists:any(fun({get_list,_,{x,_},{y,_}})->true;(_)->false end,ListTailStack), ' +
+    '{function,stack_list,2,_,ListPutStack}=lists:keyfind(stack_list,2,Fs), ' +
+    'true=lists:any(fun({put_list,_,_,{y,_}})->true;(_)->false end,ListPutStack), ' +
+    '{function,stack_hd,2,_,HdStack}=lists:keyfind(stack_hd,2,Fs), ' +
+    'true=lists:any(fun({get_hd,_,{y,_}})->true;(_)->false end,HdStack), ' +
+    '{function,stack_tl,2,_,TlStack}=lists:keyfind(stack_tl,2,Fs), ' +
+    'true=lists:any(fun({get_tl,_,{y,_}})->true;(_)->false end,TlStack), ' +
     '{beam_file,raw_stack,_,_,_,RawStackFs}=beam_disasm:file(filename:join(Dir,"raw_stack.beam")), ' +
     '{function,tuple_y,2,_,RawTupleY}=lists:keyfind(tuple_y,2,RawStackFs), ' +
     'true=lists:member({put_tuple2,{y,0},{list,[{y,0},{y,1},{x,0},{atom,tag}]}},RawTupleY), ' +
@@ -170,6 +176,13 @@ try {
     'true=lists:member({get_list,{y,0},{y,0},{y,1}},RawListHeadY), ' +
     '{function,list_tail_y,1,_,RawListTailY}=lists:keyfind(list_tail_y,2,RawStackFs), ' +
     'true=lists:member({get_list,{y,0},{y,1},{y,0}},RawListTailY), ' +
+    '{function,list_put_y,2,_,RawListPutY}=lists:keyfind(list_put_y,2,RawStackFs), ' +
+    'true=lists:member({put_list,{y,2},{y,1},{y,2}},RawListPutY), ' +
+    'true=lists:member({put_list,{y,0},{y,3},{y,3}},RawListPutY), ' +
+    'true=lists:member({put_list,{y,4},{y,4},{y,4}},RawListPutY), ' +
+    '{function,list_parts_y,1,_,RawListPartsY}=lists:keyfind(list_parts_y,2,RawStackFs), ' +
+    'true=lists:member({get_hd,{y,0},{y,0}},RawListPartsY), ' +
+    'true=lists:member({get_tl,{y,1},{y,1}},RawListPartsY), ' +
     '{function,stack,4,_,Is}=lists:keyfind(stack,2,Fs), ' +
     'true=lists:any(fun({init_yregs,_})->true;(_)->false end,Is), ' +
     'true=lists:any(fun({trim,_,_})->true;(_)->false end,Is), ' +
@@ -187,22 +200,103 @@ try {
     '[{quotient,\'div\'},{remainder,\'rem\'},{bit_and,\'band\'},{bit_or,\'bor\'},' +
     '{bit_xor,\'bxor\'},{bit_not,\'bnot\'},{absolute,abs},{truncate,trunc},' +
     '{round_value,round},{floor_value,floor},{ceil_value,ceil},{convert_float,float}]), ' +
+    'lists:foreach(fun({Name,Arity,Op}) -> {function,Name,Arity,_,Code}=lists:keyfind(Name,2,AFs), ' +
+    'true=lists:any(fun({gc_bif,Actual,{f,0},_,Args,{y,N}}) when Actual=:=Op -> ' +
+    'lists:member({y,N},Args);(_)->false end,Code), ' +
+    'case Arity of 3->true=lists:any(fun({trim,_,_})->true;(_)->false end,Code);_->ok end end, ' +
+    '[{stack_and,3,\'band\'},{stack_or,3,\'bor\'},{stack_xor,3,\'bxor\'},{stack_not,2,\'bnot\'},' +
+    '{stack_div,3,\'div\'},{stack_rem,3,\'rem\'},' +
+    '{stack_add,3,\'+\'},{stack_subtract,3,\'-\'},{stack_multiply,3,\'*\'},' +
+    '{stack_negate,2,\'-\'},{stack_absolute,2,abs},' +
+    '{stack_trunc,2,trunc},{stack_round,2,round},{stack_floor,2,floor},' +
+    '{stack_ceil,2,ceil},{stack_float,2,float}]), ' +
+    '{function,stack_divide,3,_,StackDivide}=lists:keyfind(stack_divide,2,AFs), ' +
+    'true=lists:any(fun({fmove,{fr,_},{y,_}})->true;(_)->false end,StackDivide), ' +
+    '{beam_file,raw_arithmetic_body,_,_,_,RawArithmeticFs}=beam_disasm:file(filename:join(Dir,"raw_arithmetic_body.beam")), ' +
+    'lists:foreach(fun({Name,Arity,Op,Slot}) -> {function,Name,Arity,_,Code}=lists:keyfind(Name,2,RawArithmeticFs), ' +
+    'true=lists:any(fun({gc_bif,Actual,{f,Fail},0,Args,{y,N}}) ' +
+    'when Actual=:=Op,Fail=/=0,N=:=Slot -> lists:member({y,N},Args);(_)->false end,Code) end, ' +
+    '[{band_stack_left,2,\'band\',0},{bor_stack_right,2,\'bor\',1},' +
+    '{bxor_stack_both,1,\'bxor\',0},{bnot_stack,1,\'bnot\',0}]), ' +
+    'lists:foreach(fun({Name,Arity,Op,Args,Slot}) -> ' +
+    '{function,Name,Arity,_,Code}=lists:keyfind(Name,2,RawArithmeticFs), ' +
+    'true=lists:any(fun({gc_bif,Actual,{f,Fail},0,ActualArgs,{y,N}}) -> ' +
+    'Actual=:=Op andalso Fail=/=0 andalso ActualArgs=:=Args andalso N=:=Slot;(_)->false end,Code) end, ' +
+    '[{div_stack_left,2,\'div\',[{y,0},{y,1}],0},{rem_stack_right,2,\'rem\',[{y,0},{y,1}],1},' +
+    '{div_stack_both,1,\'div\',[{y,0},{y,0}],0},{rem_stack_both,1,\'rem\',[{y,0},{y,0}],0},' +
+    '{add_stack_left,2,\'+\',[{y,0},{y,1}],0},{subtract_stack_right,2,\'-\',[{y,0},{y,1}],1},' +
+    '{multiply_stack_both,1,\'*\',[{y,0},{y,0}],0},{divide_stack_right,2,\'/\',[{y,0},{y,1}],1},' +
+    '{negate_stack_guard,1,\'-\',[{y,0}],0},{abs_stack_guard,1,abs,[{y,0}],0},' +
+    '{abs_stack_distinct,2,abs,[{y,0}],1},' +
+    '{trunc_stack_guard,1,trunc,[{y,0}],0},{round_stack_guard,1,round,[{y,0}],0},' +
+    '{floor_stack_guard,1,floor,[{y,0}],0},{ceil_stack_guard,1,ceil,[{y,0}],0},' +
+    '{float_stack_guard,1,float,[{y,0}],0},{float_stack_distinct,2,float,[{y,0}],1}]), ' +
+    '{function,divide_stack_body,2,_,DivideBody}=lists:keyfind(divide_stack_body,2,RawArithmeticFs), ' +
+    'true=lists:member({gc_bif,\'/\',{f,0},0,[{y,0},{y,1}],{y,0}},DivideBody), ' +
     '{beam_file,bif_body,_,_,_,BFs}=beam_disasm:file(filename:join(Dir,"bif_body.beam")), ' +
     'lists:foreach(fun({Name,Op}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,BFs), ' +
     'true=lists:any(fun({bif,Actual,{f,0},_,_}) when Actual=:=Op -> true;(_)->false end,Code) end, ' +
     '[{head,hd},{tail,tl},{size,tuple_size},{element,element}]), ' +
+    '{function,stack_predicates,2,_,PredicateStack}=lists:keyfind(stack_predicates,2,BFs), ' +
+    'Predicates=[is_integer,is_number,is_atom,is_boolean,is_float,is_list,is_tuple,is_binary,' +
+    'is_bitstring,is_pid,is_reference], ' +
+    'lists:foreach(fun(Op)->true=lists:any(fun({bif,Actual,{f,0},_,{y,_}}) ' +
+    'when Actual=:=Op -> true;(_)->false end,PredicateStack) end,Predicates), ' +
+    'lists:foreach(fun({Name,Op}) -> {function,Name,2,_,Code}=lists:keyfind(Name,2,BFs), ' +
+    'true=lists:any(fun({bif,Actual,{f,0},_,{y,_}}) when Actual=:=Op -> true;(_)->false end,Code) end, ' +
+    '[{stack_head,hd},{stack_tail,tl},{stack_size,tuple_size},{stack_element,element}]), ' +
     '{function,length,1,_,LenCode}=lists:keyfind(length,2,BFs), ' +
     'true=lists:any(fun({gc_bif,length,{f,0},_,_,_})->true;(_)->false end,LenCode), ' +
+    '{function,stack_length,2,_,StackLenCode}=lists:keyfind(stack_length,2,BFs), ' +
+    'true=lists:any(fun({gc_bif,length,{f,0},_,[{y,N}],{y,N}})->true;(_)->false end,StackLenCode), ' +
+    'lists:foreach(fun({Name,Op}) -> {function,Name,2,_,Code}=lists:keyfind(Name,2,BFs), ' +
+    'true=lists:any(fun({gc_bif,Actual,{f,0},_,[{y,N}],{y,N}}) ' +
+    'when Actual=:=Op -> true;(_)->false end,Code) end, [{stack_bits,bit_size},{stack_bytes,byte_size}]), ' +
+    'lists:foreach(fun({Name,Arity,Operands}) -> {function,Name,Arity,_,Code}=lists:keyfind(Name,2,BFs), ' +
+    'true=lists:any(fun({gc_bif,binary_part,{f,0},_,[{y,N}|Rest],{y,N}}) ' +
+    'when length(Rest)=:=Operands-1 -> true;(_)->false end,Code), ' +
+    'true=lists:any(fun({trim,_,_})->true;(_)->false end,Code) end, ' +
+    '[{stack_part,4,3},{stack_part2,3,2}]), ' +
     'lists:foreach(fun({Name,Op}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,BFs), ' +
     'true=lists:any(fun({gc_bif,Actual,{f,0},_,_,_}) when Actual=:=Op -> true;(_)->false end,Code) end, ' +
     '[{bits,bit_size},{bytes,byte_size},{part,binary_part},{part2,binary_part}]), ' +
     '{beam_file,raw_bif_body,_,_,_,RFs}=beam_disasm:file(filename:join(Dir,"raw_bif_body.beam")), ' +
+    '{function,predicates_stack,1,_,RawPredicateStack}=lists:keyfind(predicates_stack,2,RFs), ' +
+    'lists:foreach(fun(Op)->true=lists:any(fun({bif,Actual,{f,0},[{y,N}],{y,N}}) ' +
+    'when Actual=:=Op -> true;(_)->false end,RawPredicateStack) end,Predicates), ' +
+    '{function,predicate_x_stack,1,_,RawPredicateXStack}=lists:keyfind(predicate_x_stack,2,RFs), ' +
+    'true=lists:any(fun({bif,is_integer,{f,0},[{tr,{x,0},_}],{y,0}})->true;(_)->false end,RawPredicateXStack), ' +
+    'lists:foreach(fun({Name,Op,Dest}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,RFs), ' +
+    'true=lists:any(fun({bif,Actual,{f,Fail},_,{y,Slot}}) ' +
+    'when Actual=:=Op, Fail=/=0, Slot=:=Dest -> true;(_)->false end,Code) end, ' +
+    '[{head_guard_stack,hd,0},{tail_guard_stack,tl,0},{size_guard_stack,tuple_size,0},' +
+    '{element_guard_stack,element,1},{element_guard_index_stack,element,0}]), ' +
+    '{function,length_guard_stack,1,_,LengthGuardStack}=lists:keyfind(length_guard_stack,2,RFs), ' +
+    'true=lists:any(fun({gc_bif,length,{f,Fail},0,[{y,0}],{y,0}}) when Fail=/=0 -> true; ' +
+    '(_)->false end,LengthGuardStack), ' +
+    '{function,bits_guard_stack,1,_,BitsGuardStack}=lists:keyfind(bits_guard_stack,2,RFs), ' +
+    'true=lists:any(fun({gc_bif,bit_size,{f,Fail},1,[{x,0}],{y,0}}) when Fail=/=0 -> true; ' +
+    '(_)->false end,BitsGuardStack), ' +
+    '{function,bytes_guard_stack,1,_,BytesGuardStack}=lists:keyfind(bytes_guard_stack,2,RFs), ' +
+    'true=lists:any(fun({gc_bif,byte_size,{f,Fail},0,[{y,0}],{y,0}}) when Fail=/=0 -> true; ' +
+    '(_)->false end,BytesGuardStack), ' +
+    'lists:foreach(fun({Name,Arity,Slot}) -> {function,Name,Arity,_,Code}=lists:keyfind(Name,2,RFs), ' +
+    'true=lists:any(fun({gc_bif,binary_part,{f,Fail},0,Args,{y,Dest}}) ' +
+    'when Fail=/=0, Dest=:=Slot, length(Args)=:=Arity -> lists:nth(Slot+1,Args)=:={y,Slot}; ' +
+    '(_)->false end,Code) end, ' +
+    '[{part2_guard_source,2,0},{part2_guard_range,2,1},{part3_guard_source,3,0},' +
+    '{part3_guard_position,3,1},{part3_guard_length,3,2}]), ' +
+    '{function,part2_guard_x,2,_,Part2GuardX}=lists:keyfind(part2_guard_x,2,RFs), ' +
+    'true=lists:any(fun({gc_bif,binary_part,{f,Fail},2,[{x,0},{x,1}],{y,0}}) ' +
+    'when Fail=/=0 -> true;(_)->false end,Part2GuardX), ' +
     'lists:foreach(fun({Name,Kind}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,RFs), ' +
     'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
     '[{predicate_tail,call_ext_only},{predicate_last,call_ext_last},{predicate_call,call_ext},' +
     '{head_call_tail,call_ext_only},{element_call_last,call_ext_last},{length_call,call_ext},' +
     '{bits_call_tail,call_ext_only},{part2_call_last,call_ext_last},{part3_call,call_ext},' +
-    '{abs_call_tail,call_ext_only},{round_call_last,call_ext_last},{float_call,call_ext}]), ' +
+    '{abs_call_tail,call_ext_only},{round_call_last,call_ext_last},{float_call,call_ext},' +
+    '{add_call_tail,call_ext_only},{subtract_call_last,call_ext_last},{multiply_call,call_ext},' +
+    '{divide_call_tail,call_ext_only},{negate_call,call_ext}]), ' +
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
@@ -278,12 +372,16 @@ try {
     'Rejected andalso raw_stack:element_y(V)=:=not_pair end,[[],{},{1,2,3}]), ' +
     'ListRich=lists:all(fun({A,B})->L=[A|B], Expected={A,B}, ' +
     'calls:stack_list_head(L)=:=Expected andalso calls:stack_list_tail(L)=:=Expected andalso ' +
-    'raw_stack:list_head_y(L)=:=Expected andalso raw_stack:list_tail_y(L)=:=Expected end, ' +
+    'raw_stack:list_head_y(L)=:=Expected andalso raw_stack:list_tail_y(L)=:=Expected andalso ' +
+    'calls:stack_hd(L,B)=:=Expected andalso calls:stack_tl(L,A)=:={B,A} andalso ' +
+    'raw_stack:list_parts_y(L)=:=Expected andalso ' +
+    'calls:stack_list(A,B)=:={L,A} andalso raw_stack:list_put_y(A,B)=:={L,L,[A|A]} end, ' +
     'Values++[{1,[]},{2,[3]}]), ' +
     'ListInvalid=lists:all(fun(V)->' +
-    'Rejected=lists:all(fun(F)->try apply(calls,F,[V]),false catch error:function_clause->true end end, ' +
-    '[stack_list_head,stack_list_tail]), Rejected andalso raw_stack:list_head_y(V)=:=not_list ' +
-    'andalso raw_stack:list_tail_y(V)=:=not_list end,[[],not_list,{}]), ' +
+    'Rejected=lists:all(fun({F,Args})->try apply(calls,F,Args),false catch error:function_clause->true end end, ' +
+    '[{stack_list_head,[V]},{stack_list_tail,[V]},{stack_hd,[V,1]},{stack_tl,[V,1]}]), ' +
+    'Rejected andalso raw_stack:list_head_y(V)=:=not_list andalso ' +
+    'raw_stack:list_tail_y(V)=:=not_list andalso raw_stack:list_parts_y(V)=:=not_list end,[[],not_list,{}]), ' +
     'io:format("~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n~w~n",' +
     '[calls:local(42),calls:remote(42),calls:nested(42,99),calls:wrapped(23),' +
     'calls:heap(23,99),calls:stack(11,22,33,44),raw_stack:shift(11,22,33),' +
@@ -295,7 +393,69 @@ try {
     'raw_stack:tuple_y(3,4)=:={3,4,3,tag},' +
     'calls:stack_element({5,6})=:={5,6},raw_stack:element_y({7,8})=:=7,' +
     'calls:stack_list_head([9|tail])=:={9,tail},calls:stack_list_tail([9|tail])=:={9,tail},' +
-    'raw_stack:list_head_y([9|tail])=:={9,tail},raw_stack:list_tail_y([9|tail])=:={9,tail}]]),halt().',
+    'raw_stack:list_head_y([9|tail])=:={9,tail},raw_stack:list_tail_y([9|tail])=:={9,tail},' +
+    'calls:stack_list(9,tail)=:={[9|tail],9},' +
+    'raw_stack:list_put_y(9,tail)=:={[9|tail],[9|tail],[9|9]},' +
+    'calls:stack_hd([9|tail],7)=:={9,7},calls:stack_tl([9|tail],7)=:={tail,7},' +
+    'raw_stack:list_parts_y([9|tail])=:={9,tail},' +
+    'bif_body:stack_head([9|tail],7)=:={9,7},bif_body:stack_tail([9|tail],7)=:={tail,7},' +
+    'bif_body:stack_size({5,6},7)=:={2,7},bif_body:stack_element({5,6},7)=:={5,7},' +
+    'raw_bif_body:head_guard_stack([])=:={failed,[]},raw_bif_body:tail_guard_stack([9|tail])=:=tail,' +
+    'raw_bif_body:size_guard_stack(bad)=:={failed,bad},' +
+    'raw_bif_body:element_guard_stack(0,{5,6})=:={failed,{5,6}},' +
+    'raw_bif_body:element_guard_index_stack(0,{5,6})=:={failed,0},' +
+    'bif_body:stack_length([9],7)=:={1,7},' +
+    'raw_bif_body:length_guard_stack([9|tail])=:={failed,[9|tail]},' +
+    'raw_bif_body:length_guard_stack([])=:=0,' +
+    'bif_body:stack_bits(<<1,1:1>>,7)=:={9,7},bif_body:stack_bytes(<<1,1:1>>,7)=:={2,7},' +
+    'raw_bif_body:bits_guard_stack(bad)=:={failed,bad},' +
+    'raw_bif_body:bytes_guard_stack(<<1:1>>)=:=1,' +
+    'bif_body:stack_part(<<1,2,3>>,3,-2,7)=:={<<2,3>>,7},' +
+    'bif_body:stack_part2(<<1,2,3>>,{3,-2},7)=:={<<2,3>>,7},' +
+    'raw_bif_body:part2_guard_range(<<1,2,3>>,{0,-1})=:={failed,{0,-1}},' +
+    'raw_bif_body:part3_guard_length(<<1,2,3>>,0,-1)=:={failed,-1},' +
+    'bif_body:stack_predicates(<<1:1>>,ok)=:=' +
+    '{false,false,false,false,false,false,false,false,true,false,false,ok},' +
+    'raw_bif_body:predicates_stack(<<1:1>>)=:=' +
+    '{false,false,false,false,false,false,false,false,true,false,false},' +
+    'arithmetic_body:stack_and(-5,3,7)=:={3,7},arithmetic_body:stack_not(0,7)=:={-1,7},' +
+    'raw_arithmetic_body:band_stack_left(1,bad)=:={failed,1},' +
+    'raw_arithmetic_body:bor_stack_right(bad,5)=:={failed,5},' +
+    'arithmetic_body:stack_or(-5,2,7)=:={-5,7},arithmetic_body:stack_xor(-5,3,7)=:={-8,7},' +
+    'raw_arithmetic_body:bxor_stack_both(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:bnot_stack(bad)=:={failed,bad},' +
+    'arithmetic_body:stack_div(-7,3,7)=:={-2,7},arithmetic_body:stack_rem(-7,3,7)=:={-1,7},' +
+    'raw_arithmetic_body:div_stack_left(7,0)=:={failed,7},' +
+    'raw_arithmetic_body:rem_stack_right(bad,3)=:={failed,3},' +
+    'raw_arithmetic_body:div_stack_both(0)=:={failed,0},' +
+    'raw_arithmetic_body:rem_stack_both(0)=:={failed,0},' +
+    'arithmetic_body:stack_add(3,4,7)=:={7,7},' +
+    'arithmetic_body:stack_subtract(3,4,7)=:={-1,7},' +
+    'arithmetic_body:stack_multiply(3,4,7)=:={12,7},' +
+    'raw_arithmetic_body:divide_stack_body(5,2)=:=2.5,' +
+    'raw_arithmetic_body:add_stack_left(9,bad)=:={failed,9},' +
+    'raw_arithmetic_body:subtract_stack_right(bad,9)=:={failed,9},' +
+    'raw_arithmetic_body:multiply_stack_both(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:divide_stack_right(5,0)=:={failed,0},' +
+    'arithmetic_body:stack_negate(-3,7)=:={3,7},' +
+    'arithmetic_body:stack_absolute(-3,7)=:={3,7},' +
+    'raw_arithmetic_body:negate_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:abs_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:abs_stack_distinct(bad,7)=:={failed,7},' +
+    'arithmetic_body:stack_trunc(-1.9,7)=:={-1,7},' +
+    'arithmetic_body:stack_round(-1.5,7)=:={-2,7},' +
+    'arithmetic_body:stack_floor(-1.9,7)=:={-2,7},' +
+    'arithmetic_body:stack_ceil(1.9,7)=:={2,7},' +
+    'arithmetic_body:stack_float(3,7)=:={3.0,7},' +
+    'raw_arithmetic_body:trunc_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:round_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:floor_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:ceil_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:float_stack_guard(bad)=:={failed,bad},' +
+    'raw_arithmetic_body:float_stack_distinct(1 bsl 1024,7)=:={failed,7},' +
+    'erlang:\'+\'(2,3)=:=5,raw_bif_body:subtract_call_last(7,3)=:=4,' +
+    'raw_bif_body:divide_call_tail(5,2)=:=2.5,' +
+    'calls:arithmetic_bif_remote(6,7)=:={ok,{result,42}}]]),halt().',
   ]).trim();
   const schedulerOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'io:format("~w~n~w~n",[scheduler_fixture:count(11,8),scheduler_fixture:count(22,8)]),halt().',
@@ -662,6 +822,47 @@ try {
     '{bif_body,length,[Long]},{bif_body,length,[LongImproper]},' +
     '{bif_body,head_across,[[first,second]]},{bif_body,head_across,[[]]},' +
     '{calls,bif_remote,[[first,second]]},{calls,bif_remote,[[]]},' +
+    '{bif_body,stack_head,[[first|tail],7]},{bif_body,stack_head,[[],7]},' +
+    '{bif_body,stack_tail,[[first|tail],7]},{bif_body,stack_tail,[[],7]},' +
+    '{bif_body,stack_size,[{tag,5},7]},{bif_body,stack_size,[[],7]},' +
+    '{bif_body,stack_element,[{tag,5},7]},{bif_body,stack_element,[{},7]},' +
+    '{bif_body,stack_length,[[],7]},{bif_body,stack_length,[[first,second],7]},' +
+    '{bif_body,stack_length,[[first|tail],7]},{bif_body,stack_length,[bad,7]},' +
+    '{bif_body,stack_length,[Long,7]},{bif_body,stack_length,[LongImproper,7]},' +
+    '{raw_bif_body,length_guard_stack,[[]]},{raw_bif_body,length_guard_stack,[[first,second]]},' +
+    '{raw_bif_body,length_guard_stack,[[first|tail]]},{raw_bif_body,length_guard_stack,[bad]},' +
+    '{raw_bif_body,length_guard_stack,[Long]},' +
+    '{bif_body,stack_bits,[<<>>,7]},{bif_body,stack_bits,[<<1:1>>,7]},' +
+    '{bif_body,stack_bits,[<<1,1:1>>,7]},{bif_body,stack_bits,[Bin,7]},{bif_body,stack_bits,[bad,7]},' +
+    '{bif_body,stack_bytes,[<<>>,7]},{bif_body,stack_bytes,[<<1:1>>,7]},' +
+    '{bif_body,stack_bytes,[<<1,1:1>>,7]},{bif_body,stack_bytes,[Bin,7]},{bif_body,stack_bytes,[bad,7]},' +
+    '{raw_bif_body,bits_guard_stack,[<<>>]},{raw_bif_body,bits_guard_stack,[<<1,1:1>>]},' +
+    '{raw_bif_body,bits_guard_stack,[bad]},{raw_bif_body,bytes_guard_stack,[<<>>]},' +
+    '{raw_bif_body,bytes_guard_stack,[<<1:1>>]},{raw_bif_body,bytes_guard_stack,[<<1,1:1>>]},' +
+    '{raw_bif_body,bytes_guard_stack,[bad]},' +
+    '{bif_body,stack_part,[Bin,1,2,7]},{bif_body,stack_part,[Bin,4,-2,7]},' +
+    '{bif_body,stack_part,[Bin,4,0,7]},{bif_body,stack_part,[Bin,0,-1,7]},' +
+    '{bif_body,stack_part,[<<1,1:1>>,0,1,7]},{bif_body,stack_part,[Bin,1.0,1,7]},' +
+    '{bif_body,stack_part2,[Bin,{1,2},7]},{bif_body,stack_part2,[Bin,{4,-2},7]},' +
+    '{bif_body,stack_part2,[Bin,{4,0},7]},{bif_body,stack_part2,[Bin,{0,-1},7]},' +
+    '{bif_body,stack_part2,[Bin,{1},7]},{bif_body,stack_part2,[<<1,1:1>>,{0,0},7]},' +
+    '{raw_bif_body,part2_guard_source,[Bin,{4,-2}]},{raw_bif_body,part2_guard_source,[Bin,{0,-1}]},' +
+    '{raw_bif_body,part2_guard_range,[Bin,{4,-2}]},{raw_bif_body,part2_guard_range,[Bin,{0,-1}]},' +
+    '{raw_bif_body,part2_guard_range,[Bin,{1}]},' +
+    '{raw_bif_body,part2_guard_x,[Bin,{4,-2}]},{raw_bif_body,part2_guard_x,[Bin,{0,-1}]},' +
+    '{raw_bif_body,part3_guard_source,[Bin,4,-2]},{raw_bif_body,part3_guard_source,[<<1,1:1>>,0,1]},' +
+    '{raw_bif_body,part3_guard_position,[Bin,1,2]},{raw_bif_body,part3_guard_position,[Bin,-1,1]},' +
+    '{raw_bif_body,part3_guard_length,[Bin,1,2]},{raw_bif_body,part3_guard_length,[Bin,0,-1]},' +
+    '{raw_bif_body,part3_guard_length,[Bin,1,1 bsl 80]},' +
+    '{raw_bif_body,head_guard_stack,[[first|tail]]},{raw_bif_body,head_guard_stack,[[]]},' +
+    '{raw_bif_body,tail_guard_stack,[[first|tail]]},{raw_bif_body,tail_guard_stack,[bad]},' +
+    '{raw_bif_body,size_guard_stack,[{tag,5}]},{raw_bif_body,size_guard_stack,[bad]},' +
+    '{raw_bif_body,element_guard_stack,[2,{tag,5}]},{raw_bif_body,element_guard_stack,[0,{tag,5}]},' +
+    '{raw_bif_body,element_guard_stack,[3,{tag,5}]},{raw_bif_body,element_guard_stack,[1.0,{tag,5}]},' +
+    '{raw_bif_body,element_guard_stack,[1,bad]},' +
+    '{raw_bif_body,element_guard_index_stack,[2,{tag,5}]},' +
+    '{raw_bif_body,element_guard_index_stack,[0,{tag,5}]},' +
+    '{raw_bif_body,element_guard_index_stack,[1 bsl 80,{tag,5}]},' +
     '{raw_bif_body,head_y,[[first|tail]]},{raw_bif_body,head_y,[[]]},' +
     '{raw_bif_body,element_alias,[2,{tag,5}]},{raw_bif_body,element_alias,[-1,{tag,5}]},' +
     '{raw_bif_body,length_y,[[first,second]]},{raw_bif_body,length_y,[[first|tail]]},' +
@@ -688,6 +889,9 @@ try {
     '{raw_bif_body,predicate_tail,[Bin]},{raw_bif_body,predicate_tail,[<<1,1:1>>]},' +
     '{raw_bif_body,predicate_last,[[first|tail]]},{raw_bif_body,predicate_last,[bad]},' +
     '{raw_bif_body,predicate_call,[yes]},{raw_bif_body,predicate_call,[1]}] ++ ' +
+    'lists:append([[{bif_body,stack_predicates,[V,ok]},{raw_bif_body,predicates_stack,[V]}] || ' +
+    'V <- [0,1.5,true,other,[],[first|tail],{tag,5},<<>>,Bin,<<1,1:1>>,self(),make_ref()]]) ++ ' +
+    '[{raw_bif_body,predicate_x_stack,[0]},{raw_bif_body,predicate_x_stack,[bad]}] ++ ' +
     '[{erlang,N,[V]} || N <- [is_integer,is_number,is_atom,is_boolean,is_float,is_list,' +
     'is_tuple,is_binary,is_bitstring], V <- [0,1.5,true,other,[],[first|tail],{},Bin,<<1,1:1>>]] ++ ' +
     '[{erlang,hd,[[first,second]]},{erlang,hd,[[first|tail]]},{erlang,hd,[[]]},{erlang,hd,[bad]},' +
@@ -738,6 +942,32 @@ try {
     '{arithmetic_body,divide,[Max,0.5]},{arithmetic_body,divide,[Huge,Huge]},' +
     '{arithmetic_body,divide,[bad,2]},{arithmetic_body,divide,[2,bad]},' +
     '{arithmetic_body,divide_across,[5,2]},{arithmetic_body,divide_across,[5,0]},' +
+    '{arithmetic_body,stack_add,[Huge,1,7]},{arithmetic_body,stack_add,[-0.0,-0.0,7]},' +
+    '{arithmetic_body,stack_add,[1.5,2,7]},{arithmetic_body,stack_add,[Max,Max,7]},' +
+    '{arithmetic_body,stack_add,[bad,1,7]},{arithmetic_body,stack_subtract,[7,9,7]},' +
+    '{arithmetic_body,stack_subtract,[-0.0,0.0,7]},{arithmetic_body,stack_subtract,[1,bad,7]},' +
+    '{arithmetic_body,stack_subtract,[Max,-Max,7]},{arithmetic_body,stack_multiply,[-7,3,7]},' +
+    '{arithmetic_body,stack_multiply,[Tiny,0.5,7]},{arithmetic_body,stack_multiply,[Max,2.0,7]},' +
+    '{arithmetic_body,stack_multiply,[Huge,0.0,7]},{arithmetic_body,stack_multiply,[bad,1,7]},' +
+    '{arithmetic_body,stack_divide,[5,2,7]},{arithmetic_body,stack_divide,[-0.0,2.0,7]},' +
+    '{arithmetic_body,stack_divide,[1,0,7]},{arithmetic_body,stack_divide,[Max,0.5,7]},' +
+    '{arithmetic_body,stack_divide,[Huge,Huge,7]},' +
+    '{raw_arithmetic_body,add_stack_left,[3,4]},{raw_arithmetic_body,add_stack_left,[-0.0,-0.0]},' +
+    '{raw_arithmetic_body,add_stack_left,[bad,2]},{raw_arithmetic_body,add_stack_left,[9,bad]},' +
+    '{raw_arithmetic_body,add_stack_left,[Max,Max]},{raw_arithmetic_body,add_stack_left,[Huge,1.0]},' +
+    '{raw_arithmetic_body,subtract_stack_right,[3,9]},' +
+    '{raw_arithmetic_body,subtract_stack_right,[-0.0,0.0]},' +
+    '{raw_arithmetic_body,subtract_stack_right,[bad,9]},{raw_arithmetic_body,subtract_stack_right,[9,bad]},' +
+    '{raw_arithmetic_body,subtract_stack_right,[Max,-Max]},' +
+    '{raw_arithmetic_body,multiply_stack_both,[-7]},{raw_arithmetic_body,multiply_stack_both,[-0.0]},' +
+    '{raw_arithmetic_body,multiply_stack_both,[Max]},{raw_arithmetic_body,multiply_stack_both,[bad]},' +
+    '{raw_arithmetic_body,divide_stack_right,[5,2]},{raw_arithmetic_body,divide_stack_right,[-0.0,2.0]},' +
+    '{raw_arithmetic_body,divide_stack_right,[5,0]},{raw_arithmetic_body,divide_stack_right,[5,-0.0]},' +
+    '{raw_arithmetic_body,divide_stack_right,[bad,2]},{raw_arithmetic_body,divide_stack_right,[5,bad]},' +
+    '{raw_arithmetic_body,divide_stack_right,[Max,0.5]},{raw_arithmetic_body,divide_stack_right,[Huge,2]},' +
+    '{raw_arithmetic_body,divide_stack_body,[5,2]},{raw_arithmetic_body,divide_stack_body,[-0.0,2.0]},' +
+    '{raw_arithmetic_body,divide_stack_body,[5,0]},{raw_arithmetic_body,divide_stack_body,[Huge,2]},' +
+    '{raw_arithmetic_body,divide_stack_body,[bad,2]},' +
     '{arithmetic_body,ratio_add,[3,2,7,2]},{arithmetic_body,ratio_add,[-0.0,1,-0.0,1]},' +
     '{arithmetic_body,ratio_add,[Max,1,Max,1]},{arithmetic_body,ratio_add,[1,1,bad,1]},' +
     '{arithmetic_body,ratio_subtract,[1,2,3,2]},{arithmetic_body,ratio_subtract,[-0.0,1,0.0,1]},' +
@@ -752,13 +982,43 @@ try {
     '{arithmetic_body,remainder,[-7,3]},{arithmetic_body,remainder,[7,-3]},' +
     '{arithmetic_body,remainder,[Huge,-7]},{arithmetic_body,remainder,[1,0]},' +
     '{arithmetic_body,remainder,[1.0,2]},' +
+    '{arithmetic_body,stack_div,[-7,3,7]},{arithmetic_body,stack_div,[7,-3,7]},' +
+    '{arithmetic_body,stack_div,[Huge,-7,7]},{arithmetic_body,stack_div,[1,0,7]},' +
+    '{arithmetic_body,stack_div,[1,bad,7]},{arithmetic_body,stack_div,[1.0,2,7]},' +
+    '{arithmetic_body,stack_rem,[-7,3,7]},{arithmetic_body,stack_rem,[7,-3,7]},' +
+    '{arithmetic_body,stack_rem,[Huge,-7,7]},{arithmetic_body,stack_rem,[1,0,7]},' +
+    '{arithmetic_body,stack_rem,[bad,2,7]},{arithmetic_body,stack_rem,[1,2.0,7]},' +
+    '{raw_arithmetic_body,div_stack_left,[-7,3]},{raw_arithmetic_body,div_stack_left,[7,0]},' +
+    '{raw_arithmetic_body,div_stack_left,[bad,2]},{raw_arithmetic_body,div_stack_left,[7,2.0]},' +
+    '{raw_arithmetic_body,rem_stack_right,[-7,3]},{raw_arithmetic_body,rem_stack_right,[7,0]},' +
+    '{raw_arithmetic_body,rem_stack_right,[bad,2]},{raw_arithmetic_body,rem_stack_right,[7,bad]},' +
+    '{raw_arithmetic_body,rem_stack_right,[1.0,2]},' +
+    '{raw_arithmetic_body,div_stack_both,[-7]},{raw_arithmetic_body,div_stack_both,[0]},' +
+    '{raw_arithmetic_body,div_stack_both,[bad]},{raw_arithmetic_body,div_stack_both,[2.0]},' +
+    '{raw_arithmetic_body,rem_stack_both,[-7]},{raw_arithmetic_body,rem_stack_both,[0]},' +
+    '{raw_arithmetic_body,rem_stack_both,[bad]},{raw_arithmetic_body,rem_stack_both,[2.0]},' +
     '{arithmetic_body,bit_and,[-5,3]},{arithmetic_body,bit_and,[Huge,-1]},' +
     '{arithmetic_body,bit_and,[1.0,1]},{arithmetic_body,bit_or,[-5,2]},' +
     '{arithmetic_body,bit_or,[Huge,5]},{arithmetic_body,bit_or,[1,bad]},' +
     '{arithmetic_body,bit_xor,[-5,3]},{arithmetic_body,bit_xor,[Huge,-1]},' +
     '{arithmetic_body,bit_xor,[bad,1]},{arithmetic_body,bit_not,[0]},' +
     '{arithmetic_body,bit_not,[-5]},{arithmetic_body,bit_not,[Huge]},' +
-    '{arithmetic_body,bit_not,[1.0]},{arithmetic_body,quotient_across,[7,3]},' +
+    '{arithmetic_body,bit_not,[1.0]},' +
+    '{arithmetic_body,stack_and,[-5,3,7]},{arithmetic_body,stack_and,[Huge,-1,7]},' +
+    '{arithmetic_body,stack_and,[1.0,1,7]},{arithmetic_body,stack_and,[1,bad,7]},' +
+    '{arithmetic_body,stack_or,[-5,2,7]},{arithmetic_body,stack_or,[Huge,5,7]},' +
+    '{arithmetic_body,stack_or,[bad,1,7]},' +
+    '{arithmetic_body,stack_xor,[-5,3,7]},{arithmetic_body,stack_xor,[Huge,-1,7]},' +
+    '{arithmetic_body,stack_xor,[1,bad,7]},' +
+    '{arithmetic_body,stack_not,[0,7]},{arithmetic_body,stack_not,[-5,7]},' +
+    '{arithmetic_body,stack_not,[Huge,7]},{arithmetic_body,stack_not,[1.0,7]},' +
+    '{raw_arithmetic_body,band_stack_left,[-5,3]},{raw_arithmetic_body,band_stack_left,[bad,3]},' +
+    '{raw_arithmetic_body,band_stack_left,[1,bad]},{raw_arithmetic_body,bor_stack_right,[-5,2]},' +
+    '{raw_arithmetic_body,bor_stack_right,[bad,7]},{raw_arithmetic_body,bor_stack_right,[1,bad]},' +
+    '{raw_arithmetic_body,bxor_stack_both,[Huge]},{raw_arithmetic_body,bxor_stack_both,[bad]},' +
+    '{raw_arithmetic_body,bxor_stack_both,[1.0]},{raw_arithmetic_body,bnot_stack,[-5]},' +
+    '{raw_arithmetic_body,bnot_stack,[Huge]},{raw_arithmetic_body,bnot_stack,[bad]},' +
+    '{raw_arithmetic_body,bnot_stack,[1.0]},{arithmetic_body,quotient_across,[7,3]},' +
     '{arithmetic_body,quotient_across,[7,0]},' +
     '{arithmetic_body,absolute,[-Huge]},{arithmetic_body,absolute,[-0.0]},' +
     '{arithmetic_body,absolute,[-Tiny]},{arithmetic_body,absolute,[bad]},' +
@@ -803,6 +1063,41 @@ try {
     '{raw_arithmetic_body,divide,[1.0,-0.0]},{raw_arithmetic_body,divide,[Max,0.5]},' +
     '{raw_arithmetic_body,divide,[Huge,Huge]},{arithmetic_body,negate,[5]},' +
     '{arithmetic_body,negate,[-0.0]},{arithmetic_body,negate,[bad]},' +
+    '{arithmetic_body,stack_negate,[0,7]},{arithmetic_body,stack_negate,[-Huge,7]},' +
+    '{arithmetic_body,stack_negate,[0.0,7]},{arithmetic_body,stack_negate,[-0.0,7]},' +
+    '{arithmetic_body,stack_negate,[-Tiny,7]},{arithmetic_body,stack_negate,[bad,7]},' +
+    '{arithmetic_body,stack_absolute,[-Huge,7]},{arithmetic_body,stack_absolute,[0.0,7]},' +
+    '{arithmetic_body,stack_absolute,[-0.0,7]},{arithmetic_body,stack_absolute,[-Tiny,7]},' +
+    '{arithmetic_body,stack_absolute,[-Max,7]},{arithmetic_body,stack_absolute,[bad,7]},' +
+    '{raw_arithmetic_body,negate_stack_guard,[-Huge]},{raw_arithmetic_body,negate_stack_guard,[0.0]},' +
+    '{raw_arithmetic_body,negate_stack_guard,[-0.0]},{raw_arithmetic_body,negate_stack_guard,[bad]},' +
+    '{raw_arithmetic_body,abs_stack_guard,[-Huge]},{raw_arithmetic_body,abs_stack_guard,[-0.0]},' +
+    '{raw_arithmetic_body,abs_stack_guard,[-Tiny]},{raw_arithmetic_body,abs_stack_guard,[bad]},' +
+    '{raw_arithmetic_body,abs_stack_distinct,[-5,7]},{raw_arithmetic_body,abs_stack_distinct,[bad,7]},' +
+    '{raw_arithmetic_body,abs_stack_distinct,[bad,-0.0]},' +
+    '{arithmetic_body,stack_trunc,[-1.9,7]},{arithmetic_body,stack_trunc,[1.9,7]},' +
+    '{arithmetic_body,stack_trunc,[Huge,7]},{arithmetic_body,stack_trunc,[-0.0,7]},' +
+    '{arithmetic_body,stack_trunc,[Max,7]},{arithmetic_body,stack_trunc,[bad,7]},' +
+    '{arithmetic_body,stack_round,[-1.5,7]},{arithmetic_body,stack_round,[1.5,7]},' +
+    '{arithmetic_body,stack_round,[-0.5,7]},{arithmetic_body,stack_round,[0.49999999999999994,7]},' +
+    '{arithmetic_body,stack_round,[bad,7]},{arithmetic_body,stack_floor,[-1.9,7]},' +
+    '{arithmetic_body,stack_floor,[-Tiny,7]},{arithmetic_body,stack_floor,[Huge,7]},' +
+    '{arithmetic_body,stack_floor,[bad,7]},{arithmetic_body,stack_ceil,[1.9,7]},' +
+    '{arithmetic_body,stack_ceil,[Tiny,7]},{arithmetic_body,stack_ceil,[-Tiny,7]},' +
+    '{arithmetic_body,stack_ceil,[Huge,7]},{arithmetic_body,stack_ceil,[bad,7]},' +
+    '{arithmetic_body,stack_float,[0,7]},{arithmetic_body,stack_float,[9007199254740993,7]},' +
+    '{arithmetic_body,stack_float,[MaxIntegerFloat,7]},{arithmetic_body,stack_float,[FloatOverflowTie-1,7]},' +
+    '{arithmetic_body,stack_float,[FloatOverflowTie,7]},{arithmetic_body,stack_float,[-FloatOverflowTie+1,7]},' +
+    '{arithmetic_body,stack_float,[-FloatOverflowTie,7]},{arithmetic_body,stack_float,[Huge,7]},' +
+    '{arithmetic_body,stack_float,[-0.0,7]},{arithmetic_body,stack_float,[bad,7]},' +
+    '{raw_arithmetic_body,trunc_stack_guard,[-1.9]},{raw_arithmetic_body,trunc_stack_guard,[bad]},' +
+    '{raw_arithmetic_body,round_stack_guard,[-1.5]},{raw_arithmetic_body,round_stack_guard,[bad]},' +
+    '{raw_arithmetic_body,floor_stack_guard,[-Tiny]},{raw_arithmetic_body,floor_stack_guard,[bad]},' +
+    '{raw_arithmetic_body,ceil_stack_guard,[Tiny]},{raw_arithmetic_body,ceil_stack_guard,[bad]},' +
+    '{raw_arithmetic_body,float_stack_guard,[9007199254740993]},{raw_arithmetic_body,float_stack_guard,[-0.0]},' +
+    '{raw_arithmetic_body,float_stack_guard,[FloatOverflowTie]},{raw_arithmetic_body,float_stack_guard,[Huge]},' +
+    '{raw_arithmetic_body,float_stack_guard,[bad]},{raw_arithmetic_body,float_stack_distinct,[3,7]},' +
+    '{raw_arithmetic_body,float_stack_distinct,[Huge,7]},{raw_arithmetic_body,float_stack_distinct,[bad,-0.0]},' +
     '{arithmetic_body,across,[2,3]},{arithmetic_body,across,[bad,3]},' +
     '{raw_arithmetic_body,add_alias,[3,4]},{raw_arithmetic_body,add_alias,[3,bad]},' +
     '{raw_arithmetic_body,divide_literal,[5]},{raw_arithmetic_body,divide_literal,[bad]},' +
@@ -818,7 +1113,22 @@ try {
     '{raw_bif_body,abs_call_tail,[-0.0]},{raw_bif_body,abs_call_tail,[bad]},' +
     '{raw_bif_body,round_call_last,[-1.5]},{raw_bif_body,round_call_last,[bad]},' +
     '{raw_bif_body,float_call,[9007199254740993]},{raw_bif_body,float_call,[Huge]},' +
-    '{calls,numeric_bif_remote,[-0.0]},{calls,numeric_bif_remote,[bad]}], ' +
+    '{calls,numeric_bif_remote,[-0.0]},{calls,numeric_bif_remote,[bad]},' +
+    '{erlang,\'+\',[Huge,1]},{erlang,\'+\',[-0.0,-0.0]},{erlang,\'+\',[1.5,2]},{erlang,\'+\',[bad,1]},' +
+    '{erlang,\'+\',[Max,Max]},{erlang,\'+\',[Huge,0.0]},' +
+    '{erlang,\'-\',[0]},{erlang,\'-\',[-Huge]},{erlang,\'-\',[-0.0]},{erlang,\'-\',[bad]},' +
+    '{erlang,\'-\',[7,9]},{erlang,\'-\',[-0.0,0.0]},{erlang,\'-\',[1,bad]},' +
+    '{erlang,\'-\',[Max,-Max]},{erlang,\'*\',[-7,3]},{erlang,\'*\',[Tiny,0.5]},' +
+    '{erlang,\'*\',[Max,2.0]},{erlang,\'*\',[bad,1]},' +
+    '{erlang,\'/\',[5,2]},{erlang,\'/\',[-0.0,2.0]},{erlang,\'/\',[Huge,Huge]},' +
+    '{erlang,\'/\',[1,0]},{erlang,\'/\',[1.0,-0.0]},{erlang,\'/\',[Max,0.5]},' +
+    '{erlang,\'/\',[bad,2]},' +
+    '{raw_bif_body,add_call_tail,[2,3]},{raw_bif_body,add_call_tail,[bad,3]},' +
+    '{raw_bif_body,subtract_call_last,[-0.0,0.0]},{raw_bif_body,subtract_call_last,[bad,3]},' +
+    '{raw_bif_body,multiply_call,[-7,3]},{raw_bif_body,multiply_call,[bad,3]},' +
+    '{raw_bif_body,divide_call_tail,[5,2]},{raw_bif_body,divide_call_tail,[1,0]},' +
+    '{raw_bif_body,negate_call,[-0.0]},{raw_bif_body,negate_call,[bad]},' +
+    '{calls,arithmetic_bif_remote,[6,7]},{calls,arithmetic_bif_remote,[bad,7]}], ' +
     'Format=fun F(V) when is_integer(V) -> integer_to_list(V); ' +
     'F(V) when is_float(V) -> <<Bits:64>> = <<V:64/float>>, io_lib:format("float:~16.16.0b",[Bits]); ' +
     'F(V) when is_atom(V) -> atom_to_list(V); ' +
@@ -861,6 +1171,8 @@ try {
     const modules = await Promise.all([
       `scheduler_fixture${suffix}.mjs`, `raw_scheduler${suffix}.mjs`, `raw_stack${suffix}.mjs`,
       `raw_float_registers${suffix}.mjs`, `calls${suffix}.mjs`, `arithmetic_body${suffix}.mjs`,
+      `raw_arithmetic_body${suffix}.mjs`,
+      `bif_body${suffix}.mjs`, `raw_bif_body${suffix}.mjs`,
       'slice_helper.mjs',
     ].map(file => import(pathToFileURL(join(dir, file)))));
     assert.deepEqual(await schedulerChecks(Runtime, ErlangError, rt => {
@@ -1210,6 +1522,8 @@ try {
         const modules = await Promise.all([
           `/scheduler_fixture${suffix}.mjs`, `/raw_scheduler${suffix}.mjs`, `/raw_stack${suffix}.mjs`,
           `/raw_float_registers${suffix}.mjs`, `/calls${suffix}.mjs`, `/arithmetic_body${suffix}.mjs`,
+          `/raw_arithmetic_body${suffix}.mjs`,
+          `/bif_body${suffix}.mjs`, `/raw_bif_body${suffix}.mjs`,
           '/slice_helper.mjs',
         ].map(file => import(file)));
         scheduled.push(await schedulerChecks(Runtime, ErlangError, rt => {

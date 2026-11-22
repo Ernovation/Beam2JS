@@ -206,15 +206,18 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
                          integer_to_list(Arity), <<" && rt.equalExact(rt.tupleElement(value, 1), rt.atom(">>,
                          string(Tag), <<")))(">>, operand(Source, Context, Index), <<")">>],
             branch(Condition, Target, Index, Labels, Context);
-        {bif, Op, {f, 0}, [Source], {x, Dest}}
-          when is_integer(Dest), Dest >= 0, Dest < 1024,
-               (Op =:= is_integer orelse Op =:= is_number orelse Op =:= is_atom orelse
+        {bif, Op, {f, 0}, [Source], Dest}
+          when (Op =:= is_integer orelse Op =:= is_number orelse Op =:= is_atom orelse
                 Op =:= is_boolean orelse Op =:= is_float orelse Op =:= is_list orelse
                 Op =:= is_tuple orelse Op =:= is_binary orelse Op =:= is_bitstring orelse
                 Op =:= is_pid orelse Op =:= is_reference) ->
-            [<<"x[">>, integer_to_list(Dest), <<"] = rt.atom(">>,
-             type_test(Op, Source, Context, Index),
-             <<" ? 'true' : 'false'); ">>, next(Index)];
+            Value = [<<"rt.atom(">>, type_test(Op, Source, Context, Index),
+                     <<" ? 'true' : 'false')">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
+        {bif, '=:=', {f, 0}, [Left, Right], Dest} ->
+            Condition = comparison(is_eq_exact, operand(Left, Context, Index), operand(Right, Context, Index)),
+            Value = [<<"rt.atom(">>, Condition, <<" ? 'true' : 'false')">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
         {bif, self, nofail, [], Dest} ->
             [write_register(Dest, <<"pid">>, Context, Index), next(Index)];
         {bif, get, {f, 0}, [Source], Dest} ->
@@ -242,30 +245,25 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             [<<"return {type: 'wait_timeout', state: {pc: ">>, target(Target, Labels, Context, Index),
              <<", y, f}, timeoutPc: ">>, integer_to_list(Index + 1), <<", timeout: ">>,
              operand(Time, Context, Index), <<", registers: x};">>];
-        {bif, Op, {f, Target}, [Source], {x, Dest}}
-          when (Op =:= hd orelse Op =:= tl orelse Op =:= tuple_size),
-               is_integer(Dest), Dest >= 0, Dest < 1024 ->
+        {bif, Op, {f, Target}, [Source], Dest}
+          when Op =:= hd; Op =:= tl; Op =:= tuple_size ->
             guard_bif(Op, [Source], Dest, Target, Index, Labels, Context);
-        {bif, element, {f, Target}, [Position, Source], {x, Dest}}
-          when is_integer(Dest), Dest >= 0, Dest < 1024 ->
+        {bif, element, {f, Target}, [Position, Source], Dest} ->
             guard_bif(element, [Position, Source], Dest, Target, Index, Labels, Context);
-        {gc_bif, Op, {f, Target}, Live, [Source], {x, Dest}}
-          when (Op =:= 'bnot' orelse Op =:= length orelse Op =:= '-' orelse Op =:= abs orelse
-                Op =:= trunc orelse Op =:= round orelse Op =:= floor orelse Op =:= ceil orelse
-                Op =:= float orelse Op =:= bit_size orelse Op =:= byte_size),
-               is_integer(Live), Live >= 0, Live =< 1024,
-               is_integer(Dest), Dest >= 0, Dest < 1024 ->
+        {gc_bif, Op, {f, Target}, Live, [Source], Dest}
+          when (Op =:= length orelse Op =:= bit_size orelse Op =:= byte_size orelse Op =:= 'bnot' orelse
+                Op =:= '-' orelse Op =:= abs orelse Op =:= trunc orelse Op =:= round orelse
+                Op =:= floor orelse Op =:= ceil orelse Op =:= float),
+               is_integer(Live), Live >= 0, Live =< 1024 ->
             guard_bif(Op, [Source], Dest, Target, Index, Labels, Context);
-        {gc_bif, Op, {f, Target}, Live, [Left, Right], {x, Dest}}
-          when (Op =:= 'band' orelse Op =:= 'bor' orelse Op =:= 'bxor' orelse
-                Op =:= 'div' orelse Op =:= 'rem' orelse Op =:= '+' orelse
-                Op =:= '-' orelse Op =:= '*' orelse Op =:= '/' orelse Op =:= binary_part),
-               is_integer(Live), Live >= 0, Live =< 1024,
-               is_integer(Dest), Dest >= 0, Dest < 1024 ->
+        {gc_bif, Op, {f, Target}, Live, [Left, Right], Dest}
+          when (Op =:= binary_part orelse Op =:= 'band' orelse Op =:= 'bor' orelse Op =:= 'bxor' orelse
+                Op =:= 'div' orelse Op =:= 'rem' orelse Op =:= '+' orelse Op =:= '-' orelse
+                Op =:= '*' orelse Op =:= '/'),
+               is_integer(Live), Live >= 0, Live =< 1024 ->
             guard_bif(Op, [Left, Right], Dest, Target, Index, Labels, Context);
-        {gc_bif, binary_part, {f, Target}, Live, [Source, Position, Length], {x, Dest}}
-          when is_integer(Live), Live >= 0, Live =< 1024,
-               is_integer(Dest), Dest >= 0, Dest < 1024 ->
+        {gc_bif, binary_part, {f, Target}, Live, [Source, Position, Length], Dest}
+          when is_integer(Live), Live >= 0, Live =< 1024 ->
             guard_bif(binary_part, [Source, Position, Length], Dest, Target, Index, Labels, Context);
         {test_heap, Words, Live}
           when is_integer(Words), Words >= 0, is_integer(Live), Live >= 0, Live =< 1024 ->
@@ -276,16 +274,16 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
                 true -> next(Index);
                 false -> unsupported(Context, Index, "invalid heap allocation list")
             end;
-        {put_list, Head, Tail, {x, Dest}} when is_integer(Dest), Dest >= 0, Dest < 1024 ->
-            [<<"x[">>, integer_to_list(Dest), <<"] = rt.cons(">>,
-             operand(Head, Context, Index), <<", ">>, operand(Tail, Context, Index),
-             <<"); ">>, next(Index)];
-        {get_hd, Source, {x, Dest}} when is_integer(Dest), Dest >= 0, Dest < 1024 ->
-            [<<"x[">>, integer_to_list(Dest), <<"] = rt.listHead(">>,
-             operand(Source, Context, Index), <<"); ">>, next(Index)];
-        {get_tl, Source, {x, Dest}} when is_integer(Dest), Dest >= 0, Dest < 1024 ->
-            [<<"x[">>, integer_to_list(Dest), <<"] = rt.listTail(">>,
-             operand(Source, Context, Index), <<"); ">>, next(Index)];
+        {put_list, Head, Tail, Dest} ->
+            Value = [<<"rt.cons(">>, operand(Head, Context, Index), <<", ">>,
+                     operand(Tail, Context, Index), <<")">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
+        {get_hd, Source, Dest} ->
+            Value = [<<"rt.listHead(">>, operand(Source, Context, Index), <<")">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
+        {get_tl, Source, Dest} ->
+            Value = [<<"rt.listTail(">>, operand(Source, Context, Index), <<")">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
         {get_list, Source, Head, Tail} when Head =/= Tail ->
             [<<"{ const list = ">>, operand(Source, Context, Index), <<"; ">>,
              write_register(Head, <<"rt.listHead(list)">>, Context, Index),
@@ -405,8 +403,9 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
             <<"rt.raiseError(rt.atom('badarg'));">>;
         _ -> [<<"pc = ">>, target(Target, Labels, Context, Index), <<";">>]
     end,
-    [<<"{ ">>, Declarations, <<"if (">>, Condition, <<") { x[">>, integer_to_list(Dest),
-     <<"] = ">>, Result, <<"; pc = ">>, integer_to_list(Index + 1), <<"; } else { ">>,
+    [<<"{ ">>, Declarations, <<"if (">>, Condition, <<") { ">>,
+     write_register(Dest, Result, Context, Index),
+     <<"pc = ">>, integer_to_list(Index + 1), <<"; } else { ">>,
      Failure, <<" } break; }">>].
 
 selection(Kind, Source, Fail, Choices, Labels, Context, Index) ->
@@ -507,6 +506,9 @@ operand({y, Register}, _, _) when is_integer(Register), Register >= 0, Register 
 operand({tr, {x, Register}, _Type}, Context, Index)
   when is_integer(Register), Register >= 0, Register < 1024 ->
     operand({x, Register}, Context, Index);
+operand({tr, {y, Register}, _Type}, Context, Index)
+  when is_integer(Register), Register >= 0, Register < 1024 ->
+    operand({y, Register}, Context, Index);
 operand({integer, Integer}, _, _) when is_integer(Integer) -> [integer_to_list(Integer), <<"n">>];
 operand({atom, Atom}, _, _) when is_atom(Atom) -> [<<"rt.atom(">>, string(Atom), <<")">>];
 operand(nil, _, _) -> <<"rt.nil()">>;

@@ -51,6 +51,40 @@ npm run test:execution
 npm run test:browser
 ```
 
+### Sudoku example
+
+The [Sudoku solver](examples/sudoku/sudoku.erl) is a pure Erlang backtracking
+example that works with the supported subset. To compile and run its sample:
+
+```sh
+rebar3 escriptize
+mkdir -p _build/sudoku
+erlc -o _build/sudoku examples/sudoku/sudoku.erl
+_build/default/bin/beam2js _build/sudoku/sudoku.beam _build/sudoku/sudoku.mjs
+node examples/sudoku/run.mjs
+```
+
+`sudoku:solve/1` takes nine rows of nine integers, with `0` for an empty cell.
+It returns `{ok, Grid}` for the first solution, `invalid` for malformed input
+or conflicting clues, and `unsolvable` for a valid puzzle with no solution.
+It does not check whether the solution is unique. The sample prints:
+
+```text
+5 3 4 6 7 8 9 1 2
+6 7 2 1 9 5 3 4 8
+1 9 8 3 4 2 5 6 7
+8 5 9 7 6 1 4 2 3
+4 2 6 8 5 3 7 9 1
+7 1 3 9 2 4 8 5 6
+9 6 1 5 3 7 2 8 4
+2 8 7 4 1 9 6 3 5
+3 4 5 2 8 6 1 7 9
+```
+
+The example's `runtime.invoke` is synchronous and may block the event loop,
+especially for difficult puzzles. `npm run test:sudoku` compares the solver
+with OTP and checks normal and stripped modules in Node and Chromium.
+
 ### Browser demo
 
 From the repository root, build and serve the example:
@@ -273,15 +307,21 @@ including when an element aliases the destination; y destinations require an
 allocated stack slot. `get_tuple_element` likewise accepts x or y destinations,
 including an aliased source and destination. `get_list` accepts distinct x or
 y head and tail destinations, including a source that aliases either destination.
+`put_list` constructs a cons into an ordinary x or y register, including when
+either or both operands alias the destination. `get_hd` and `get_tl` likewise
+accept x or y destinations, including an aliased source.
 Compiled literals can nest the supported literal types; a literal containing an
 unsupported type, such as a map, rejects the module. Binary and partial-byte
 bitstring literals are supported, including nested literals, equality and
 ordering. General dynamic binary/bitstring construction, matching, other
 slicing instructions and other callable binary BIFs remain unsupported.
 Tagged tuple tests and selected value and tuple-arity branches are supported.
-Supported source operands include type-tagged x registers: their hints are
-ignored, not validated. Type-tagged y registers and type-tagged operands in
-BEAM files missing their type table remain unsupported. Mixed or duplicate selection choices and
+Supported source operands include type-tagged x and y registers: their hints
+are ignored, not validated, and y registers require an allocated slot.
+Type-tagged operands in BEAM files missing their type table remain unsupported.
+The zero-label `=:=/2` BIF instruction returns a boolean atom using exact
+equality and supports ordinary x or y destinations, including aliased operands;
+callable `erlang:'=:='/2` dispatch is not supported. Mixed or duplicate selection choices and
 zero branch labels are rejected; tuple-arity branches require a tuple source.
 The type tests include `is_integer`,
 `is_number`, `is_atom`, `is_boolean`, `is_float`, `is_nil`, `is_list` and
@@ -289,20 +329,28 @@ The type tests include `is_integer`,
 bit length divisible by eight; `is_bitstr` accepts all bitstrings.
 Non-failing BIF instruction forms of the eleven applicable Erlang predicates,
 including `is_binary/1`, `is_bitstring/1`, `is_pid/1` and `is_reference/1`, return boolean atoms.
+They support ordinary x or y destinations, including an aliased source.
 These eleven predicates are also callable as `erlang` functions through external
 calls or `runtime.invoke`, for the supported term types.
 Nonzero-failure-label guard BIF instructions for `hd/1`, `tl/1`,
 `length/1`, `tuple_size/1` and `element/2` branch on invalid arguments.
 Their zero-label and callable forms raise `badarg` on invalid arguments.
+The `hd/1`, `tl/1`, `tuple_size/1`, `element/2` and `length/1` instruction
+forms support ordinary x or y destinations, including aliased source operands;
+failed guards leave their destinations unchanged.
 `length/1` traverses synchronously and may block the host event loop for long
 lists.
 Nonzero-label `bit_size/1` and `byte_size/1` guard instructions accept
 bitstrings and branch on other terms. `byte_size/1` rounds partial bytes up;
-zero-label forms raise `badarg` on non-bitstrings.
+zero-label forms raise `badarg` on non-bitstrings. Both instruction forms
+support x or y destinations, including an aliased source, without writing on
+guard failure.
 The nonzero-label `binary_part/2` and `binary_part/3` guard instructions
 slice binaries using zero-based byte positions; the former takes a
 `{Position, Length}` tuple. Negative lengths select bytes before the position.
 Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
+Both instruction arities support x or y destinations, including aliased
+operands; failed guards leave the destination unchanged.
 `bit_size/1`, `byte_size/1` and both `binary_part` arities are also callable,
 raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIFs,
 and predicates take precedence over registered `erlang` functions of the same
@@ -312,14 +360,23 @@ the local process dictionary, registry and timer BIFs above and the numeric BIFs
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.
+Both forms support x or y destinations, including aliased operands; failed
+guards leave the destination unchanged.
 Integer `div` and `rem` guard instructions branch on non-integers or a zero
 divisor; division truncates toward zero and remainder follows the dividend's
 sign. Their zero-label forms raise `badarith` on invalid inputs or zero divisors.
+Both forms support x or y destinations, including aliased operands; failed guards
+leave the destination unchanged.
 Unary negation and binary `+`, `-` and `*` guard instructions support integer,
 float and mixed operands, branching on non-numbers or floating-point overflow.
 Binary `/` guard instructions always produce a float; they branch on
 non-numbers, zero divisors, integer-to-float conversion overflow or float
 result overflow. Their zero-label instruction forms instead raise `badarith`.
+These arithmetic operators are also callable as `erlang` BIFs and raise
+`badarith` for the same invalid inputs.
+These binary guard and zero-label instructions support x or y destinations,
+including aliased operands; failed guards leave the destination unchanged.
+Unary negation instructions have the same destination and guard-failure behavior.
 Floating-register `fconv`, `fmove`, `fadd`, `fsub`, `fmul`, `fdiv` and
 `fnegate` support ordinary floating-point expressions. Arithmetic overflow
 raises `badarith`, and floating registers do not survive calls. Register
@@ -330,6 +387,8 @@ Nonzero-label `trunc/1`, `round/1`, `floor/1` and `ceil/1` instructions return
 integers, with `round/1` rounding ties away from zero. Non-numbers branch.
 The `float/1` guard preserves floats and converts integers to binary64,
 branching on non-numbers or conversion overflow.
+Guard and zero-label instructions for all six numeric BIFs support x or y
+destinations, including an aliased source, without writing on guard failure.
 Their zero-label forms and callable `erlang` functions raise `badarg` for
 non-numbers or conversion overflow. These six callable BIFs take precedence
 over registered `erlang` functions of the same name and arity.

@@ -23,12 +23,13 @@ for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_floa
 }
 for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
   'bit_size/1', 'byte_size/1', 'binary_part/2', 'binary_part/3',
-  'abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1', 'self/0']) {
+  'abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1', 'self/0',
+  '+/2', '-/1', '-/2', '*/2', '//2']) {
   assert.equal(row(`erlang:${name}`)[11], 'instruction-and-callable');
 }
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 29);
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 34);
 for (const name of ['get/0', 'get_keys/0', 'get_keys/1', 'put/2', 'erase/0', 'erase/1']) {
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }
@@ -49,12 +50,12 @@ for (const name of ['register/2', 'unregister/1', 'whereis/1', 'registered/0']) 
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }
 assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
-assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 0);
-for (const name of ['+/2', '-/1', '-/2', '*/2', '//2',
-  'band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2']) {
+assert.equal(row('erlang:=:=/2')[11], 'body-and-guard-instruction-only');
+assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 1);
+for (const name of ['band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2']) {
   assert.equal(row(`erlang:${name}`)[11], 'arithmetic-instruction-only');
 }
-assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 11);
+assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 6);
 assert.equal(row('erlang:is_map/1')[11], 'not implemented');
 assert.equal(row('erlang:+/2')[7], 'operator');
 assert.equal(row('erlang:list_to_atom/1')[7], 'no');

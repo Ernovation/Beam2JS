@@ -219,6 +219,7 @@ const instructionAndCallable = new Set([
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
+  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2',
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/2', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
   'erlang:monotonic_time/0', 'erlang:monotonic_time/1',
@@ -228,9 +229,8 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:read_timer/2', 'erlang:cancel_timer/2',
   'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0']);
 const guardInstructionOnly = new Set();
-const bodyAndGuardInstructionOnly = new Set();
+const bodyAndGuardInstructionOnly = new Set(['erlang:=:=/2']);
 const arithmeticInstructionOnly = new Set([
-  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2',
   'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1',
   'erlang:div/2', 'erlang:rem/2',
 ]);
@@ -284,13 +284,15 @@ They are release/build observations, not proof of Beam2JS support.
   not host-independent. Categories are broad families, not complete semantics.
 - **Beam2JS**: \`instruction-and-callable\` means the corresponding normalized
   instruction (including \`send/0\` for \`!/2\`) and external callable BIF are supported for the implemented integer,
-  float, atom, list, tuple, bitstring, local PID and local reference terms. Failing list, tuple, binary and numeric BIFs
-  branch in guards and raise \`badarg\` in body and callable forms.
+  float, atom, list, tuple, bitstring, local PID and local reference terms. Failing list, tuple, binary and
+  selected numeric BIFs branch in guards and raise \`badarg\` in body and callable forms;
+  supported arithmetic operators instead raise \`badarith\`.
   \`callable-only\` means external calls are supported without a specialized BIF instruction.
   \`guard-instruction-only\` means the listed BIF instruction is supported
   only with a nonzero guard failure label, for the implemented terms.
-  \`body-and-guard-instruction-only\` covers both guard and zero-label forms
-  of selected numeric BIF instructions, including \`badarg\` failures.
+  \`body-and-guard-instruction-only\` covers selected zero-label BIF
+  instructions and their guard forms. For exact equality, the guard form is
+  the comparison test instruction; neither form dispatches a callable BIF.
   \`arithmetic-instruction-only\` covers both guard and zero-label forms of
   selected arithmetic instructions, including \`badarith\` failures and the
   supported floating-point-register sequence. Implemented forms are
@@ -360,7 +362,8 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   in [body](../fixtures/arithmetic_body.erl) and
   [assembly](../fixtures/raw_arithmetic_body.S) and
   [floating-register](../fixtures/raw_float_registers.S) fixtures, including
-  signed zero and overflow. OTP resource limits and scheduling are not implemented.
+  signed zero and overflow. Callable forms, including external calls, are tested
+  in Node and Chromium. OTP resource limits and scheduling are not implemented.
 - \`abs/1\` accepts integers and floats, preserves their type and turns
   negative float zero into positive zero; non-numbers raise \`badarg\` in a
   body. Nonzero-label guard instructions are tested in the same arithmetic
@@ -394,8 +397,8 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   [assembly](../fixtures/raw_arithmetic_body.S), while the floating-register
   sequence for ordinary division is tested in the
   [body](../fixtures/arithmetic_body.erl) and
-  [assembly](../fixtures/raw_float_registers.S) fixtures. OTP resource limits
-  and scheduling are not implemented.
+  [assembly](../fixtures/raw_float_registers.S) fixtures. Callable forms are
+  tested in Node and Chromium. OTP resource limits and scheduling are not implemented.
 - \`band/2\`, \`bor/2\`, \`bxor/2\` and \`bnot/1\` operate on signed
   integers and raise \`badarith\` for non-integers in a body. Their
   nonzero-label guard instructions are tested against OTP in Node and

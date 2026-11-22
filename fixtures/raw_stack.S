@@ -1,8 +1,8 @@
 {module,raw_stack}.
 {exports,[{shift,3},{empty,1},{tuple_y,2},{empty_y,0},{element_y,1},
-          {list_head_y,1},{list_tail_y,1}]}.
+          {list_head_y,1},{list_tail_y,1},{list_put_y,2},{list_parts_y,1}]}.
 {attributes,[]}.
-{labels,18}.
+{labels,23}.
 
 {function,shift,3,2}.
 {label,1}.
@@ -103,5 +103,40 @@ return.
 {deallocate,2}.
 return.
 {label,17}.
+{move,{atom,not_list},{x,0}}.
+return.
+
+{function,list_put_y,2,19}.
+{label,18}.
+{func_info,{atom,raw_stack},{atom,list_put_y},2}.
+{label,19}.
+{allocate_heap,5,10,2}.
+{move,{x,0},{y,0}}.
+{move,{x,1},{y,1}}.
+{move,{y,0},{y,2}}.
+{put_list,{y,2},{y,1},{y,2}}.
+{move,{y,1},{y,3}}.
+{put_list,{y,0},{y,3},{y,3}}.
+{move,{y,0},{y,4}}.
+{put_list,{y,4},{y,4},{y,4}}.
+{put_tuple2,{x,0},{list,[{y,2},{y,3},{y,4}]}}.
+{deallocate,5}.
+return.
+
+{function,list_parts_y,1,21}.
+{label,20}.
+{func_info,{atom,raw_stack},{atom,list_parts_y},1}.
+{label,21}.
+{test,is_nonempty_list,{f,22},[{x,0}]}.
+{allocate,2,1}.
+{move,{x,0},{y,0}}.
+{move,{x,0},{y,1}}.
+{get_hd,{y,0},{y,0}}.
+{get_tl,{y,1},{y,1}}.
+{test_heap,3,0}.
+{put_tuple2,{x,0},{list,[{y,0},{y,1}]}}.
+{deallocate,2}.
+return.
+{label,22}.
 {move,{atom,not_list},{x,0}}.
 return.

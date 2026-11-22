@@ -272,6 +272,11 @@ cases.push(
   ...values.map(value => ({module: 'raw_typed', name: 'check', args: [value]})),
   ...['binary', 'bits'].flatMap(name => values.map(value => ({module: 'raw_typed', name, args: [value]}))),
   ...pairs.map(args => ({module: 'raw_typed', name: 'compare', args})),
+  ...values.map(value => ({module: 'raw_typed', name: 'stack_check', args: [value]})),
+  ...pairs.flatMap(args => ['stack_compare', 'stack_equal']
+    .map(name => ({module: 'raw_typed', name, args}))),
+  ...[[integer(1), integer(2)], [integer(-1), integer(3)], [float('1.5'), integer(2)]]
+    .map(args => ({module: 'raw_typed', name: 'stack_add', args})),
   ...[...values, cons(atom('yes'), nil), cons(atom('x'), atom('yes')),
     tuple(atom('yes'), integer(2))]
     .flatMap(value => ['head', 'tail', 'size'].flatMap(name =>
@@ -670,7 +675,13 @@ try {
     '(_) -> false end,Compare), ' +
     'lists:foreach(fun({Name,Op}) -> {function,Name,1,_,Is}=lists:keyfind(Name,2,RF), ' +
     'true=lists:any(fun({test,Test,_,[{tr,{x,0},any}]}) when Test=:=Op -> true; ' +
-    '(_) -> false end,Is) end,[{binary,is_binary},{bits,is_bitstr}]), halt().',
+    '(_) -> false end,Is) end,[{binary,is_binary},{bits,is_bitstr}]), ' +
+    '{function,stack_check,1,_,YCheck}=lists:keyfind(stack_check,2,RF), ' +
+    'true=lists:any(fun({test,is_integer,_,[{tr,{y,0},any}]}) -> true;(_)->false end,YCheck), ' +
+    '{function,stack_add,2,_,YAdd}=lists:keyfind(stack_add,2,RF), ' +
+    'true=lists:any(fun({gc_bif,\'+\',{f,0},_,[{tr,{y,0},any},_],{y,0}})->true;(_)->false end,YAdd), ' +
+    '{function,stack_equal,2,_,YEqual}=lists:keyfind(stack_equal,2,RF), ' +
+    'true=lists:any(fun({bif,\'=:=\',{f,0},[{tr,{y,0},any},_],{y,0}})->true;(_)->false end,YEqual), halt().',
     '-extra', join(dir, 'typed_select_slice.beam'), join(dir, 'raw_typed.beam')]);
   run('erl', ['-noshell', '-eval',
     '[Compiler,Raw]=init:get_plain_arguments(), ' +
@@ -1233,9 +1244,19 @@ try {
     '{test,is_integer,F,[_]} -> {test,is_integer,F,[{tr,{x,1024},any}]}; _ -> I end || I <- Is], ' +
     '{ok,Big}=beam_asm:module({typed_x_limit,[{check,1}],[],#{},' +
     '[{function,check,1,2,BigIs}],4},[],[],[]), ' +
-    'ok=file:write_file(filename:join(Dir,"typed_x_limit.beam"),Big), halt().', '-extra', dir]);
+    'ok=file:write_file(filename:join(Dir,"typed_x_limit.beam"),Big), ' +
+    'YBigIs=[case I of {func_info,{atom,typed_y},{atom,check},1} -> ' +
+    '{func_info,{atom,typed_y_limit},{atom,check},1}; ' +
+    '{test,is_integer,F,[_]} -> {test,is_integer,F,[{tr,{y,1024},any}]}; _ -> I end || I <- Is], ' +
+    '{ok,YBig}=beam_asm:module({typed_y_limit,[{check,1}],[],#{},' +
+    '[{function,check,1,2,YBigIs}],4},[],[],[]), ' +
+    'ok=file:write_file(filename:join(Dir,"typed_y_limit.beam"),YBig), halt().', '-extra', dir]);
+  const typedNoFrame = join(dir, 'typed_y.mjs');
+  run(compiler, [join(dir, 'typed_y.beam'), typedNoFrame]);
+  (await import(pathToFileURL(typedNoFrame))).register(runtime);
+  assert.throws(() => runtime.invoke('typed_y', 'check', [1n]), /uninitialized y register 0/);
   for (const [file, error] of [
-    ['typed_y.beam', /unsupported operand \{tr,\{y,0\},any\}/],
+    ['typed_y_limit.beam', /unsupported operand \{tr,\{y,1024\},any\}/],
     ['typed_x_limit.beam', /unsupported operand \{tr,\{x,1024\},any\}/],
     ['raw_typed_no_type.beam', /cannot disassemble BEAM/],
   ]) {

@@ -111,13 +111,13 @@ for (const name of ['read_timer', 'cancel_timer']) {
     }),
   });
 }
-function addGuardedBifs(entries, guard) {
+function addGuardedBifs(entries, guard, errorReason = 'badarg') {
   for (const [name, arity] of entries) {
     callableBifs.set(JSON.stringify([name, arity]), {
       exported: true,
       run: (rt, args) => {
         const value = guard(rt, name, args);
-        if (value === null) rt.raiseError(rt.atom('badarg'));
+        if (value === null) rt.raiseError(rt.atom(errorReason));
         return {type: 'return', value};
       },
     });
@@ -129,6 +129,9 @@ addGuardedBifs([['bit_size', 1], ['byte_size', 1], ['binary_part', 2], ['binary_
   (rt, name, args) => rt.guardBitstringBif(name, ...args));
 addGuardedBifs([['abs', 1], ['trunc', 1], ['round', 1], ['floor', 1], ['ceil', 1], ['float', 1]],
   (rt, name, args) => rt.guardArithmetic(name, ...args));
+addGuardedBifs([['+', 2], ['-', 1], ['-', 2], ['*', 2], ['/', 2]],
+  (rt, name, args) => rt.guardArithmetic(name === '-' && args.length === 1 ? 'neg' : name, ...args),
+  'badarith');
 
 function isAtom(value) {
   return typeof value === 'symbol' && Symbol.keyFor(value) !== undefined;
