@@ -56,6 +56,15 @@ callableBifs.set(JSON.stringify(['registered', 0]), {
   exported: true,
   run: rt => ({type: 'return', value: rt.registeredProcesses()}),
 });
+for (const [name, arity] of [
+  ['get', 0], ['get', 1], ['get_keys', 0], ['get_keys', 1],
+  ['put', 2], ['erase', 0], ['erase', 1],
+]) {
+  callableBifs.set(JSON.stringify([name, arity]), {
+    exported: true,
+    run: (rt, args) => ({type: 'dictionary', name, args}),
+  });
+}
 for (const name of ['send', '!']) {
   callableBifs.set(JSON.stringify([name, 2]), {
     exported: true,
@@ -608,7 +617,7 @@ export class Runtime {
   }
 
   registerModule(version, name, functions) {
-    if (version !== 25) {
+    if (version !== 26) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);
@@ -699,6 +708,43 @@ export class Runtime {
     let names = nil;
     for (const name of this.#registered.keys()) names = this.cons(name, names);
     return names;
+  }
+
+  getProcessDictionary(pid, key) {
+    const process = this.#pidProcesses.get(pid);
+    if (!process || process.status !== 'running') throw new Error('process dictionary requires the running process');
+    return this.#processDictionary(process, 'get', [key]);
+  }
+
+  #processDictionary(process, name, args) {
+    if (!Array.isArray(args) || args.some(value => !isTerm(value)) ||
+        !((name === 'get' || name === 'get_keys' || name === 'erase') && args.length <= 1 ||
+          name === 'put' && args.length === 2)) {
+      throw new TypeError('invalid process dictionary operation');
+    }
+    const entries = process.dictionary;
+    if (name === 'get_keys') {
+      let keys = nil;
+      for (const [key, value] of entries) {
+        if (args.length === 0 || this.equalExact(value, args[0])) keys = this.cons(key, keys);
+      }
+      return keys;
+    }
+    if (args.length === 0) {
+      let pairs = nil;
+      for (const [key, value] of entries) pairs = this.cons(this.tuple([key, value]), pairs);
+      if (name === 'erase') process.dictionary = [];
+      return pairs;
+    }
+    const index = entries.findIndex(([key]) => this.equalExact(key, args[0]));
+    const previous = index < 0 ? this.atom('undefined') : entries[index][1];
+    if (name === 'put') {
+      if (index < 0) entries.push([args[0], args[1]]);
+      else entries[index][1] = args[1];
+    } else if (name === 'erase' && index >= 0) {
+      entries.splice(index, 1);
+    }
+    return previous;
   }
 
   sendPidMessage(destination, message) {
@@ -909,7 +955,7 @@ export class Runtime {
     this.#livePids.add(pid);
     const process = {
       pid, module, name, args: args.slice(), external: true, fn: undefined, state: undefined,
-      continuations: [], mailbox: [], receiveIndex: 0, receiveChecked: false, status: 'runnable',
+      continuations: [], mailbox: [], dictionary: [], receiveIndex: 0, receiveChecked: false, status: 'runnable',
     };
     this.#pidProcesses.set(pid, process);
     return process;
@@ -1008,6 +1054,7 @@ export class Runtime {
     process.state = undefined;
     process.args = [];
     process.continuations = [];
+    process.dictionary = [];
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) throw new AggregateError(errors, 'failed to clear process timers');
   }
@@ -1103,6 +1150,8 @@ export class Runtime {
       if (budget.remaining === previous) budget.remaining--;
       if (action.type === 'spawn') {
         action = {type: 'return', value: this.#spawnErlang(action.args)};
+      } else if (action.type === 'dictionary') {
+        action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
       }
       if (action.type === 'return') {
         if (!isTerm(action.value)) throw new TypeError('return value must be a supported Erlang term');

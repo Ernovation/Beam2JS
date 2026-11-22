@@ -10,7 +10,7 @@ export async function referenceChecks(Runtime, registerModules) {
   };
   const rt = new Runtime({schedulers: 2, reductionLimit: 2});
   registerModules(rt);
-  rt.registerModule(25, 'erlang', [{
+  rt.registerModule(26, 'erlang', [{
     name: 'make_ref', arity: 0, exported: true,
     run: runtime => ({type: 'return', value: runtime.atom('shadow')}),
   }, {

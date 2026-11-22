@@ -46,7 +46,7 @@ const partial = new Map([
   ['timeout', 'Resets the receive cursor and clears the active receive timer; unmatched messages remain.'],
   ['wait', 'Suspends a scheduled process at a nonzero receive label until a message arrives; synchronous invocation cannot block.'],
   ['wait_timeout', 'Nonzero receive label and supported timeout operand; 0..4294967295 milliseconds or infinity, invalid values raise timeout_value. Suspends until a message or deadline, without restarting its timer.'],
-  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary, is_bitstring, is_pid or is_reference BIF with zero failure label; hd, tl and tuple_size with guard or zero failure label; invalid zero-label calls raise badarg. Supported term source and x destination only.'],
+  ['bif1', 'Normalized is_integer, is_number, is_atom, is_boolean, is_float, is_list, is_tuple, is_binary, is_bitstring, is_pid or is_reference BIF with zero failure label; hd, tl and tuple_size with guard or zero failure label; invalid zero-label calls raise badarg. Supported term source and x destination only. Zero-label get/1 reads the process dictionary into an x or y destination.'],
   ['bif2', 'Normalized element BIF with supported index and tuple operands, x destination and guard or zero failure label; invalid arguments branch or raise badarg.'],
   ['gc_bif1', 'Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards, supported source, x destination, live count 0..1024 and nonzero failure label; invalid arguments or float conversion overflow branch. Unary minus and bnot with zero label raise badarith; zero-label length, bit_size and byte_size raise badarg; abs, trunc, round, floor, ceil and float with zero label also raise badarg. Length traversal is synchronous. OTP GC, resource and scheduling effects are not reproduced.'],
   ['gc_bif2', 'Normalized band, bor, bxor, div, rem, +, -, * and / guards and binary_part/2 guard, supported sources, x destination, live count 0..1024 and nonzero failure label; invalid arguments, ranges, zero divisors or float overflow branch. Zero-label band, bor, bxor, div, rem, +, -, * and / raise badarith; zero-label binary_part/2 raises badarg. Binary slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced.'],
@@ -394,6 +394,9 @@ label but raise \`badarg\` and \`badarith\` respectively with label zero.
 tested \`self/0\` form with \`nofail\`. These are selected forms, not complete
 coverage of BIFs or operands. Beam2JS supports this fixture and the
 compiler-generated x and y destination forms of \`self/0\`. It also supports selected
+zero-label \`get/1\` instructions with x or y destinations, tested by the
+[process dictionary fixture](../fixtures/process_dictionary.erl) in OTP,
+Node and Chromium, including stripped input. It also supports selected
 non-failing normalized type-predicate BIF instructions for supported operands;
 the compiler-generated and assembly fixtures are tested against OTP in Node
 and Chromium, including stripped input. Nonzero-label \`hd/1\`, \`tl/1\`,

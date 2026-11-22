@@ -43,7 +43,7 @@ export async function timeoutChecks(Runtime, registerModules) {
   registerModules(rt);
   let mark;
   const waitMark = () => new Promise(resolve => { mark = resolve; });
-  rt.registerModule(25, 'receive_probe', [{
+  rt.registerModule(26, 'receive_probe', [{
     name: 'mark', arity: 0, exported: true,
     run: runtime => {
       if (!mark) throw new Error('unexpected receive probe');
@@ -203,7 +203,7 @@ export async function timeoutChecks(Runtime, registerModules) {
   registerModules(brokenRuntime);
   let brokenEntered;
   const brokenReady = new Promise(resolve => { brokenEntered = resolve; });
-  brokenRuntime.registerModule(25, 'receive_probe', [{
+  brokenRuntime.registerModule(26, 'receive_probe', [{
     name: 'mark', arity: 0, exported: true,
     run: runtime => {
       brokenEntered();

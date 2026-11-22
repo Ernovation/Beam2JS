@@ -13,7 +13,7 @@ export async function timerOptionChecks(Runtime, registerModules) {
   const clock = new FakeClock();
   const rt = new Runtime({clock});
   registerModules(rt);
-  rt.registerModule(25, 'erlang', [
+  rt.registerModule(26, 'erlang', [
     ...['read_timer', 'cancel_timer'].map(name => ({name, arity: 2})),
     ...['send_after', 'start_timer'].map(name => ({name, arity: 4})),
   ].map(entry => ({

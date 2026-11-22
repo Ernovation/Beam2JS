@@ -148,7 +148,7 @@ call stack and provide the control-flow foundation for concurrency.
 
 - [x] Extend the continuation-based call loop to process-owned frames,
   program counters, registers and stack slots, with bounded instruction yields
-  and receive suspension in ABI 25. Actions cover calls, tail calls, returns,
+  and receive suspension in ABI 26. Actions cover calls, tail calls, returns,
   yields and receive waits.
 - [ ] Add raise actions and full exception handling to the resumable execution
   model. Selected error paths currently propagate through JavaScript using a
@@ -189,8 +189,8 @@ BIFs.
   BIFs support instruction and callable forms for the existing term subset. Selected
   integer bitwise and other arithmetic guard and body BIF instructions are supported.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
-  `make_ref/0` are callable, as are the local timer and registry BIFs described
-  in phases 8 and 10; other callable BIFs remain unimplemented.
+  `make_ref/0` are callable, as are the local timer, dictionary and registry BIFs
+  described in phases 8 and 10; other callable BIFs remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
   and relevant binary operations as their term support becomes available.
@@ -347,6 +347,10 @@ normal, exceptional and race cases.
   `whereis/1` and `registered/0`, including name cleanup on process exit.
   Test registry operations and named messaging and timers against OTP in Node
   and Chromium, including stripped input.
+- [x] Implement process-local `get/0,1`, `get_keys/0,1`, `put/2` and
+  `erase/0,1`, including the compiler-emitted `get/1` instruction. Test exact
+  key/value matching, process isolation and lifecycle against OTP in Node and
+  Chromium, including stripped input. Dictionary operations run synchronously.
 - [ ] Implement additional BIF families from the inventory, including process
   registry and information, references, timers, conversions and other commonly
   used operations. Specify supported options and resource limits per BIF.

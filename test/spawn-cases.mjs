@@ -8,7 +8,7 @@ export async function spawnChecks(Runtime, registerModules) {
     onProcessError: (pid, error) => errors.push([pid, error])});
   registerModules(runtime);
   const seen = [];
-  runtime.registerModule(25, 'spawn_probe', [{
+  runtime.registerModule(26, 'spawn_probe', [{
     name: 'record', arity: 3, exported: true,
     run: (rt, args, state, budget, pid) => {
       seen.push([pid, ...args]);
@@ -27,7 +27,7 @@ export async function spawnChecks(Runtime, registerModules) {
     name: 'fail', arity: 0, exported: true,
     run: () => { throw hostError; },
   }]);
-  runtime.registerModule(25, 'erlang', [{
+  runtime.registerModule(26, 'erlang', [{
     name: 'spawn', arity: 3, exported: true,
     run: rt => ({type: 'return', value: rt.atom('shadow')}),
   }]);

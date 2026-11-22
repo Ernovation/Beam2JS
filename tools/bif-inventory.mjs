@@ -167,6 +167,13 @@ const details = new Map([
   ['erlang:list_to_atom/1', {effects: 'may add a permanent atom to the global atom table'}],
   ['erlang:self/0', {effects: 'reads calling process identity', host: 'process runtime'}],
   ['erlang:make_ref/0', {effects: 'creates a unique local reference', host: 'runtime identity'}],
+  ['erlang:get/0', {effects: 'reads the calling process dictionary', host: 'process runtime'}],
+  ['erlang:get/1', {effects: 'reads a key from the calling process dictionary', host: 'process runtime'}],
+  ['erlang:get_keys/0', {effects: 'lists the calling process dictionary keys', host: 'process runtime'}],
+  ['erlang:get_keys/1', {effects: 'lists keys with an exact matching value', host: 'process runtime'}],
+  ['erlang:put/2', {effects: 'updates the calling process dictionary', host: 'process runtime'}],
+  ['erlang:erase/0', {effects: 'clears the calling process dictionary', host: 'process runtime'}],
+  ['erlang:erase/1', {effects: 'removes a key from the calling process dictionary', host: 'process runtime'}],
   ['erlang:monotonic_time/0', {effects: 'reads the runtime monotonic clock', host: 'clock / scheduler'}],
   ['erlang:monotonic_time/1', {effects: 'reads the runtime monotonic clock in the requested unit',
     exceptions: 'badarg for invalid time unit', host: 'clock / scheduler'}],
@@ -206,13 +213,14 @@ const instructionAndCallable = new Set([
   'erlang:is_integer/1', 'erlang:is_number/1', 'erlang:is_atom/1',
   'erlang:is_boolean/1', 'erlang:is_float/1', 'erlang:is_list/1', 'erlang:is_tuple/1',
   'erlang:is_binary/1', 'erlang:is_bitstring/1', 'erlang:is_pid/1', 'erlang:is_reference/1',
-  'erlang:self/0', 'erlang:!/2',
+  'erlang:self/0', 'erlang:!/2', 'erlang:get/1',
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
   'erlang:monotonic_time/0', 'erlang:monotonic_time/1',
+  'erlang:get/0', 'erlang:get_keys/0', 'erlang:get_keys/1', 'erlang:put/2', 'erlang:erase/0', 'erlang:erase/1',
   'erlang:send_after/3', 'erlang:send_after/4', 'erlang:start_timer/3', 'erlang:start_timer/4',
   'erlang:read_timer/1', 'erlang:cancel_timer/1',
   'erlang:read_timer/2', 'erlang:cancel_timer/2',
@@ -427,6 +435,11 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   uniqueness, equality, ordering relative to atoms and PIDs, and messaging,
   including stripped input. Reference ordering within Beam2JS is local and
   implementation-defined; distributed identity and serialization are unsupported.
+- \`get/0,1\`, \`get_keys/0,1\`, \`put/2\` and \`erase/0,1\` operate on a
+  process-local dictionary. Keys and value filters use exact term equality;
+  list order is unspecified. The compiler-generated \`get/1\` instruction
+  and callable forms are tested in OTP, Node and Chromium, including stripped
+  input. Dictionary scans and term comparisons execute synchronously.
 - \`spawn/3\` returns a new PID and schedules a local child; non-atom module or
   function arguments and improper argument lists raise \`badarg\` in the parent.
   Tests cover direct, tail and non-tail calls in Node and Chromium, including

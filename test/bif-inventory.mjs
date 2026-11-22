@@ -27,7 +27,11 @@ for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
   assert.equal(row(`erlang:${name}`)[11], 'instruction-and-callable');
 }
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 28);
+assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 29);
+for (const name of ['get/0', 'get_keys/0', 'get_keys/1', 'put/2', 'erase/0', 'erase/1']) {
+  assert.equal(row(`erlang:${name}`)[11], 'callable-only');
+}
 assert.equal(row('erlang:is_process_alive/1')[11], 'callable-only');
 assert.equal(row('erlang:spawn/3')[11], 'callable-only');
 assert.equal(row('erlang:send/2')[11], 'callable-only');
@@ -87,6 +91,8 @@ assert.equal(row('erlang:spawn/3')[10], 'process runtime');
 assert.match(row('erlang:send/2')[9], /badarg.*invalid destination/);
 assert.equal(row('erlang:!/2')[10], 'process runtime');
 assert.match(row('erlang:make_ref/0')[8], /unique local reference/);
+assert.match(row('erlang:put/2')[8], /calling process dictionary/);
+assert.match(row('erlang:get_keys/1')[8], /exact matching value/);
 assert.match(row('erlang:monotonic_time/1')[9], /badarg.*invalid time unit/);
 assert.match(row('erlang:send_after/3')[8], /local PID/);
 assert.match(row('erlang:send_after/4')[9], /badarg.*invalid.*options/);

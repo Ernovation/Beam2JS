@@ -59,6 +59,7 @@ assert.match(row('is_reference'), /Beam2JS:.*type-test branch for local referenc
 assert.match(row('bif1'), /zero label denotes exception, otherwise failure branches/);
 assert.match(row('bif1'), /Beam2JS: Normalized is_integer.*zero failure label/);
 assert.match(row('bif1'), /hd, tl and tuple_size with guard or zero failure label.*badarg/);
+assert.match(row('bif1'), /Zero-label get\/1.*x or y destination/);
 assert.match(row('bif2'), /Beam2JS: Normalized element.*guard or zero failure label.*badarg/);
 assert.match(row('gc_bif1'), /Beam2JS: Normalized bnot, length, bit_size, byte_size, unary minus, abs, trunc, round, floor, ceil and float guards.*nonzero failure label/);
 assert.match(row('gc_bif2'), /Beam2JS: Normalized band, bor, bxor, div, rem, \+, -, \* and \/ guards.*nonzero failure label/);

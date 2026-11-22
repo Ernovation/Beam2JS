@@ -17,6 +17,7 @@ import {sendChecks} from './send-cases.mjs';
 import {receiveChecks} from './receive-cases.mjs';
 import {timeoutChecks} from './timeout-cases.mjs';
 import {referenceChecks} from './reference-cases.mjs';
+import {dictionaryChecks} from './dictionary-cases.mjs';
 import {timerBifChecks} from './timer-bif-cases.mjs';
 import {timerOptionChecks} from './timer-option-cases.mjs';
 import {registryChecks} from './registry-cases.mjs';
@@ -33,7 +34,7 @@ try {
     'fixtures/process_identity.erl', 'fixtures/process_spawn.erl', 'fixtures/spawn_probe.erl',
     'fixtures/process_send.erl', 'fixtures/process_receive.erl', 'fixtures/receive_timeout.erl',
     'fixtures/receive_probe.erl', 'fixtures/process_reference.erl', 'fixtures/process_timer.erl',
-    'fixtures/process_registry.erl']);
+    'fixtures/process_registry.erl', 'fixtures/process_dictionary.erl']);
   const calls = join(dir, 'calls.beam');
   const stripped = join(dir, 'calls-stripped.beam');
   run('erl', ['-noshell', '-eval',
@@ -59,6 +60,8 @@ try {
     '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
     '{ok,raw_reference}=compile:file("fixtures/raw_reference.S",' +
     '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
+    '{ok,raw_dictionary}=compile:file("fixtures/raw_dictionary.S",' +
+    '[from_asm,no_postopt,{outdir,Dir},report_errors]), ' +
     '{beam_file,process_reference,_,_,_,RefFs}=beam_disasm:file(filename:join(Dir,"process_reference.beam")), ' +
     '{function,ref_guard,1,_,RefGuard}=lists:keyfind(ref_guard,2,RefFs), ' +
     'true=lists:any(fun({test,is_reference,_,_})->true;(_)->false end,RefGuard), ' +
@@ -83,6 +86,15 @@ try {
     'true=lists:member({call_ext_only,1,{extfunc,erlang,monotonic_time,1}},NowCode), ' +
     '{function,native_now,0,_,NativeNowCode}=lists:keyfind(native_now,2,TimerFs), ' +
     'true=lists:member({call_ext_only,0,{extfunc,erlang,monotonic_time,0}},NativeNowCode), ' +
+    '{beam_file,process_dictionary,_,_,_,DictionaryFs}=beam_disasm:file(filename:join(Dir,"process_dictionary.beam")), ' +
+    '{function,exercise,6,_,DictionaryCode}=lists:keyfind(exercise,2,DictionaryFs), ' +
+    'true=lists:any(fun({bif,get,{f,0},_,{y,_}})->true;(_)->false end,DictionaryCode), ' +
+    '{function,read,1,_,DictionaryRead}=lists:keyfind(read,2,DictionaryFs), ' +
+    'true=lists:any(fun({bif,get,{f,0},_,{x,_}})->true;(_)->false end,DictionaryRead), ' +
+    '{beam_file,raw_dictionary,_,_,_,RawDictionaryFs}=beam_disasm:file(filename:join(Dir,"raw_dictionary.beam")), ' +
+    'lists:foreach(fun({Name,Kind}) -> {function,Name,1,_,Code}=lists:keyfind(Name,2,RawDictionaryFs), ' +
+    'true=lists:any(fun(I)->element(1,I)=:=Kind end,Code) end, ' +
+    '[{read_tail,call_ext_only},{read_last,call_ext_last},{read_call,call_ext}]), ' +
     '{beam_file,process_registry,_,_,_,RegistryFs}=beam_disasm:file(filename:join(Dir,"process_registry.beam")), ' +
     '{function,bind,2,_,RegistryTail}=lists:keyfind(bind,2,RegistryFs), ' +
     'true=lists:member({call_ext_only,2,{extfunc,erlang,register,2}},RegistryTail), ' +
@@ -169,7 +181,7 @@ try {
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
-    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry"]), halt().', '-extra', dir]);
+    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry","process_dictionary","raw_dictionary"]), halt().', '-extra', dir]);
   for (const [input, output] of [
     [calls, 'calls.mjs'], [stripped, 'calls-stripped.mjs'],
     [join(dir, 'raw_stack.beam'), 'raw_stack.mjs'],
@@ -218,6 +230,10 @@ try {
     [join(dir, 'process_timer-stripped.beam'), 'process_timer-stripped.mjs'],
     [join(dir, 'process_registry.beam'), 'process_registry.mjs'],
     [join(dir, 'process_registry-stripped.beam'), 'process_registry-stripped.mjs'],
+    [join(dir, 'process_dictionary.beam'), 'process_dictionary.mjs'],
+    [join(dir, 'process_dictionary-stripped.beam'), 'process_dictionary-stripped.mjs'],
+    [join(dir, 'raw_dictionary.beam'), 'raw_dictionary.mjs'],
+    [join(dir, 'raw_dictionary-stripped.beam'), 'raw_dictionary-stripped.mjs'],
     [join(dir, 'raw_bifs.beam'), 'raw_bifs.mjs'],
     [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
@@ -265,6 +281,49 @@ try {
     'raw_reference:test_last(R) andalso not raw_reference:test_last(1),TrueCall andalso not FalseCall,' +
     'length(lists:usort([R,S,Direct,Tail,Last,Call]))=:=6], ' +
     'io:format("~w~n",[Results]),halt().',
+  ]).trim();
+  const dictionaryOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'Self=self(), Key={key,[1]}, Other={key,[1.0]}, Value={value,<<5:3>>}, ' +
+    'Set=fun(L,E)->length(L)=:=length(E) andalso lists:all(fun(X)->lists:member(X,L) end,E) end, ' +
+    'R=process_dictionary:exercise(Key,Key,Other,Value,Value,1.0), ' +
+    'Absent=lists:all(fun(I)->element(I,R)=:=undefined end,[1,2,5,15]), ' +
+    'Previous=element(3,R)=:=Value andalso element(4,R)=:=Value andalso element(10,R)=:=Value, ' +
+    'Keys=Set(element(6,R),[Key,Other]) andalso Set(element(7,R),[Key]) andalso Set(element(8,R),[Other]), ' +
+    'Pairs=Set(element(9,R),[{Key,Value},{Other,1.0}]) andalso ' +
+    'Set(element(11,R),[{Other,1.0}]) andalso Set(element(12,R),[{Other,1.0}]), ' +
+    'Cleared=element(13,R)=:=[] andalso element(14,R)=:=[], ' +
+    'U=process_dictionary:undefined_value(Key), ' +
+    'StoredUndefined=U=:={undefined,[Key],undefined,42,undefined,[]}, ' +
+    'ExactValues=process_dictionary:value_keys()=:={[integer],[float],[],[negative_zero]}, erase(), ' +
+    'Equal={undefined,found,found,undefined}, Unequal={undefined,undefined,undefined,found}, ' +
+    'Ref=make_ref(), OtherRef=make_ref(), ' +
+    'KeyEquality=process_dictionary:roundtrip(Key,Key)=:=Equal andalso ' +
+    'process_dictionary:roundtrip(<<5:3>>,<<5:3>>)=:=Equal andalso ' +
+    'process_dictionary:roundtrip(Ref,Ref)=:=Equal andalso ' +
+    'process_dictionary:roundtrip(Ref,OtherRef)=:=Unequal, erase(), ' +
+    'KeyEquality2=process_dictionary:roundtrip(0.0,-0.0)=:=Unequal, erase(), ' +
+    'KeyEquality3=process_dictionary:roundtrip(1,1.0)=:=Unequal, erase(), ' +
+    'OtherPid=spawn(fun()->ok end), ' +
+    'KeyEquality4=process_dictionary:roundtrip(Self,Self)=:=Equal andalso ' +
+    'process_dictionary:roundtrip(Self,OtherPid)=:=Unequal, erase(), ' +
+    'spawn(fun()->Self!{direct,put(direct,1)} end), ' +
+    'Direct=receive {direct,undefined}->get(direct)=:=undefined andalso erase()=:=[] after 5000->false end, ' +
+    'spawn(fun()->Self!{store,process_dictionary:store(isolation,1)} end), ' +
+    'Store=receive {store,undefined}->true after 5000->false end, ' +
+    'spawn(fun()->Self!{read,process_dictionary:read(isolation)} end), ' +
+    'Invocations=Store andalso receive {read,undefined}->true after 5000->false end, ' +
+    'Raw=process_dictionary:raw(raw)=:={stored,stored,{stored}}, erase(), ' +
+    'P=spawn(fun()->Self!{worker_result,self(),process_dictionary:worker(Self,shared,1)} end), ' +
+    'Q=spawn(fun()->Self!{worker_result,self(),process_dictionary:worker(Self,shared,2)} end), ' +
+    'receive {ready,P}->ok after 5000->erlang:error(timeout) end, ' +
+    'receive {ready,Q}->ok after 5000->erlang:error(timeout) end, P!go,Q!go, ' +
+    'PR=receive {worker_result,P,R1}->R1 after 5000->timeout end, ' +
+    'QR=receive {worker_result,Q,R2}->R2 after 5000->timeout end, ' +
+    'Workers=PR=:={undefined,1,1,undefined} andalso QR=:={undefined,2,2,undefined}, ' +
+    'Child=process_dictionary:parent(inherited,parent)=:={undefined,parent}, ' +
+    'io:format("~w~n",[[Absent,Previous,Keys,Pairs,Cleared,StoredUndefined,ExactValues,' +
+    'KeyEquality andalso KeyEquality2 andalso KeyEquality3 andalso KeyEquality4,' +
+    'Direct,Invocations,Raw,Workers,Child]]),halt().',
   ]).trim();
   const spawnOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'logger:set_primary_config(level,none), ' +
@@ -728,6 +787,12 @@ try {
     assert.equal(await referenceChecks(Runtime, rt => {
       for (const module of referenceModules) module.register(rt);
     }), referenceOracle);
+    const dictionaryModules = await Promise.all([
+      `process_dictionary${suffix}.mjs`, `raw_dictionary${suffix}.mjs`,
+    ].map(file => import(pathToFileURL(join(dir, file)))));
+    assert.equal(await dictionaryChecks(Runtime, rt => {
+      for (const module of dictionaryModules) module.register(rt);
+    }), dictionaryOracle);
     const spawnModules = await Promise.all([
       `process_spawn${suffix}.mjs`, `raw_spawn${suffix}.mjs`, `process_identity${suffix}.mjs`,
     ].map(file => import(pathToFileURL(join(dir, file)))));
@@ -765,7 +830,7 @@ try {
   assert.throws(() => missingDependency.invoke('calls', 'remote', [1n]),
     /undefined or unsupported function: slice_helper:id\/1/);
   const nestedHostError = new Error('nested host failure');
-  missingDependency.registerModule(25, 'slice_helper', [{
+  missingDependency.registerModule(26, 'slice_helper', [{
     name: 'id', arity: 1, exported: true,
     run: () => { throw nestedHostError; },
   }]);
@@ -773,7 +838,7 @@ try {
     error => error === nestedHostError && !(error instanceof ErlangError));
 
   const bifRuntime = new Runtime();
-  bifRuntime.registerModule(25, 'erlang', [
+  bifRuntime.registerModule(26, 'erlang', [
     {name: 'is_atom', arity: 1, exported: true, run: () => ({type: 'return', value: bifRuntime.atom('shadow')})},
     {name: 'hd', arity: 1, exported: true, run: () => ({type: 'return', value: bifRuntime.atom('shadow')})},
     {name: 'hd', arity: 2, exported: true, run: (_, [value]) => ({type: 'return', value})},
@@ -825,13 +890,13 @@ try {
   assert.throws(() => rt.hostValue({}), /host handle/);
   assert.throws(() => new Runtime().hostValue(handle), /host handle/);
   assert.throws(() => rt.invoke('missing', 'f', [{}]), /supported Erlang terms/);
-  rt.registerModule(25, 'bad_host', [{
+  rt.registerModule(26, 'bad_host', [{
     name: 'invalid', arity: 0, exported: true,
     run: () => ({type: 'return', value: {}}),
   }]);
   assert.throws(() => rt.invoke('bad_host', 'invalid', []), /return value/);
   const hostError = new Error('host failure');
-  rt.registerModule(25, 'throwing_host', [{
+  rt.registerModule(26, 'throwing_host', [{
     name: 'fail', arity: 0, exported: true,
     run: () => { throw hostError; },
   }]);
@@ -950,6 +1015,7 @@ try {
       ['/test/timer-option-cases.mjs', ['text/javascript', source('test/timer-option-cases.mjs')]],
       ['/test/registry-cases.mjs', ['text/javascript', source('test/registry-cases.mjs')]],
       ['/test/reference-cases.mjs', ['text/javascript', source('test/reference-cases.mjs')]],
+      ['/test/dictionary-cases.mjs', ['text/javascript', source('test/dictionary-cases.mjs')]],
       ...['calls.mjs', 'calls-stripped.mjs', 'raw_stack.mjs', 'raw_stack-stripped.mjs',
         'match_failures.mjs', 'match_failures-stripped.mjs', 'raw_failures.mjs',
         'raw_failures-stripped.mjs', 'arithmetic_body.mjs', 'arithmetic_body-stripped.mjs',
@@ -967,6 +1033,8 @@ try {
         'raw_reference.mjs', 'raw_reference-stripped.mjs',
         'process_timer.mjs', 'process_timer-stripped.mjs',
         'process_registry.mjs', 'process_registry-stripped.mjs',
+        'process_dictionary.mjs', 'process_dictionary-stripped.mjs',
+        'raw_dictionary.mjs', 'raw_dictionary-stripped.mjs',
         'raw_bifs.mjs', 'raw_bifs-stripped.mjs',
         'slice_helper.mjs'].map(file =>
         [`/${file}`, ['text/javascript', readFileSync(join(dir, file), 'utf8')]]),
@@ -999,6 +1067,7 @@ try {
       const {timerOptionChecks} = await import('/test/timer-option-cases.mjs');
       const {registryChecks} = await import('/test/registry-cases.mjs');
       const {referenceChecks} = await import('/test/reference-cases.mjs');
+      const {dictionaryChecks} = await import('/test/dictionary-cases.mjs');
       const results = [];
       const matches = [];
       const arithmetic = [];
@@ -1012,6 +1081,7 @@ try {
       const timerOptions = [];
       const registries = [];
       const refs = [];
+      const dictionaries = [];
       for (const [file, raw, match, rawFail, body, rawBody, rawFloat, bifBody, rawBifBody] of [
         ['/calls.mjs', '/raw_stack.mjs', '/match_failures.mjs', '/raw_failures.mjs',
           '/arithmetic_body.mjs', '/raw_arithmetic_body.mjs', '/raw_float_registers.mjs',
@@ -1056,6 +1126,12 @@ try {
         refs.push(await referenceChecks(Runtime, rt => {
           for (const module of referenceModules) module.register(rt);
         }));
+        const dictionaryModules = await Promise.all([
+          `/process_dictionary${suffix}.mjs`, `/raw_dictionary${suffix}.mjs`,
+        ].map(file => import(file)));
+        dictionaries.push(await dictionaryChecks(Runtime, rt => {
+          for (const module of dictionaryModules) module.register(rt);
+        }));
         const spawnModules = await Promise.all([
           `/process_spawn${suffix}.mjs`, `/raw_spawn${suffix}.mjs`, `/process_identity${suffix}.mjs`,
         ].map(file => import(file)));
@@ -1097,7 +1173,7 @@ try {
       const sameHandle = handle === runtime.invoke('dom', 'element_by_id', [binary('message')]);
       runtime.invoke('dom', 'append_text', [handle, binary(' <b>å</b>')]);
       const element = document.getElementById('message');
-      return {results, matches, arithmetic, scheduled, identity, refs, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
+      return {results, matches, arithmetic, scheduled, identity, refs, dictionaries, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
     }), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('browser call tests timed out')), 30000);
     })]).finally(() => clearTimeout(timer));
@@ -1105,6 +1181,7 @@ try {
       results: [oracle, oracle], matches: [matchOracle, matchOracle],
       arithmetic: [arithmeticOracle, arithmeticOracle], scheduled: [schedulerOracle, schedulerOracle],
       identity: [identityOracle, identityOracle], refs: [referenceOracle, referenceOracle],
+      dictionaries: [dictionaryOracle, dictionaryOracle],
       spawned: [spawnOracle, spawnOracle],
       sent: [sendOracle, sendOracle], received: [receiveOracle, receiveOracle],
       timeouts: [timeoutOracle, timeoutOracle], timerBifs: [timerBifOracle, timerBifOracle],

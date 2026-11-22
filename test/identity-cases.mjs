@@ -6,7 +6,7 @@ export async function identityChecks(Runtime, registerModules) {
   registerModules(runtime);
   const syncError = new Error('synchronous process failed');
   let failedSyncPid;
-  runtime.registerModule(25, 'identity_probe', [{
+  runtime.registerModule(26, 'identity_probe', [{
     name: 'reenter', arity: 0, exported: true,
     run: (rt, args, state, budget, pid) => {
       const nested = rt.invoke('erlang', 'self', []);
@@ -20,7 +20,7 @@ export async function identityChecks(Runtime, registerModules) {
       throw syncError;
     },
   }]);
-  runtime.registerModule(25, 'erlang', [{
+  runtime.registerModule(26, 'erlang', [{
     name: 'self', arity: 0, exported: true,
     run: rt => ({type: 'return', value: rt.atom('shadow')}),
   }, {

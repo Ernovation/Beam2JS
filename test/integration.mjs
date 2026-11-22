@@ -21,7 +21,7 @@ try {
   const arithmeticOutput = join(dir, 'arithmetic.mjs');
   run(compiler, [join(dir, 'unsupported.beam'), arithmeticOutput]);
   const firstOutput = readFileSync(output, 'utf8');
-  assert.match(firstOutput, /runtime\.registerModule\(25,/);
+  assert.match(firstOutput, /runtime\.registerModule\(26,/);
   run(compiler, [slice, output]);
   assert.equal(readFileSync(output, 'utf8'), firstOutput, 'emission must be deterministic');
 
@@ -57,7 +57,7 @@ try {
   assert.throws(() => runtime.invoke('slice', 'private', [42n]), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'module_info', []), /undefined or unsupported/);
   assert.throws(() => runtime.invoke('slice', 'id', [42]), /supported Erlang terms/);
-  for (const version of [1, 18, 19, 20, 21, 22, 23, 24, 26]) {
+  for (const version of [1, 18, 19, 20, 21, 22, 23, 24, 25, 27]) {
     assert.throws(() => runtime.registerModule(version, 'bad', []), /unsupported runtime ABI/);
   }
 

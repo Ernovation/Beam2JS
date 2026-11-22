@@ -35,7 +35,7 @@ work. The precise API and limits must be finalized and tested before use.
   unbounded JavaScript recursion, and must have explicit resource limits and
   scheduler checkpoints where appropriate.
 - The new representations and conversion API use a versioned runtime ABI.
-  The compiler and runtime currently use ABI 25 only; regenerate modules when
+  The compiler and runtime currently use ABI 26 only; regenerate modules when
   the ABI changes during development.
 
 ## Term types

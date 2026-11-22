@@ -190,6 +190,11 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   uniqueness, equality, ordering relative to atoms and PIDs, and messaging,
   including stripped input. Reference ordering within Beam2JS is local and
   implementation-defined; distributed identity and serialization are unsupported.
+- `get/0,1`, `get_keys/0,1`, `put/2` and `erase/0,1` operate on a
+  process-local dictionary. Keys and value filters use exact term equality;
+  list order is unspecified. The compiler-generated `get/1` instruction
+  and callable forms are tested in OTP, Node and Chromium, including stripped
+  input. Dictionary scans and term comparisons execute synchronously.
 - `spawn/3` returns a new PID and schedules a local child; non-atom module or
   function arguments and improper argument lists raise `badarg` in the parent.
   Tests cover direct, tail and non-tail calls in Node and Chromium, including
@@ -389,8 +394,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `dt_restore_tag/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `dt_spread_tag/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `element/2` | ubif | yes | tuple | BIF | optimizer-pure | badarg for invalid index or non-tuple | ? | instruction-and-callable |
-| `erlang` | `erase/0` | bif | yes | process dictionary | no | ? | ? | ? | not implemented |
-| `erlang` | `erase/1` | hbif | yes | process dictionary | no | ? | ? | ? | not implemented |
+| `erlang` | `erase/0` | bif | yes | process dictionary | no | clears the calling process dictionary | ? | process runtime | callable-only |
+| `erlang` | `erase/1` | hbif | yes | process dictionary | no | removes a key from the calling process dictionary | ? | process runtime | callable-only |
 | `erlang` | `error/1` | bif | yes | exception / signal | no | ? | always-raises | ? | not implemented |
 | `erlang` | `error/2` | bif | yes | exception / signal | no | ? | always-raises | ? | not implemented |
 | `erlang` | `error/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
@@ -413,10 +418,10 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `fun_info_mfa/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `fun_to_list/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `function_exported/3` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
-| `erlang` | `get/0` | bif | yes | process dictionary | no | ? | optimizer-safe | ? | not implemented |
-| `erlang` | `get/1` | bif | yes | process dictionary | no | ? | optimizer-safe | ? | not implemented |
-| `erlang` | `get_keys/0` | bif | yes | process dictionary | no | ? | ? | ? | not implemented |
-| `erlang` | `get_keys/1` | bif | yes | process dictionary | no | ? | optimizer-safe | ? | not implemented |
+| `erlang` | `get/0` | bif | yes | process dictionary | no | reads the calling process dictionary | optimizer-safe | process runtime | callable-only |
+| `erlang` | `get/1` | bif | yes | process dictionary | no | reads a key from the calling process dictionary | optimizer-safe | process runtime | instruction-and-callable |
+| `erlang` | `get_keys/0` | bif | yes | process dictionary | no | lists the calling process dictionary keys | ? | process runtime | callable-only |
+| `erlang` | `get_keys/1` | bif | yes | process dictionary | no | lists keys with an exact matching value | optimizer-safe | process runtime | callable-only |
 | `erlang` | `get_module_info/1` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
 | `erlang` | `get_module_info/2` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
 | `erlang` | `group_leader/0` | bif | yes | process / scheduling | no | ? | optimizer-safe | ? | not implemented |
@@ -514,7 +519,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `process_info/1` | hbif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `process_info/2` | hbif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `processes/0` | bif | yes | process / scheduling | no | ? | optimizer-safe | ? | not implemented |
-| `erlang` | `put/2` | hbif | yes | process dictionary | no | ? | ? | ? | not implemented |
+| `erlang` | `put/2` | hbif | yes | process dictionary | no | updates the calling process dictionary | ? | process runtime | callable-only |
 | `erlang` | `raise/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
 | `erlang` | `read_timer/1` | bif | yes | message / timer | no | reads remaining timer time | badarg for non-reference | clock / scheduler | callable-only |
 | `erlang` | `read_timer/2` | bif | yes | message / timer | no | reads remaining timer time, optionally asynchronously | badarg for non-reference or invalid options | clock / scheduler | callable-only |

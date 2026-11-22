@@ -13,7 +13,7 @@ export async function registryChecks(Runtime, registerModules) {
   const clock = new FakeClock();
   const rt = new Runtime({clock});
   registerModules(rt);
-  rt.registerModule(25, 'erlang', [
+  rt.registerModule(26, 'erlang', [
     {name: 'register', arity: 2, exported: true, run: runtime => ({type: 'return', value: runtime.atom('shadow')})},
     {name: 'whereis', arity: 1, exported: true, run: runtime => ({type: 'return', value: runtime.atom('shadow')})},
   ]);
@@ -73,7 +73,7 @@ export async function registryChecks(Runtime, registerModules) {
   const self = rt.tupleElement(selfPair, 1) === rt.tupleElement(selfPair, 2) &&
     call('lookup', [name]) === atom('undefined');
   const failure = new Error('registry process failed');
-  rt.registerModule(25, 'registry_host', [{
+  rt.registerModule(26, 'registry_host', [{
     name: 'fail', arity: 0, exported: true, run: () => { throw failure; },
   }]);
   const failed = rt.spawnProcess('registry_host', 'fail', []);

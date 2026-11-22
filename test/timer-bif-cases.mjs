@@ -13,7 +13,7 @@ export async function timerBifChecks(Runtime, registerModules) {
   const clock = new FakeClock();
   const rt = new Runtime({clock});
   registerModules(rt);
-  rt.registerModule(25, 'erlang', ['send_after', 'start_timer'].map(name => ({
+  rt.registerModule(26, 'erlang', ['send_after', 'start_timer'].map(name => ({
     name, arity: 3, exported: true, run: runtime => ({type: 'return', value: runtime.atom('shadow')}),
   })));
   const atom = name => rt.atom(name);
@@ -150,7 +150,7 @@ export async function timerBifChecks(Runtime, registerModules) {
     clearRuntime.invoke('erlang', 'read_timer', [secondRef]) === clearRuntime.atom('false'),
   'timer cleanup failure leaked process state or hid errors');
   const processError = new Error('process failed');
-  clearRuntime.registerModule(25, 'timer_failure', [{
+  clearRuntime.registerModule(26, 'timer_failure', [{
     name: 'fail', arity: 0, exported: true,
     run: (runtime, args, state, budget, pid) => {
       runtime.invoke('erlang', 'send_after', [10n, pid, 1n]);

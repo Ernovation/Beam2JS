@@ -110,7 +110,15 @@ after a process exits and can be passed in terms and messages. Their local
 ordering is implementation-defined; distributed references and serialization
 are not supported.
 
-For ABI 25 modules, unmatched function, case, match and if clauses throw an
+Each process starts with an empty process dictionary. `erlang:get/0,1`,
+`get_keys/0,1`, `put/2` and `erase/0,1` read or update only the calling
+process's dictionary; a spawned child does not inherit it. Keys and value
+filters use exact term equality. Missing keys return `undefined`, which can
+also be a stored value; list results have unspecified order. Dictionaries are
+discarded when a process exits. Operations and comparisons scan synchronously
+and may block the host for large dictionaries or terms.
+
+For ABI 26 modules, unmatched function, case, match and if clauses throw an
 exported `ErlangError` at the JavaScript boundary. Its `erlangClass` is the
 string `"error"` and `reason` is an Erlang term: `function_clause`,
 `{case_clause, Value}`, `{badmatch, Value}`, `if_clause`, `badarg`,
@@ -284,7 +292,7 @@ raising `badarg` for invalid inputs. These callable BIFs, the list and tuple BIF
 and predicates take precedence over registered `erlang` functions of the same
 name and arity. Other callable BIFs are limited to `self/0`,
 `is_process_alive/1`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`, the local
-registry and timer BIFs above and the numeric BIFs described below.
+process dictionary, registry and timer BIFs above and the numeric BIFs described below.
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.
@@ -312,7 +320,7 @@ over registered `erlang` functions of the same name and arity.
 OTP garbage collection, resource limits and scheduling effects are not reproduced.
 Unsupported instructions and operand forms
 reject the whole module, with a diagnostic; missing external functions fail at
-invocation. The runtime accepts only the current ABI 25; recompile modules
+invocation. The runtime accepts only the current ABI 26; recompile modules
 generated for earlier ABIs. Integer-word and supported allocation-list `test_heap` checks are no-ops under
 JavaScript GC; OTP memory exhaustion and scheduler effects are not reproduced.
 Local and external non-tail calls use explicit continuations and stack slots;
