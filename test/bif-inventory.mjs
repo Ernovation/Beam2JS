@@ -35,6 +35,8 @@ assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
 assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 52);
 assert.equal(row('erlang:list_to_tuple/1')[11], 'callable-only');
 assert.equal(row('erlang:tuple_to_list/1')[11], 'callable-only');
+assert.equal(row('erlang:atom_to_list/1')[11], 'callable-only');
+assert.match(row('erlang:atom_to_list/1')[9], /badarg.*non-atom/);
 for (const name of ['integer_to_list/1', 'integer_to_list/2', 'integer_to_binary/1', 'integer_to_binary/2']) {
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
   assert.match(row(`erlang:${name}`)[9], /badarg.*non-integer/);

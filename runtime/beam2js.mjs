@@ -28,6 +28,18 @@ const callableBifs = new Map([
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
 }]));
+callableBifs.set(JSON.stringify(['atom_to_list', 1]), {
+  exported: true,
+  run: (rt, [value]) => {
+    if (!isAtom(value)) rt.raiseError(rt.atom('badarg'));
+    const bytes = new TextEncoder().encode(Symbol.keyFor(value));
+    let result = nil;
+    for (let i = bytes.length - 1; i >= 0; i--) {
+      result = rt.cons(BigInt(bytes[i]), result);
+    }
+    return {type: 'return', value: result};
+  },
+});
 for (const [name, compare] of [
   ['=:=', (rt, left, right) => rt.equalExact(left, right)],
   ['=/=', (rt, left, right) => !rt.equalExact(left, right)],

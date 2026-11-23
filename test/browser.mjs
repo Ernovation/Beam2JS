@@ -23,6 +23,7 @@ import {timerBifChecks} from './timer-bif-cases.mjs';
 import {timerOptionChecks} from './timer-option-cases.mjs';
 import {registryChecks} from './registry-cases.mjs';
 import {applyChecks} from './apply-cases.mjs';
+import {atomConversionChecks} from './atom-conversion-cases.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-browser-'));
 const compiler = resolve('_build/default/bin/beam2js');
@@ -30,7 +31,8 @@ const run = (command, args) => execFileSync(command, args, {encoding: 'utf8', ti
 const source = path => readFileSync(resolve(path), 'utf8');
 
 try {
-  run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/dynamic_apply.erl',
+  run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/atom_conversion.erl',
+    'fixtures/dynamic_apply.erl',
     'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
     'fixtures/bif_body.erl', 'fixtures/scheduler_fixture.erl', 'fixtures/scheduler_probe.erl',
@@ -342,7 +344,7 @@ try {
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
-    '["calls","dynamic_apply","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry","process_dictionary","raw_dictionary","process_info_fixture"]), halt().', '-extra', dir]);
+    '["calls","atom_conversion","dynamic_apply","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry","process_dictionary","raw_dictionary","process_info_fixture"]), halt().', '-extra', dir]);
   for (const [input, output] of [
     [calls, 'calls.mjs'], [stripped, 'calls-stripped.mjs'],
     [join(dir, 'raw_stack.beam'), 'raw_stack.mjs'],
@@ -401,6 +403,8 @@ try {
     [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
     [join(dir, 'browser_demo.beam'), 'browser_demo.mjs'],
+    [join(dir, 'atom_conversion.beam'), 'atom_conversion.mjs'],
+    [join(dir, 'atom_conversion-stripped.beam'), 'atom_conversion-stripped.mjs'],
     [join(dir, 'dynamic_apply.beam'), 'dynamic_apply.mjs'],
     [join(dir, 'dynamic_apply-stripped.beam'), 'dynamic_apply-stripped.mjs'],
   ]) {
@@ -420,6 +424,20 @@ try {
     errors: applyErrors === 'true',
     exports: [...applyExports.matchAll(/\{([a-zA-Z0-9_]+),(\d+)\}/g)]
       .map(([, name, arity]) => `${name}/${arity}`),
+  };
+  const [asciiAtom, unicodeAtom, emptyAtom, atomBadarg] = run('erl', ['-noshell', '-eval',
+    'Badarg=try erlang:atom_to_list(1),false catch error:badarg->true end, ' +
+    'io:format("~w~n~w~n~w~n~w", [erlang:atom_to_list(example_atom), ' +
+    'erlang:atom_to_list(list_to_atom("café🙂")), ' +
+    'erlang:atom_to_list(list_to_atom("")), Badarg]), halt().'])
+    .trimEnd().split('\n');
+  const atomConversionExpected = {
+    values: [
+      ['example_atom', JSON.parse(asciiAtom)],
+      ['café🙂', JSON.parse(unicodeAtom)],
+      ['', JSON.parse(emptyAtom)],
+    ],
+    badarg: atomBadarg === 'true',
   };
   const oracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Values=[{{1,[]},[2|tail]},{-0.0,<<5:3>>},{make_ref(),self()}], ' +
@@ -1348,6 +1366,8 @@ try {
   }
 
   for (const suffix of ['', '-stripped']) {
+    const atomConversion = await import(pathToFileURL(join(dir, `atom_conversion${suffix}.mjs`)));
+    assert.equal(atomConversionChecks(Runtime, rt => atomConversion.register(rt), atomConversionExpected), true);
     const dynamicApply = await import(pathToFileURL(join(dir, `dynamic_apply${suffix}.mjs`)));
     assert.equal(applyChecks(Runtime, rt => dynamicApply.register(rt), applyExpected), true);
     const modules = await Promise.all([
@@ -1626,6 +1646,7 @@ try {
       ['/test/dictionary-cases.mjs', ['text/javascript', source('test/dictionary-cases.mjs')]],
       ['/test/process-info-cases.mjs', ['text/javascript', source('test/process-info-cases.mjs')]],
       ['/test/apply-cases.mjs', ['text/javascript', source('test/apply-cases.mjs')]],
+      ['/test/atom-conversion-cases.mjs', ['text/javascript', source('test/atom-conversion-cases.mjs')]],
       ...['calls.mjs', 'calls-stripped.mjs', 'raw_stack.mjs', 'raw_stack-stripped.mjs',
         'match_failures.mjs', 'match_failures-stripped.mjs', 'raw_failures.mjs',
         'raw_failures-stripped.mjs', 'arithmetic_body.mjs', 'arithmetic_body-stripped.mjs',
@@ -1647,6 +1668,7 @@ try {
         'raw_dictionary.mjs', 'raw_dictionary-stripped.mjs',
         'process_info_fixture.mjs', 'process_info_fixture-stripped.mjs',
         'dynamic_apply.mjs', 'dynamic_apply-stripped.mjs',
+        'atom_conversion.mjs', 'atom_conversion-stripped.mjs',
         'raw_bifs.mjs', 'raw_bifs-stripped.mjs',
         'slice_helper.mjs'].map(file =>
         [`/${file}`, ['text/javascript', readFileSync(join(dir, file), 'utf8')]]),
@@ -1676,7 +1698,7 @@ try {
     assert.equal(await page.textContent('#message'), 'Hello from Erlang! Click 1! Click 2!');
     assert.deepEqual(errors, []);
     let timer;
-    const browserResults = await Promise.race([page.evaluate(async expectedApply => {
+    const browserResults = await Promise.race([page.evaluate(async expected => {
       const {Runtime, ErlangError} = await import('/runtime/beam2js.mjs');
       const {registerDom} = await import('/examples/browser/dom.mjs');
       const {callResults, stackYieldChecks} = await import('/test/call-cases.mjs');
@@ -1695,6 +1717,7 @@ try {
       const {dictionaryChecks} = await import('/test/dictionary-cases.mjs');
       const {processInfoChecks} = await import('/test/process-info-cases.mjs');
       const {applyChecks} = await import('/test/apply-cases.mjs');
+      const {atomConversionChecks} = await import('/test/atom-conversion-cases.mjs');
       const results = [];
       const matches = [];
       const arithmetic = [];
@@ -1712,6 +1735,7 @@ try {
       const dictionaries = [];
       const processInfos = [];
       const dynamicApply = [];
+      const atomConversions = [];
       for (const [file, raw, match, rawFail, body, rawBody, rawFloat, bifBody, rawBifBody] of [
         ['/calls.mjs', '/raw_stack.mjs', '/match_failures.mjs', '/raw_failures.mjs',
           '/arithmetic_body.mjs', '/raw_arithmetic_body.mjs', '/raw_float_registers.mjs',
@@ -1736,8 +1760,11 @@ try {
         arithmetic.push(arithmeticResults(runtime));
       }
       for (const suffix of ['', '-stripped']) {
+        const atomModule = await import(`/atom_conversion${suffix}.mjs`);
+        atomConversions.push(atomConversionChecks(Runtime, rt => atomModule.register(rt),
+          expected.atomConversion));
         const applyModule = await import(`/dynamic_apply${suffix}.mjs`);
-        dynamicApply.push(applyChecks(Runtime, rt => applyModule.register(rt), expectedApply));
+        dynamicApply.push(applyChecks(Runtime, rt => applyModule.register(rt), expected.apply));
         const modules = await Promise.all([
           `/scheduler_fixture${suffix}.mjs`, `/raw_scheduler${suffix}.mjs`, `/raw_stack${suffix}.mjs`,
           `/raw_float_registers${suffix}.mjs`, `/calls${suffix}.mjs`, `/arithmetic_body${suffix}.mjs`,
@@ -1812,8 +1839,8 @@ try {
       const sameHandle = handle === runtime.invoke('dom', 'element_by_id', [binary('message')]);
       runtime.invoke('dom', 'append_text', [handle, binary(' <b>å</b>')]);
       const element = document.getElementById('message');
-      return {results, matches, arithmetic, scheduled, stackYields, identity, refs, dictionaries, processInfos, dynamicApply, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
-    }, applyExpected), new Promise((_, reject) => {
+      return {results, matches, arithmetic, scheduled, stackYields, identity, refs, dictionaries, processInfos, dynamicApply, atomConversions, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
+    }, {apply: applyExpected, atomConversion: atomConversionExpected}), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('browser call tests timed out')), 30000);
     })]).finally(() => clearTimeout(timer));
     assert.deepEqual(browserResults, {
@@ -1824,6 +1851,7 @@ try {
       dictionaries: [dictionaryOracle, dictionaryOracle],
       processInfos: [processInfoOracle, processInfoOracle],
       dynamicApply: [true, true],
+      atomConversions: [true, true],
       spawned: [spawnOracle, spawnOracle],
       sent: [sendOracle, sendOracle], received: [receiveOracle, receiveOracle],
       timeouts: [timeoutOracle, timeoutOracle], timerBifs: [timerBifOracle, timerBifOracle],

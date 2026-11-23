@@ -269,8 +269,8 @@ BIFs.
   Comparison operators support comparison test instructions and callable forms;
   exact equality also supports a zero-label BIF instruction.
   Boolean `not`, `and`, `or` and `xor` support instructions and callable forms.
-  `list_to_tuple/1`, `tuple_to_list/1`, `integer_to_list/1,2` and
-  `integer_to_binary/1,2`, and `binary_to_list/1,3` are callable.
+  `list_to_tuple/1`, `tuple_to_list/1`, `atom_to_list/1`, `integer_to_list/1,2`,
+  `integer_to_binary/1,2` and `binary_to_list/1,3` are callable.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
   `make_ref/0` are callable, as are the local timer, dictionary, process-info and registry BIFs
   described in phases 8 and 10. `apply/3` and `get_module_info/1,2` are also
@@ -324,6 +324,11 @@ BIFs.
   exceptions remain unsupported.
 - [ ] Prioritize further BIFs using the inventory and actual fixture/application
   usage. Mark host-dependent or unavailable operations explicitly.
+  - [x] Selected callable `atom_to_list/1` from the BIF inventory and existing
+    OTP error-normalization test usage. It returns UTF-8 bytes as an Erlang
+    integer list and raises `badarg` for non-atoms; compare empty, ASCII and
+    Unicode atom names against OTP in Node and Chromium, including stripped
+    callers. Conversion is synchronous; broader prioritization remains open.
 - [ ] Run representative pure Erlang modules and selected OTP library
   functions, recording missing BIFs and instructions as actionable gaps. A
   [Sudoku solver](../examples/sudoku/sudoku.erl) now runs in OTP, Node and
