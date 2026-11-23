@@ -352,7 +352,7 @@ Erlang programs.
 
 - [~] Implement maps, binaries and bitstrings, including construction, matching,
   updates, sizes, alignment and failure paths; basic tagged maps and map literals,
-  exact lookup/matching, updates and map BIF guards are implemented, while broader
+  exact lookup/matching, updates, pure `maps` module operations and map BIF guards are implemented, while callback-based `maps` functions and broader
   map coverage remains open. Cover relevant generic opcodes.
   Binary and partial-byte bitstring literals, comparisons, type tests and
   size and `binary_part/2` and `/3` guard, zero-label and callable forms are

@@ -321,8 +321,11 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             Entries = lists:join(<<", ">>, [[<<"[">>, operand(K, Context, Index), <<", ">>,
                                                operand(V, Context, Index), <<"]">>] ||
                                               {K, V} <- pairs(Pairs)]),
-            Value = [<<"rt.mapPut(">>, operand(Source, Context, Index), <<", [">>, Entries, <<"])">>],
+            Value = [<<"rt.mapPutExact(">>, operand(Source, Context, Index), <<", [">>, Entries, <<"])">>],
             [write_register(Dest, Value, Context, Index), next(Index)];
+        {has_map_fields, {f, Fail}, Source, {list, Fields}}
+          when is_list(Fields) ->
+            has_map_fields(Source, Fail, Fields, Index, Labels, Context);
         {get_map_elements, {f, Fail}, Source, {list, Fields}}
           when is_list(Fields) ->
             get_map_elements(Source, Fail, Fields, Index, Labels, Context);
@@ -473,6 +476,13 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
 pairs(List) -> pairs(List, []).
 pairs([], Acc) -> lists:reverse(Acc);
 pairs([Key, Value | Rest], Acc) -> pairs(Rest, [{Key, Value} | Acc]).
+
+has_map_fields(Source, Fail, Fields, Index, Labels, Context) ->
+    Checks = [[<<"rt.mapGet(">>, operand(Source, Context, Index), <<", ">>,
+               operand(Key, Context, Index), <<") !== null">>] || Key <- Fields],
+    [<<"{ if (">>, lists:join(<<" && ">>, Checks), <<") { pc = ">>,
+     integer_to_list(Index + 1), <<"; } else { pc = ">>,
+     target(Fail, Labels, Context, Index), <<"; } break; }">>].
 
 get_map_elements(Source, Fail, Fields, Index, Labels, Context) ->
     {Declarations, Writes, Checks} = get_map_fields(Source, Fields, [], [], [], Context, Index),

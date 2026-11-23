@@ -150,6 +150,12 @@ arbitrary browser objects:
 | `keydown` | `key`, `code` UTF-8 binaries; `repeat` and modifier boolean atoms |
 | `submit` | empty map initially; form-value extraction is a separate explicit API |
 
+`maps:filter/2`, `filtermap/2`, `fold/3`, `foreach/2`, `map/2`,
+`merge_with/3`, `intersect_with/3`, `update_with/3/4`, and
+`groups_from_list/2/3` require Erlang fun/closure support and currently raise
+`badfun`. Pure map construction, conversion and transformation functions are
+available.
+
 The `input` schema initially requires a supported value-bearing input/textarea
 element; other targets return `{error, unsupported_target}` on subscription.
 Do not pretend this schema implements contenteditable editing.

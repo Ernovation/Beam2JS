@@ -24,6 +24,7 @@ import {timerOptionChecks} from './timer-option-cases.mjs';
 import {registryChecks} from './registry-cases.mjs';
 import {applyChecks} from './apply-cases.mjs';
 import {atomConversionChecks} from './atom-conversion-cases.mjs';
+import {mapChecks} from './map-cases.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-browser-'));
 const compiler = resolve('_build/default/bin/beam2js');
@@ -32,7 +33,7 @@ const source = path => readFileSync(resolve(path), 'utf8');
 
 try {
   run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/atom_conversion.erl',
-    'fixtures/map_slice.erl',
+    'fixtures/map_slice.erl', 'fixtures/compound_maps.erl',
     'fixtures/dynamic_apply.erl',
     'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
@@ -406,6 +407,8 @@ try {
     [join(dir, 'browser_demo.beam'), 'browser_demo.mjs'],
     [join(dir, 'atom_conversion.beam'), 'atom_conversion.mjs'],
     [join(dir, 'atom_conversion-stripped.beam'), 'atom_conversion-stripped.mjs'],
+    [join(dir, 'map_slice.beam'), 'map_slice.mjs'],
+    [join(dir, 'compound_maps.beam'), 'compound_maps.mjs'],
     [join(dir, 'dynamic_apply.beam'), 'dynamic_apply.mjs'],
     [join(dir, 'dynamic_apply-stripped.beam'), 'dynamic_apply-stripped.mjs'],
   ]) {
@@ -1642,6 +1645,17 @@ try {
   ]);
   assert.equal(eventRuntime.mapSize(eventMap), 2n);
   assert.equal(eventRuntime.floatValue(eventRuntime.mapGet(eventMap, eventRuntime.atom('client_x'))), 12.5);
+  mapChecks();
+  const compoundMapModule = await import(pathToFileURL(join(dir, 'compound_maps.mjs')));
+  compoundMapModule.register(eventRuntime);
+  const compoundMap = eventRuntime.invoke('compound_maps', 'literal', []);
+  assert.equal(eventRuntime.mapSize(compoundMap), 3n);
+  assert.equal(eventRuntime.mapGet(compoundMap, eventRuntime.atom('a')), 1n);
+  assert.equal(eventRuntime.isType('is_tuple', eventRuntime.invoke('compound_maps', 'tuple_with_map', [])), true);
+  assert.equal(eventRuntime.isType('is_list', eventRuntime.invoke('compound_maps', 'map_in_list', [])), true);
+  assert.equal(eventRuntime.isType('is_list', eventRuntime.mapGet(
+    eventRuntime.invoke('compound_maps', 'assoc_update', [eventRuntime.atom('x'), compoundMap]),
+    eventRuntime.atom('x'))), true);
   const buttonHandle = eventRuntime.invoke('dom', 'element_by_id', [
     eventRuntime.bitstring(new TextEncoder().encode('button'), 48),
   ]);

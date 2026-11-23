@@ -518,8 +518,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `is_integer/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_integer/3` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `is_list/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
-| `erlang` | `is_map/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
-| `erlang` | `is_map_key/2` | ubif | yes | map | BIF | optimizer-pure | {badmap,Map} for non-map | ? | not implemented |
+| `erlang` | `is_map/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
+| `erlang` | `is_map_key/2` | ubif | yes | map | BIF | optimizer-pure | {badmap,Map} for non-map | ? | instruction-and-callable |
 | `erlang` | `is_number/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_pid/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_port/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
@@ -549,8 +549,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `make_ref/0` | bif | yes | identity / uniqueness | no | creates a unique local reference | optimizer-safe | runtime identity | callable-only |
 | `erlang` | `make_tuple/2` | bif | yes | tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `make_tuple/3` | bif | yes | tuple | no | ? | ? | ? | not implemented |
-| `erlang` | `map_get/2` | ubif | yes | map | BIF | optimizer-pure | {badkey,Key} if absent; {badmap,Map} for non-map | ? | not implemented |
-| `erlang` | `map_size/1` | ubif | yes | map | BIF | ? | {badmap,Map} for non-map | ? | not implemented |
+| `erlang` | `map_get/2` | ubif | yes | map | BIF | optimizer-pure | {badkey,Key} if absent; {badmap,Map} for non-map | ? | instruction-and-callable |
+| `erlang` | `map_size/1` | ubif | yes | map | BIF | ? | {badmap,Map} for non-map | ? | instruction-and-callable |
 | `erlang` | `match_spec_test/3` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `max/2` | ubif | yes | ? | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `md5/1` | bif | yes | ? | no | ? | ? | ? | not implemented |

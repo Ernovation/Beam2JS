@@ -5,6 +5,7 @@
     "test:bifs": "node test/bif-inventory.mjs",
     "test:browser": "node test/browser.mjs",
     "test:execution": "node test/opcodes.mjs",
+    "test:maps": "node --input-type=module -e \"import('./test/map-cases.mjs').then(({mapChecks}) => mapChecks())\"",
     "test:opcodes": "node test/opcode-ledger.mjs && node test/raw-opcodes.mjs && node test/obsolete-opcodes.mjs",
     "test:sudoku": "node test/sudoku.mjs",
     "test:toolchain": "node test/toolchain.mjs"

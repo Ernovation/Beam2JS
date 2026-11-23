@@ -64,7 +64,7 @@ callableBifs.set(JSON.stringify(['map_get', 2]), {
   run: (rt, [key, value]) => {
     if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
     const found = rt.mapGet(value, key);
-    if (found === null) rt.raiseError(rt.atom('badkey'));
+    if (found === null) rt.raiseError(rt.tuple([rt.atom('badkey'), key]));
     return {type: 'return', value: found};
   },
 });
@@ -421,6 +421,62 @@ export class Runtime {
     this.#onProcessError = onProcessError;
     this.#clock = clock;
     this.modules = new Map();
+    this.registerMapsModule();
+  }
+
+  registerMapsModule() {
+    const rt = this;
+    const requireMap = value => {
+      if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    };
+    const erlList = values => {
+      let result = rt.nil();
+      for (let i = values.length - 1; i >= 0; i--) result = rt.cons(values[i], result);
+      return result;
+    };
+    const erlPairs = pairs => {
+      let result = rt.nil();
+      for (let i = pairs.length - 1; i >= 0; i--) {
+        result = rt.cons(rt.tuple(pairs[i]), result);
+      }
+      return result;
+    };
+    rt.registerModule(26, 'maps', [
+      {name: 'new', arity: 0, exported: true, run: () => ({type: 'return', value: rt.map()})},
+      {name: 'size', arity: 1, exported: true, run: (r, [value]) => { requireMap(value); return {type: 'return', value: rt.mapSize(value)}; }},
+      {name: 'is_key', arity: 2, exported: true, run: (r, [key, value]) => { requireMap(value); return {type: 'return', value: rt.atom(rt.mapGet(value, key) !== null ? 'true' : 'false')}; }},
+      {name: 'get', arity: 2, exported: true, run: (r, [key, value]) => { requireMap(value); const found = rt.mapGet(value, key); if (found === null) rt.raiseError(rt.tuple([rt.atom('badkey'), key])); return {type: 'return', value: found}; }},
+      {name: 'get', arity: 3, exported: true, run: (r, [key, value, fallback]) => { requireMap(value); const found = rt.mapGet(value, key); return {type: 'return', value: found === null ? fallback : found}; }},
+      {name: 'find', arity: 2, exported: true, run: (r, [key, value]) => { requireMap(value); const found = rt.mapGet(value, key); return {type: 'return', value: found === null ? rt.atom('error') : rt.tuple([rt.atom('ok'), found])}; }},
+      {name: 'put', arity: 3, exported: true, run: (r, [key, value, map]) => { requireMap(map); return {type: 'return', value: rt.mapPut(map, [[key, value]])}; }},
+      {name: 'update', arity: 3, exported: true, run: (r, [key, value, map]) => ({type: 'return', value: rt.mapUpdate(map, key, value)})},
+      {name: 'remove', arity: 2, exported: true, run: (r, [key, map]) => ({type: 'return', value: rt.mapRemove(map, [key])})},
+      {name: 'take', arity: 2, exported: true, run: (r, [key, map]) => { requireMap(map); const found = rt.mapGet(map, key); return {type: 'return', value: found === null ? rt.atom('error') : rt.tuple([found, rt.mapRemove(map, [key])])}; }},
+      {name: 'keys', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: erlList(rt.mapEntries(map).map(([key]) => key))}; }},
+      {name: 'values', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: erlList(rt.mapEntries(map).map(([, value]) => value))}; }},
+      {name: 'to_list', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: erlPairs(rt.mapEntries(map))}; }},
+      {name: 'from_list', arity: 1, exported: true, run: (r, [list]) => { const entries = []; let cursor = list; while (r.isType('is_nonempty_list', cursor)) { const pair = r.listHead(cursor); if (!r.isType('is_tuple', pair) || r.tupleSize(pair) !== 2) r.raiseError(r.atom('badarg')); entries.push([r.tupleElement(pair, 1), r.tupleElement(pair, 2)]); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: r.map(entries)}; }},
+      {name: 'from_keys', arity: 2, exported: true, run: (r, [value, keys]) => { const entries = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { entries.push([r.listHead(cursor), value]); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: r.map(entries)}; }},
+      {name: 'merge', arity: 2, exported: true, run: (r, [left, right]) => { requireMap(left); requireMap(right); const entries = rt.mapEntries(right); return {type: 'return', value: rt.mapPut(left, entries)}; }},
+      {name: 'with', arity: 2, exported: true, run: (r, [keys, map]) => { requireMap(map); const wanted = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { wanted.push(r.listHead(cursor)); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(rt.mapEntries(map).filter(([key]) => wanted.some(candidate => rt.equalExact(key, candidate))))}; }},
+      {name: 'without', arity: 2, exported: true, run: (r, [keys, map]) => { requireMap(map); const unwanted = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { unwanted.push(r.listHead(cursor)); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.mapRemove(map, unwanted)}; }},
+      {name: 'intersect', arity: 2, exported: true, run: (r, [left, right]) => { requireMap(left); requireMap(right); return {type: 'return', value: rt.map(rt.mapEntries(left).filter(([key]) => rt.mapGet(right, key) !== null))}; }},
+      {name: 'merge_with', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'intersect_with', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'filter', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'filtermap', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'map', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'fold', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'foreach', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'groups_from_list', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'groups_from_list', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'update_with', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'update_with', arity: 4, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'iterator', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: rt.tuple([rt.atom('maps_iterator'), map, erlPairs(rt.mapEntries(map))])}; }},
+      {name: 'iterator', arity: 2, exported: true, run: (r, [map, order]) => { requireMap(map); if (!rt.isType('is_atom', order)) rt.raiseError(rt.atom('badarg')); const name = Symbol.keyFor(order); if (!['ordered','reversed','undefined'].includes(name)) rt.raiseError(rt.atom('badarg')); let entries = rt.mapEntries(map); if (name === 'reversed') entries = entries.reverse(); else if (name === 'ordered') entries = entries.slice().sort((left, right) => rt.compare(left[0], right[0])).map(entry => [entry[0], entry[1]]); return {type: 'return', value: rt.tuple([rt.atom('maps_iterator'), map, erlPairs(entries)])}; }},
+      {name: 'next', arity: 1, exported: true, run: (r, [iterator]) => { if (!rt.isType('is_tuple', iterator) || rt.tupleSize(iterator) !== 3 || !rt.equalExact(rt.tupleElement(iterator, 1), rt.atom('maps_iterator'))) rt.raiseError(rt.atom('badarg')); const entries = rt.tupleElement(iterator, 3); if (entries === r.nil()) return {type: 'return', value: rt.atom('none')}; if (!r.isType('is_nonempty_list', entries)) rt.raiseError(rt.atom('badarg')); const pair = r.listHead(entries); const tail = r.listTail(entries); if (!r.isType('is_tuple', pair) || r.tupleSize(pair) !== 2) rt.raiseError(rt.atom('badarg')); const rest = rt.tuple([rt.atom('maps_iterator'), rt.tupleElement(iterator, 2), tail]); return {type: 'return', value: rt.tuple([r.tupleElement(pair, 1), r.tupleElement(pair, 2), rest])}; }},
+      {name: 'is_iterator_valid', arity: 1, exported: true, run: (r, [iterator]) => ({type: 'return', value: rt.atom(rt.isType('is_tuple', iterator) && rt.tupleSize(iterator) === 3 && rt.equalExact(rt.tupleElement(iterator, 1), rt.atom('maps_iterator')) ? 'true' : 'false')})},
+    ]);
   }
 
   hostHandle(value) {
@@ -478,7 +534,7 @@ export class Runtime {
   }
 
   mapPut(value, entries) {
-    if (!maps.has(value)) throw new TypeError('expected Erlang map');
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
     const combined = maps.get(value).map(entry => [entry[0], entry[1]]);
     for (const [key, result] of entries) {
       const existing = combined.findIndex(([oldKey]) => this.equalExact(oldKey, key));
@@ -488,9 +544,37 @@ export class Runtime {
     return this.map(combined);
   }
 
+  mapPutExact(value, entries) {
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    for (const [key] of entries) {
+      if (this.mapGet(value, key) === null) this.raiseError(this.atom('badkey'));
+    }
+    return this.mapPut(value, entries);
+  }
+
+  mapRemove(value, keys) {
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    const result = maps.get(value)
+      .filter(([key]) => !keys.some(candidate => this.equalExact(key, candidate)))
+      .map(entry => [entry[0], entry[1]]);
+    return this.map(result);
+  }
+
+  mapUpdate(value, key, replacement) {
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    if (this.mapGet(value, key) === null) this.raiseError(this.tuple([this.atom('badkey'), key]));
+    return this.mapPut(value, [[key, replacement]]);
+  }
+
   mapEntries(value) {
-    if (!maps.has(value)) throw new TypeError('expected Erlang map');
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
     return maps.get(value).map(entry => [entry[0], entry[1]]);
+  }
+
+  mapOrderedEntries(value) {
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    return maps.get(value).slice().sort((left, right) => this.compare(left[0], right[0]))
+      .map(entry => [entry[0], entry[1]]);
   }
 
   raiseError(reason) {
