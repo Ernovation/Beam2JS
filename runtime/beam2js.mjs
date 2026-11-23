@@ -73,6 +73,29 @@ callableBifs.set(JSON.stringify(['atom_to_binary', 2]), {
     return {type: 'return', value: rt.bitstring(bytes, bytes.length * 8)};
   },
 });
+callableBifs.set(JSON.stringify(['binary_to_atom', 2]), {
+  exported: true,
+  run: (rt, [value, encoding]) => {
+    if (!bitstrings.has(value) || bitstrings.get(value)[1] % 8 !== 0 || !isAtom(encoding)) {
+      rt.raiseError(rt.atom('badarg'));
+    }
+    const [bytes] = bitstrings.get(value);
+    const format = Symbol.keyFor(encoding);
+    let name;
+    if (format === 'utf8' || format === 'unicode') {
+      try {
+        name = new TextDecoder('utf-8', {fatal: true}).decode(bytes);
+      } catch {
+        rt.raiseError(rt.atom('badarg'));
+      }
+    } else if (format === 'latin1') {
+      name = String.fromCharCode(...bytes);
+    } else {
+      rt.raiseError(rt.atom('badarg'));
+    }
+    return {type: 'return', value: rt.atom(name)};
+  },
+});
 for (const [name, compare] of [
   ['=:=', (rt, left, right) => rt.equalExact(left, right)],
   ['=/=', (rt, left, right) => !rt.equalExact(left, right)],

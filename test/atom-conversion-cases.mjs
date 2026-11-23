@@ -65,6 +65,41 @@ export function atomConversionChecks(Runtime, registerModule, expected) {
       check(failed && expected.binaryBadarg, `${functionName}/2 accepted invalid arguments`);
     }
   }
+  const reverseBinaryCases = [
+    [[195, 169], 'utf8', 'é'],
+    [[195, 169], 'unicode', 'é'],
+    [[233], 'latin1', 'é'],
+    [[240, 159, 153, 130], 'utf8', '🙂'],
+    [[240, 159, 153, 130], 'unicode', '🙂'],
+    [[], 'utf8', ''],
+  ];
+  for (const [bytes, encoding, name] of reverseBinaryCases) {
+    const value = runtime.bitstring(bytes, bytes.length * 8);
+    for (const [module, functionName] of [
+      ['atom_conversion', 'from_binary'], ['erlang', 'binary_to_atom'],
+    ]) {
+      check(runtime.invoke(module, functionName, [value, runtime.atom(encoding)]) === runtime.atom(name),
+        `${functionName}/2 returned the wrong atom`);
+    }
+  }
+  const invalidBinaryCases = [
+    [runtime.bitstring([128], 8), runtime.atom('utf8')],
+    [runtime.bitstring([128], 7), runtime.atom('latin1')],
+    [runtime.bitstring([65], 8), runtime.atom('bad')],
+    [runtime.bitstring([65], 8), 1n],
+    [1n, runtime.atom('utf8')],
+  ];
+  for (const args of invalidBinaryCases) {
+    let failed = false;
+    try {
+      runtime.invoke('erlang', 'binary_to_atom', args);
+    } catch (error) {
+      if (!(error instanceof ErlangError) || error.erlangClass !== 'error' ||
+          error.reason !== runtime.atom('badarg')) throw error;
+      failed = true;
+    }
+    check(failed, 'binary_to_atom/2 accepted invalid arguments');
+  }
   try {
     runtime.invoke('erlang', 'atom_to_list', [1n]);
   } catch (error) {

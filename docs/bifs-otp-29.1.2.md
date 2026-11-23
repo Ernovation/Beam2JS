@@ -125,6 +125,10 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   Invalid inputs and names not representable in Latin-1 raise `badarg`.
   OTP, Node and Chromium tests cover direct and external calls, Unicode names,
   invalid inputs and stripped callers. Conversion is synchronous.
+- Callable `binary_to_atom/2` converts a byte-aligned binary using `utf8`,
+  `unicode` or `latin1`. It raises `badarg` for non-binaries, partial
+  bitstrings, malformed UTF-8 and invalid encodings. OTP, Node and Chromium
+  tests cover direct and generated calls, stripped callers and invalid inputs.
 - Callable `binary_to_list/1,3` convert a binary to a list of byte integers.
   The three-argument form uses a nonempty, one-based inclusive range. Non-binaries
   and invalid ranges raise `badarg`. OTP, Node and Chromium tests cover empty
@@ -412,7 +416,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `band/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-integer input | ? | instruction-and-callable |
 | `erlang` | `binary_part/2` | ubif | yes | binary / bitstring | BIF | optimizer-pure | badarg for invalid arguments or out-of-bounds range | ? | instruction-and-callable |
 | `erlang` | `binary_part/3` | ubif | yes | binary / bitstring | BIF | optimizer-pure | badarg for invalid arguments or out-of-bounds range | ? | instruction-and-callable |
-| `erlang` | `binary_to_atom/2` | ubif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `binary_to_atom/2` | ubif | yes | conversion / encoding | no | optimizer-pure | badarg for non-binary input, partial bitstrings, malformed UTF-8 or invalid encoding | ? | callable-only |
 | `erlang` | `binary_to_existing_atom/2` | ubif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `binary_to_float/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `binary_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-binary input | ? | callable-only |

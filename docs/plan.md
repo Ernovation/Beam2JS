@@ -316,6 +316,10 @@ BIFs.
 - [x] Support callable `atom_to_binary/2` with UTF-8, Unicode and Latin-1.
   Test invalid arguments and unrepresentable Latin-1 names against OTP in Node
   and Chromium, including stripped callers. Conversion remains synchronous.
+- [x] Support callable `binary_to_atom/2` for byte-aligned binaries with UTF-8,
+  Unicode and Latin-1. Reject partial bitstrings, malformed UTF-8, non-binaries
+  and invalid encodings with `badarg`. Test direct and stripped callers in Node
+  and Chromium against OTP.
 - [x] Implement dynamic `apply`/function resolution and the supported portions
   of module introspection, including `module_info`, rather than treating BIFs
   as ordinary missing external modules. `apply/3` tail-transfers to exported

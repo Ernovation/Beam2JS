@@ -376,7 +376,9 @@ Callable `atom_to_list/1` returns an Erlang list of UTF-8 bytes and raises
 `badarg` for non-atoms. Atom-table limits are not reproduced.
 Callable `atom_to_binary/2` supports `utf8`, `unicode` and `latin1` encodings.
 Non-atoms, invalid encodings and names not representable in Latin-1 raise
-`badarg`. Conversion is synchronous.
+`badarg`. Conversion is synchronous. Callable `binary_to_atom/2` converts a
+byte-aligned binary with the same encodings and raises `badarg` for malformed,
+partial or non-binary inputs and invalid encodings.
 Callable `binary_to_list/1,3` convert a binary to a list of bytes. The
 three-argument form uses a nonempty, one-based inclusive range. Non-binaries
 and invalid ranges raise `badarg`. Conversion is synchronous and may block the

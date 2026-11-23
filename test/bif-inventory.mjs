@@ -39,6 +39,8 @@ assert.equal(row('erlang:atom_to_list/1')[11], 'callable-only');
 assert.match(row('erlang:atom_to_list/1')[9], /badarg.*non-atom/);
 assert.equal(row('erlang:atom_to_binary/2')[11], 'callable-only');
 assert.match(row('erlang:atom_to_binary/2')[9], /badarg.*invalid encoding.*Latin-1/);
+assert.equal(row('erlang:binary_to_atom/2')[11], 'callable-only');
+assert.match(row('erlang:binary_to_atom/2')[9], /badarg.*malformed UTF-8.*invalid encoding/);
 for (const name of ['integer_to_list/1', 'integer_to_list/2', 'integer_to_binary/1', 'integer_to_binary/2']) {
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
   assert.match(row(`erlang:${name}`)[9], /badarg.*non-integer/);

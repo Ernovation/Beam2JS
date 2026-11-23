@@ -139,6 +139,7 @@ const details = new Map([
   ['erlang:list_to_tuple/1', {exceptions: 'badarg for improper or non-list input'}],
   ['erlang:tuple_to_list/1', {exceptions: 'badarg for non-tuple input'}],
   ['erlang:atom_to_binary/2', {exceptions: 'badarg for non-atom input, invalid encoding or unrepresentable Latin-1'}],
+  ['erlang:binary_to_atom/2', {exceptions: 'badarg for non-binary input, partial bitstrings, malformed UTF-8 or invalid encoding'}],
   ['erlang:integer_to_list/1', {exceptions: 'badarg for non-integer input'}],
   ['erlang:integer_to_list/2', {exceptions: 'badarg for non-integer input or invalid base'}],
   ['erlang:integer_to_binary/1', {exceptions: 'badarg for non-integer input'}],
@@ -240,7 +241,7 @@ const instructionAndCallable = new Set([
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/2', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
   'erlang:list_to_tuple/1', 'erlang:tuple_to_list/1',
-  'erlang:atom_to_binary/2',
+  'erlang:atom_to_binary/2', 'erlang:binary_to_atom/2',
   'erlang:integer_to_list/1', 'erlang:integer_to_list/2',
   'erlang:integer_to_binary/1', 'erlang:integer_to_binary/2',
   'erlang:binary_to_list/1', 'erlang:binary_to_list/3',
