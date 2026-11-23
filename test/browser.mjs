@@ -439,6 +439,17 @@ try {
     ],
     badarg: atomBadarg === 'true',
   };
+  const [atomBinaryValues, atomBinaryBadarg] = run('erl', ['-noshell', '-eval',
+    'Cases=[{example_atom,utf8},{example_atom,latin1},{\'\',utf8},{\'\',latin1},' +
+    '{list_to_atom([233]),utf8},{list_to_atom([233]),unicode},{list_to_atom([233]),latin1},' +
+    '{list_to_atom([128578]),utf8},{list_to_atom([128578]),unicode}], ' +
+    'Badarg=fun(A,E)->try atom_to_binary(A,E),false catch error:badarg->true end end, ' +
+    'Errors=lists:all(fun({A,E})->Badarg(A,E) end,' +
+    '[{1,utf8},{[],utf8},{example_atom,1},{example_atom,bad},{list_to_atom([128578]),latin1}]), ' +
+    'io:format("~w~n~w",[[binary_to_list(atom_to_binary(A,E)) || {A,E} <- Cases],Errors]), halt().'])
+    .trimEnd().split('\n');
+  atomConversionExpected.binaryValues = JSON.parse(atomBinaryValues);
+  atomConversionExpected.binaryBadarg = atomBinaryBadarg === 'true';
   const oracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Values=[{{1,[]},[2|tail]},{-0.0,<<5:3>>},{make_ref(),self()}], ' +
     'Rich=lists:all(fun({A,B})->calls:stack_tuple(A,B)=:={{A,B},A} andalso ' +

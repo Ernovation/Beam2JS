@@ -121,6 +121,10 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   integers. Non-atoms raise `badarg`. OTP, Node and Chromium tests cover empty,
   ASCII and Unicode names, direct and external calls, and stripped callers.
   Conversion is synchronous; OTP atom-table limits are not reproduced.
+- Callable `atom_to_binary/2` supports `utf8`, `unicode` and `latin1`.
+  Invalid inputs and names not representable in Latin-1 raise `badarg`.
+  OTP, Node and Chromium tests cover direct and external calls, Unicode names,
+  invalid inputs and stripped callers. Conversion is synchronous.
 - Callable `binary_to_list/1,3` convert a binary to a list of byte integers.
   The three-argument form uses a nonempty, one-based inclusive range. Non-binaries
   and invalid ranges raise `badarg`. OTP, Node and Chromium tests cover empty
@@ -403,7 +407,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `append_element/2` | bif | yes | tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `apply/2` | runtime | yes | function / call | no | ? | ? | ? | not implemented |
 | `erlang` | `apply/3` | runtime | yes | function / call | no | ? | badarg for invalid module/function/arguments | registered modules | callable-only |
-| `erlang` | `atom_to_binary/2` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `atom_to_binary/2` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-atom input, invalid encoding or unrepresentable Latin-1 | ? | callable-only |
 | `erlang` | `atom_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-atom input | runtime atom value | callable-only |
 | `erlang` | `band/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-integer input | ? | instruction-and-callable |
 | `erlang` | `binary_part/2` | ubif | yes | binary / bitstring | BIF | optimizer-pure | badarg for invalid arguments or out-of-bounds range | ? | instruction-and-callable |

@@ -188,6 +188,34 @@ for (const [a, b] of [
 ]) {
   pairs.push([a, b], [b, a]);
 }
+const list = (...elements) => elements.reduceRight((tail, head) => cons(head, tail), nil);
+const nestedTuple = (value, tail = atom('tail')) => tuple(
+  atom('root'),
+  list(tuple(list(atom('node'), tuple(bits([160], 3), value)), tail), float('-0.0')),
+  tuple(nil, integer('123456789012345678901234567890')),
+);
+const nestedList = (value, tail = atom('end')) => list(
+  tuple(atom('entry'), list(tuple(integer(1), list(value, bits([170, 128], 9))), nil)),
+  cons(tuple(atom('last'), list(integer(2), integer(3))), tail),
+);
+for (const [left, right] of [
+  [nestedTuple(integer(42)), nestedTuple(integer(42))],
+  [nestedTuple(integer(42)), nestedTuple(integer(43))],
+  [nestedTuple(integer(42)), nestedTuple(float('42.0'))],
+  [nestedTuple(integer(42)), nestedTuple(integer(42), atom('other_tail'))],
+  [nestedList(atom('value')), nestedList(atom('value'))],
+  [nestedList(atom('value')), nestedList(atom('other'))],
+  [nestedList(atom('value')), nestedList(atom('value'), nil)],
+  [nestedList(tuple(list(integer(1)), float('0.0'))),
+    nestedList(tuple(list(integer(1)), float('-0.0')))],
+  [nestedList(bits([160], 3)), nestedList(bits([176], 4))],
+  [tuple(list(tuple(atom('a'), list(integer(1), integer(2))))),
+    tuple(cons(tuple(atom('a'), cons(integer(1), cons(integer(2), nil))), nil))],
+  [list(tuple(list(atom('a')), tuple(integer(1), nil))),
+    cons(tuple(cons(atom('a'), nil), tuple(integer(1), nil)), nil)],
+]) {
+  pairs.push([left, right], [right, left]);
+}
 for (const a of bitValues) {
   for (const b of bitValues) pairs.push([a, b]);
 }

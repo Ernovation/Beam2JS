@@ -1,5 +1,8 @@
 -module(atom_conversion).
--export([to_list/1]).
+-export([to_list/1, to_binary/2]).
 
 to_list(Atom) ->
     erlang:atom_to_list(Atom).
+
+to_binary(Atom, Encoding) ->
+    erlang:atom_to_binary(Atom, Encoding).

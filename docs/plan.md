@@ -269,7 +269,7 @@ BIFs.
   Comparison operators support comparison test instructions and callable forms;
   exact equality also supports a zero-label BIF instruction.
   Boolean `not`, `and`, `or` and `xor` support instructions and callable forms.
-  `list_to_tuple/1`, `tuple_to_list/1`, `atom_to_list/1`, `integer_to_list/1,2`,
+  `list_to_tuple/1`, `tuple_to_list/1`, `atom_to_list/1`, `atom_to_binary/2`, `integer_to_list/1,2`,
   `integer_to_binary/1,2` and `binary_to_list/1,3` are callable.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
   `make_ref/0` are callable, as are the local timer, dictionary, process-info and registry BIFs
@@ -313,6 +313,9 @@ BIFs.
   range boundaries, external calls and scheduler yields against OTP in Node
   and Chromium, including stripped callers. Conversion remains synchronous;
   OTP resource and scheduling behavior is not reproduced.
+- [x] Support callable `atom_to_binary/2` with UTF-8, Unicode and Latin-1.
+  Test invalid arguments and unrepresentable Latin-1 names against OTP in Node
+  and Chromium, including stripped callers. Conversion remains synchronous.
 - [x] Implement dynamic `apply`/function resolution and the supported portions
   of module introspection, including `module_info`, rather than treating BIFs
   as ordinary missing external modules. `apply/3` tail-transfers to exported

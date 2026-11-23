@@ -138,6 +138,7 @@ const details = new Map([
   ['erlang:length/1', {exceptions: 'badarg for improper or non-list input'}],
   ['erlang:list_to_tuple/1', {exceptions: 'badarg for improper or non-list input'}],
   ['erlang:tuple_to_list/1', {exceptions: 'badarg for non-tuple input'}],
+  ['erlang:atom_to_binary/2', {exceptions: 'badarg for non-atom input, invalid encoding or unrepresentable Latin-1'}],
   ['erlang:integer_to_list/1', {exceptions: 'badarg for non-integer input'}],
   ['erlang:integer_to_list/2', {exceptions: 'badarg for non-integer input or invalid base'}],
   ['erlang:integer_to_binary/1', {exceptions: 'badarg for non-integer input'}],
@@ -239,6 +240,7 @@ const instructionAndCallable = new Set([
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/2', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
   'erlang:list_to_tuple/1', 'erlang:tuple_to_list/1',
+  'erlang:atom_to_binary/2',
   'erlang:integer_to_list/1', 'erlang:integer_to_list/2',
   'erlang:integer_to_binary/1', 'erlang:integer_to_binary/2',
   'erlang:binary_to_list/1', 'erlang:binary_to_list/3',
@@ -370,6 +372,10 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   callers. Conversion is synchronous and can block the event loop; OTP resource
   limits and scheduling behavior are not implemented. \`list_to_integer/1,2\`
   are ordinary preloaded Erlang functions, not runtime BIFs.
+- Callable \`atom_to_binary/2\` supports \`utf8\`, \`unicode\` and \`latin1\`.
+  Invalid inputs and names not representable in Latin-1 raise \`badarg\`.
+  OTP, Node and Chromium tests cover direct and external calls, Unicode names,
+  invalid inputs and stripped callers. Conversion is synchronous.
 - Callable \`binary_to_list/1,3\` convert a binary to a list of byte integers.
   The three-argument form uses a nonempty, one-based inclusive range. Non-binaries
   and invalid ranges raise \`badarg\`. OTP, Node and Chromium tests cover empty
