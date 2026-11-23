@@ -5,7 +5,8 @@ const BITSTRING = 4;
 const HOST_HANDLE = 5;
 const PID = 6;
 const REFERENCE = 7;
-const NIL = 8;
+const MAP = 8;
+const NIL = 9;
 
 function tagged(tag) {
   return {
@@ -20,6 +21,7 @@ const bitstrings = tagged(BITSTRING);
 const hostHandles = tagged(HOST_HANDLE);
 const pids = tagged(PID);
 const references = tagged(REFERENCE);
+const maps = tagged(MAP);
 let nextHostHandleId = 0n;
 let nextPidId = 0n;
 let nextReferenceId = 0n;
@@ -38,11 +40,34 @@ const supportedProcessInfoItems = new Set([
 ]);
 const callableBifs = new Map([
   'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
-  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference',
+  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference', 'is_map',
 ].map(name => [JSON.stringify([name, 1]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
 }]));
+callableBifs.set(JSON.stringify(['map_size', 1]), {
+  exported: true,
+  run: (rt, [value]) => {
+    if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    return {type: 'return', value: rt.mapSize(value)};
+  },
+});
+callableBifs.set(JSON.stringify(['is_map_key', 2]), {
+  exported: true,
+  run: (rt, [key, value]) => {
+    if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    return {type: 'return', value: rt.atom(rt.mapGet(value, key) !== null ? 'true' : 'false')};
+  },
+});
+callableBifs.set(JSON.stringify(['map_get', 2]), {
+  exported: true,
+  run: (rt, [key, value]) => {
+    if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    const found = rt.mapGet(value, key);
+    if (found === null) rt.raiseError(rt.atom('badkey'));
+    return {type: 'return', value: found};
+  },
+});
 callableBifs.set(JSON.stringify(['atom_to_list', 1]), {
   exported: true,
   run: (rt, [value]) => {
@@ -311,7 +336,7 @@ function consValue(value) {
 function isTerm(value) {
   return typeof value === 'bigint' || isAtom(value) || value === nil ||
     (Array.isArray(value) && Number.isInteger(value[0]) &&
-      value[0] >= CONS && value[0] <= REFERENCE);
+      value[0] >= CONS && value[0] <= NIL);
 }
 
 function termType(value) {
@@ -327,6 +352,7 @@ function termType(value) {
       case HOST_HANDLE: return 'host_handle';
       case PID: return 'pid';
       case REFERENCE: return 'reference';
+      case MAP: return 'map';
     }
   }
   throw new TypeError('unsupported Erlang term');
@@ -422,6 +448,49 @@ export class Runtime {
 
   makeRef() {
     return Object.freeze([REFERENCE, nextReferenceId++]);
+  }
+
+  map(entries = []) {
+    if (!Array.isArray(entries)) throw new TypeError('map entries must be an array');
+    const result = [];
+    for (const entry of entries) {
+      if (!Array.isArray(entry) || entry.length !== 2) throw new TypeError('invalid map entry');
+      const [key, value] = entry;
+      if (!isTerm(key) || !isTerm(value)) throw new TypeError('map requires Erlang terms');
+      const existing = result.findIndex(([oldKey]) => this.equalExact(oldKey, key));
+      if (existing >= 0) result[existing] = [key, value];
+      else result.push([key, value]);
+    }
+    return Object.freeze([MAP, Object.freeze(result.map(entry => Object.freeze(entry)))]);
+  }
+
+  mapSize(value) {
+    if (!maps.has(value)) throw new TypeError('expected Erlang map');
+    return BigInt(maps.get(value).length);
+  }
+
+  mapGet(value, key) {
+    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    for (const [candidate, result] of maps.get(value)) {
+      if (this.equalExact(candidate, key)) return result;
+    }
+    return null;
+  }
+
+  mapPut(value, entries) {
+    if (!maps.has(value)) throw new TypeError('expected Erlang map');
+    const combined = maps.get(value).map(entry => [entry[0], entry[1]]);
+    for (const [key, result] of entries) {
+      const existing = combined.findIndex(([oldKey]) => this.equalExact(oldKey, key));
+      if (existing >= 0) combined[existing] = [key, result];
+      else combined.push([key, result]);
+    }
+    return this.map(combined);
+  }
+
+  mapEntries(value) {
+    if (!maps.has(value)) throw new TypeError('expected Erlang map');
+    return maps.get(value).map(entry => [entry[0], entry[1]]);
   }
 
   raiseError(reason) {
@@ -726,11 +795,21 @@ export class Runtime {
         const [ah, at] = consValue(a);
         const [bh, bt] = consValue(b);
         pending.push([at, bt], [ah, bh]);
+      } else if (type === 'map') {
+        const mapEntries = maps.get(a);
+        const otherEntries = maps.get(b);
+        if (mapEntries.length !== otherEntries.length) return false;
+        for (const [key, value] of mapEntries) {
+          const found = otherEntries.find(([candidate]) => this.equalExact(key, candidate));
+          if (!found || !this.equalExact(value, found[1])) return false;
+        }
       } else if (type === 'tuple') {
-        const x = tuples.get(a);
-        const y = tuples.get(b);
-        if (x.length !== y.length) return false;
-        for (let i = x.length - 1; i >= 0; i--) pending.push([x[i], y[i]]);
+        const elements = tuples.get(a);
+        const otherElements = tuples.get(b);
+        if (elements.length !== otherElements.length) return false;
+        for (let i = elements.length - 1; i >= 0; i--) {
+          pending.push([elements[i], otherElements[i]]);
+        }
       } else if (type === 'bitstring') {
         if (compareBitstrings(a, b) !== 0) return false;
       } else {
@@ -746,7 +825,7 @@ export class Runtime {
 
   compare(left, right) {
     const rank = {integer: 0, float: 0, atom: 1, reference: 2, host_handle: 3, pid: 4,
-      tuple: 5, nil: 6, cons: 7, bitstring: 8};
+      tuple: 5, map: 6, nil: 7, cons: 8, bitstring: 9};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -788,6 +867,22 @@ export class Runtime {
         const [ah, at] = consValue(a);
         const [bh, bt] = consValue(b);
         pending.push([at, bt], [ah, bh]);
+      } else if (aType === 'map' && a !== b) {
+        const x = maps.get(a);
+        const y = maps.get(b);
+        if (x.length !== y.length) return x.length < y.length ? -1 : 1;
+        const xKeys = x.map(([key]) => key).sort((left, right) => this.compare(left, right));
+        const yKeys = y.map(([key]) => key).sort((left, right) => this.compare(left, right));
+        for (let i = 0; i < xKeys.length; i++) {
+          const keyOrder = this.compare(xKeys[i], yKeys[i]);
+          if (keyOrder !== 0) return keyOrder;
+        }
+        for (let i = 0; i < xKeys.length; i++) {
+          const left = x.find(([key]) => this.equalExact(key, xKeys[i]))[1];
+          const right = y.find(([key]) => this.equalExact(key, yKeys[i]))[1];
+          const valueOrder = this.compare(left, right);
+          if (valueOrder !== 0) return valueOrder;
+        }
       } else if (aType === 'tuple' && a !== b) {
         const x = tuples.get(a);
         const y = tuples.get(b);
@@ -817,6 +912,7 @@ export class Runtime {
       case 'is_tuple': return actual === 'tuple';
       case 'is_pid': return actual === 'pid';
       case 'is_reference': return actual === 'reference';
+      case 'is_map': return actual === 'map';
       case 'is_binary':
         return actual === 'bitstring' && bitstrings.get(value)[1] % 8 === 0;
       case 'is_bitstr':
@@ -955,6 +1051,7 @@ export class Runtime {
 
   spawnProcess(module, name, args) {
     const process = this.#newProcess(module, name, args);
+    process.scheduled = true;
     const result = new Promise((resolve, reject) => {
       process.resolve = resolve;
       process.reject = reject;
@@ -964,6 +1061,21 @@ export class Runtime {
     this.#pidHandles.set(process.pid, handle);
     this.#enqueue(process);
     return handle;
+  }
+
+  onProcessExit(pid, cleanup) {
+    if (!isTerm(pid) || !this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
+    const process = this.#pidProcesses.get(pid);
+    if (!process || !process.scheduled || !this.#livePids.has(pid) ||
+        typeof cleanup !== 'function') this.raiseError(this.atom('badarg'));
+    if (!process.cleanups) process.cleanups = new Set();
+    process.cleanups.add(cleanup);
+    let detached = false;
+    return () => {
+      if (detached) return;
+      detached = true;
+      process.cleanups?.delete(cleanup);
+    };
   }
 
   processHandle(pid) {
@@ -1320,11 +1432,22 @@ export class Runtime {
 
   #finishProcess(process, status) {
     process.status = status;
+    const errors = [];
+    if (process.cleanups) {
+      const cleanups = [...process.cleanups];
+      process.cleanups.clear();
+      for (const cleanup of cleanups) {
+        try {
+          cleanup();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+    }
     if (process.registeredName !== undefined) {
       this.#registered.delete(process.registeredName);
       process.registeredName = undefined;
     }
-    const errors = [];
     try {
       this.#clearReceiveTimer(process);
     } catch (error) {
@@ -1347,6 +1470,7 @@ export class Runtime {
     process.args = [];
     process.continuations = [];
     process.dictionary = [];
+    process.cleanups = undefined;
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) throw new AggregateError(errors, 'failed to clear process timers');
   }

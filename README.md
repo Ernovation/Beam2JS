@@ -100,7 +100,7 @@ python3 -m http.server 8000
 ```
 
 Open `http://localhost:8000/examples/browser/`. The compiled Erlang process
-appends a greeting, then waits in a `receive` loop. Click **Send click to Erlang**:
+appends a greeting, then waits in a `receive` loop. Move the pointer over **Mouse coordinate area** to see `mousemove` coordinates delivered to Erlang. Click **Send click to Erlang**:
 the JavaScript DOM listener sends `{dom_event, click}` to its mailbox, and
 Erlang maintains the click count and appends `Click 1!`, `Click 2!`, and so on
 through the JavaScript-backed `dom` module. **Stop Erlang process** sends `stop`

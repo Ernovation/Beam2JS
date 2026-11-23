@@ -192,7 +192,8 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
           when Op =:= is_integer; Op =:= is_number; Op =:= is_atom;
                Op =:= is_boolean; Op =:= is_float; Op =:= is_nil;
                Op =:= is_list; Op =:= is_nonempty_list; Op =:= is_tuple;
-               Op =:= is_binary; Op =:= is_bitstr; Op =:= is_pid; Op =:= is_reference ->
+               Op =:= is_binary; Op =:= is_bitstr; Op =:= is_pid; Op =:= is_reference;
+               Op =:= is_map ->
             Condition = type_test(Op, Source, Context, Index),
             branch(Condition, Target, Index, Labels, Context);
         {test, test_arity, {f, Target}, [Source, Arity]}
@@ -214,6 +215,17 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             Value = [<<"rt.atom(">>, type_test(Op, Source, Context, Index),
                      <<" ? 'true' : 'false')">>],
             [write_register(Dest, Value, Context, Index), next(Index)];
+        {bif, Op, {f, Target}, [Key, Map], Dest}
+          when Op =:= map_get; Op =:= is_map_key ->
+            guard_bif(Op, [Key, Map], Dest, Target, Index, Labels, Context);
+        {bif, is_map, {f, 0}, [Map], Dest} ->
+            [write_register(Dest, [<<"rt.atom(rt.isType('is_map', ">>, operand(Map, Context, Index), <<") ? 'true' : 'false')">>], Context, Index), next(Index)];
+        {bif, Op, {f, Target}, [Map], Dest}
+          when Op =:= map_size ->
+            guard_bif(Op, [Map], Dest, Target, Index, Labels, Context);
+        {gc_bif, Op, {f, Target}, Live, [Map], Dest}
+          when Op =:= map_size, is_integer(Live), Live >= 0, Live =< 1024 ->
+            guard_bif(Op, [Map], Dest, Target, Index, Labels, Context);
         {bif, '=:=', {f, 0}, [Left, Right], Dest} ->
             Condition = comparison(is_eq_exact, operand(Left, Context, Index), operand(Right, Context, Index)),
             Value = [<<"rt.atom(">>, Condition, <<" ? 'true' : 'false')">>],
@@ -297,6 +309,23 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
                      lists:join(<<", ">>, [operand(E, Context, Index) || E <- Elements]),
                      <<"])">>],
             [write_register(Dest, Value, Context, Index), next(Index)];
+        {put_map_assoc, {f, _}, Source, Dest, Size, {list, Pairs}}
+          when is_integer(Size), Size >= 0, is_list(Pairs) ->
+            Entries = lists:join(<<", ">>, [[<<"[">>, operand(K, Context, Index), <<", ">>,
+                                               operand(V, Context, Index), <<"]">>] ||
+                                              {K, V} <- pairs(Pairs)]),
+            Value = [<<"rt.mapPut(">>, operand(Source, Context, Index), <<", [">>, Entries, <<"])">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
+        {put_map_exact, {f, _}, Source, Dest, Size, {list, Pairs}}
+          when is_integer(Size), Size >= 0, is_list(Pairs) ->
+            Entries = lists:join(<<", ">>, [[<<"[">>, operand(K, Context, Index), <<", ">>,
+                                               operand(V, Context, Index), <<"]">>] ||
+                                              {K, V} <- pairs(Pairs)]),
+            Value = [<<"rt.mapPut(">>, operand(Source, Context, Index), <<", [">>, Entries, <<"])">>],
+            [write_register(Dest, Value, Context, Index), next(Index)];
+        {get_map_elements, {f, Fail}, Source, {list, Fields}}
+          when is_list(Fields) ->
+            get_map_elements(Source, Fail, Fields, Index, Labels, Context);
         {get_tuple_element, Source, Element, Dest}
           when is_integer(Element), Element >= 0, Element < 9007199254740991 ->
             Value = [<<"rt.tupleElement(">>, operand(Source, Context, Index),
@@ -370,6 +399,19 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
             {[<<"const left = ">>, Left, <<"; const right = ">>, Right, <<"; ">>],
              <<"rt.isType('is_boolean', left) && rt.isType('is_boolean', right)">>,
              [<<"rt.atom(">>, Expression, <<" ? 'true' : 'false')">>]};
+        {map_get, [Key, Map]} ->
+            {[<<"const value = rt.mapGet(">>, Map, <<", ">>, Key, <<"); ">>],
+             <<"value !== null">>, <<"value">>};
+        {is_map_key, [Key, Map]} ->
+            {[<<"const value = rt.mapGet(">>, Map, <<", ">>, Key, <<"); ">>],
+             <<"rt.isType('is_map', ">>, Map, <<")">>,
+             <<"rt.atom(value !== null ? 'true' : 'false')">>};
+        {map_size, [Map]} ->
+            {[<<"const result = rt.isType('is_map', ">>, Map, <<") ? rt.mapSize(">>, Map, <<") : null; ">>],
+             <<"result !== null">>, <<"result">>};
+        {is_map, [Map]} ->
+            {[<<"const result = rt.isType('is_map', ">>, Map, <<"); ">>],
+             <<"true">>, <<"rt.atom(result ? 'true' : 'false')">>};
         {'bnot', [Value]} ->
             {[<<"const value = ">>, Value, <<"; ">>],
              <<"typeof value === 'bigint'">>, <<"~value">>};
@@ -410,6 +452,9 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
                             FailureOp =:= 'band'; FailureOp =:= 'bor';
                             FailureOp =:= 'bxor'; FailureOp =:= 'bnot' ->
             <<"rt.raiseError(rt.atom('badarith'));">>;
+        {map_get, 0} -> <<"rt.raiseError(rt.atom('badkey'));">>;
+        {is_map_key, 0} -> <<"rt.raiseError(rt.atom('badmap'));">>;
+        {map_size, 0} -> <<"rt.raiseError(rt.atom('badmap'));">>;
         {FailureOp, 0} when FailureOp =:= hd; FailureOp =:= tl; FailureOp =:= length;
                             FailureOp =:= tuple_size; FailureOp =:= element;
                             FailureOp =:= abs; FailureOp =:= trunc; FailureOp =:= round;
@@ -424,6 +469,26 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
      write_register(Dest, Result, Context, Index),
      <<"pc = ">>, integer_to_list(Index + 1), <<"; } else { ">>,
      Failure, <<" } break; }">>].
+
+pairs(List) -> pairs(List, []).
+pairs([], Acc) -> lists:reverse(Acc);
+pairs([Key, Value | Rest], Acc) -> pairs(Rest, [{Key, Value} | Acc]).
+
+get_map_elements(Source, Fail, Fields, Index, Labels, Context) ->
+    {Declarations, Writes, Checks} = get_map_fields(Source, Fields, [], [], [], Context, Index),
+    [<<"{ ">>, Declarations,
+     <<"if (">>, lists:join(<<" && ">>, Checks), <<") { ">>, Writes,
+     <<"pc = ">>, integer_to_list(Index + 1), <<"; } else { pc = ">>,
+     target(Fail, Labels, Context, Index), <<"; } break; }">>].
+
+get_map_fields(_, [], Declarations, Writes, Checks, _, _) ->
+    {lists:reverse(Declarations), lists:reverse(Writes), lists:reverse(Checks)};
+get_map_fields(Source, [Key, Dest | Rest], Declarations, Writes, Checks, Context, Index) ->
+    Name = [<<"const mapValue">>, integer_to_list(length(Declarations)), <<" = rt.mapGet(">>,
+            operand(Source, Context, Index), <<", ">>, operand(Key, Context, Index), <<"); ">>],
+    Write = write_register(Dest, [<<"mapValue">>, integer_to_list(length(Declarations))], Context, Index),
+    Check = [<<"mapValue">>, integer_to_list(length(Declarations)), <<" !== null">>],
+    get_map_fields(Source, Rest, [Name | Declarations], [Write | Writes], [Check | Checks], Context, Index).
 
 selection(Kind, Source, Fail, Choices, Labels, Context, Index) ->
     Value = operand(Source, Context, Index),
@@ -542,6 +607,9 @@ literal_steps([{term, []} | Rest], Steps, Context, Index) ->
     literal_steps(Rest, [<<"s.push(rt.nil());">> | Steps], Context, Index);
 literal_steps([{term, [Head | Tail]} | Rest], Steps, Context, Index) ->
     literal_steps([{term, Tail}, {term, Head}, cons | Rest], Steps, Context, Index);
+literal_steps([{term, Map} | Rest], Steps, Context, Index) when is_map(Map) ->
+    Entries = maps:to_list(Map),
+    literal_steps([{map_elements, Entries}, {map, map_size(Map)} | Rest], Steps, Context, Index);
 literal_steps([{term, Tuple} | Rest], Steps, Context, Index) when is_tuple(Tuple) ->
     literal_steps([{elements, tuple_to_list(Tuple)}, {tuple, tuple_size(Tuple)} | Rest],
                   Steps, Context, Index);
@@ -568,6 +636,14 @@ literal_steps([{elements, [Head | Tail]} | Rest], Steps, Context, Index) ->
     literal_steps([{term, Head}, {elements, Tail} | Rest], Steps, Context, Index);
 literal_steps([cons | Rest], Steps, Context, Index) ->
     literal_steps(Rest, [<<"s.push(rt.cons(s.pop(),s.pop()));">> | Steps], Context, Index);
+literal_steps([{map_elements, []} | Rest], Steps, Context, Index) ->
+    literal_steps(Rest, Steps, Context, Index);
+literal_steps([{map_elements, [{Key, Value} | Tail]} | Rest], Steps, Context, Index) ->
+    literal_steps([{term, Key}, {term, Value}, {map_elements, Tail} | Rest], Steps, Context, Index);
+literal_steps([{map, Size} | Rest], Steps, Context, Index) ->
+    Step = [<<"s.push(rt.map((()=>{const entries=[];for(let i=0;i<">>,
+            integer_to_list(Size), <<";i++){const value=s.pop(),key=s.pop();entries.unshift([key,value]);}return entries;})()));">>],
+    literal_steps(Rest, [Step | Steps], Context, Index);
 literal_steps([{tuple, Arity} | Rest], Steps, Context, Index) ->
     literal_steps(Rest, [[<<"s.push(rt.tuple(s.splice(s.length-">>, integer_to_list(Arity),
                            <<",">>, integer_to_list(Arity), <<")));">>] | Steps], Context, Index).

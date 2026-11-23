@@ -2,11 +2,10 @@
 
 ## Status and decision
 
-This is a proposed design, not an implemented DOM event API. The existing
-runtime already has the process and message primitives used by the
-[browser demo](../examples/browser/index.html); the DOM adapter currently
-supports only element lookup and appending text. The demo wires listeners in
-JavaScript, not through the proposed `dom:listen/3` API.
+The browser adapter now implements element lookup, text/value/attribute reads,
+text updates and Erlang-owned DOM subscriptions. The browser demo uses
+`dom:listen/3`, receives immutable event snapshots, and unsubscribes through
+`dom:unlisten/1` or process cleanup.
 
 **Treat browser events as external signals delivered to an Erlang process
 mailbox.** A small JavaScript adapter owns browser listeners and translates
@@ -139,16 +138,17 @@ Messages have a single envelope:
 {dom_event, SubscriptionRef, EventType, Data}
 ```
 
-Use proper property lists for `Data` in the first implementation, because maps
-are not yet supported. Define fixed schemas, rather than recursively converting
+Use immutable Erlang maps for `Data`. Map keys are fixed atoms, so field access
+is independent of property insertion or iteration order. Define fixed schemas, rather than recursively converting
 arbitrary browser objects:
 
 | Event | Snapshot fields |
 | --- | --- |
 | `click` | `button` integer; `client_x`, `client_y` floats; `alt_key`, `ctrl_key`, `meta_key`, `shift_key` boolean atoms |
+| `mousemove` | `client_x`, `client_y`, `offset_x`, `offset_y` floats |
 | `input` | `value` UTF-8 binary; `is_composing` boolean atom |
 | `keydown` | `key`, `code` UTF-8 binaries; `repeat` and modifier boolean atoms |
-| `submit` | empty list initially; form-value extraction is a separate explicit API |
+| `submit` | empty map initially; form-value extraction is a separate explicit API |
 
 The `input` schema initially requires a supported value-bearing input/textarea
 element; other targets return `{error, unsupported_target}` on subscription.

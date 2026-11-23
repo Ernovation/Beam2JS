@@ -350,8 +350,10 @@ error and boundary tests, and representative non-concurrent programs run.
 **Goal:** Cover the data structures and dynamic functions used by typical
 Erlang programs.
 
-- [ ] Implement maps, binaries and bitstrings, including construction, matching,
-  updates, sizes, alignment and failure paths; cover relevant generic opcodes.
+- [~] Implement maps, binaries and bitstrings, including construction, matching,
+  updates, sizes, alignment and failure paths; basic tagged maps and map literals,
+  exact lookup/matching, updates and map BIF guards are implemented, while broader
+  map coverage remains open. Cover relevant generic opcodes.
   Binary and partial-byte bitstring literals, comparisons, type tests and
   size and `binary_part/2` and `/3` guard, zero-label and callable forms are
   supported, as are callable `binary_to_list/1,3`. General construction,
@@ -506,9 +508,9 @@ normal, exceptional and race cases.
   only when their semantics can be preserved and tested.
 - [ ] Introduce explicit Node.js and browser adapters for clocks, I/O,
   randomness and other supported capabilities; define asynchronous calls,
-  errors and conversion at the JavaScript boundary. A browser demo exposes
-  two synchronous DOM operations using distinct opaque host handles; it does
-  not provide general JavaScript interop or Erlang reference semantics.
+  errors and conversion at the JavaScript boundary. The browser demo now
+  provides capability-scoped DOM reads and Erlang-owned subscriptions with
+  immutable event snapshots; general JavaScript interop remains unsupported.
 - [ ] Classify ports, NIFs, drivers, distribution and OS-dependent BIFs as
   implemented, adapted or unsupported on each host. Do not silently substitute
   incompatible behavior.

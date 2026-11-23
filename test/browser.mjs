@@ -32,6 +32,7 @@ const source = path => readFileSync(resolve(path), 'utf8');
 
 try {
   run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/atom_conversion.erl',
+    'fixtures/map_slice.erl',
     'fixtures/dynamic_apply.erl',
     'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
@@ -1615,22 +1616,39 @@ try {
   assert.equal(element.value, 'hélloHello from Erlang!');
 
   const eventRuntime = new Runtime();
-  const eventElement = {value: '', append(value) { this.value += value; }};
-  registerDom(eventRuntime, {getElementById: id => id === 'message' ? eventElement : null});
+  const listeners = new Map();
+  const eventElement = {
+    value: '', textContent: '',
+    append(value) { this.value += value; this.textContent += value; },
+  };
+  const button = {
+    addEventListener(type, callback) {
+      listeners.set(type, callback);
+    },
+    removeEventListener(type, callback) {
+      if (listeners.get(type) === callback) listeners.delete(type);
+    },
+  };
+  registerDom(eventRuntime, {
+    getElementById: id => id === 'message' ? eventElement : id === 'button' ? button : null,
+  });
   (await import(pathToFileURL(join(dir, 'browser_demo.mjs')))).register(eventRuntime);
-  const eventReceiver = eventRuntime.spawnProcess('browser_demo', 'listen', []);
-  const clickMessage = eventRuntime.tuple([
-    eventRuntime.atom('dom_event'), eventRuntime.atom('click'),
+  const syntheticElementHandle = eventRuntime.invoke('dom', 'element_by_id', [eventRuntime.bitstring(new TextEncoder().encode('message'), 56)]);
+  const readText = eventRuntime.invoke('dom', 'read_text', [syntheticElementHandle]);
+  assert.deepEqual(new TextDecoder().decode(eventRuntime.bitstringBytes(readText)), '');
+  const eventMap = eventRuntime.map([
+    [eventRuntime.atom('client_x'), eventRuntime.float(12.5)],
+    [eventRuntime.atom('client_y'), eventRuntime.float(34.25)],
   ]);
-  eventRuntime.sendMessage(eventReceiver, clickMessage);
-  eventRuntime.sendMessage(eventReceiver, clickMessage);
-  eventRuntime.sendMessage(eventReceiver, eventRuntime.atom('stop'));
-  let eventTimer;
-  assert.equal(await Promise.race([eventReceiver.result, new Promise((_, reject) => {
-    eventTimer = setTimeout(() => reject(new Error('browser demo receive loop timed out')), 5000);
-  })]).finally(() => clearTimeout(eventTimer)), eventRuntime.atom('ok'));
-  assert.equal(eventElement.value, 'Hello from Erlang! Click 1! Click 2!');
-  assert.equal(eventRuntime.isProcessAlive(eventReceiver.pid), false);
+  assert.equal(eventRuntime.mapSize(eventMap), 2n);
+  assert.equal(eventRuntime.floatValue(eventRuntime.mapGet(eventMap, eventRuntime.atom('client_x'))), 12.5);
+  const buttonHandle = eventRuntime.invoke('dom', 'element_by_id', [
+    eventRuntime.bitstring(new TextEncoder().encode('button'), 48),
+  ]);
+  const subscription = eventRuntime.invoke('dom', 'listen', [
+    buttonHandle, eventRuntime.atom('click'), eventRuntime.nil(),
+  ]);
+  assert.equal(subscription[1][1], eventRuntime.atom('scheduled_process_required'));
 
   const browser = await chromium.launch();
   try {
@@ -1694,6 +1712,9 @@ try {
     await page.goto('http://beam2js.test/examples/browser/', {timeout: 30000});
     await page.waitForFunction(() => document.getElementById('message').textContent === 'Hello from Erlang!',
       null, {timeout: 30000});
+    await page.hover('#mouse-area', {position: {x: 40, y: 60}});
+    await page.waitForFunction(() => /^Mouse: \d+, \d+$/.test(
+      document.getElementById('mouse-area').textContent), null, {timeout: 5000});
     await page.click('#button');
     await page.waitForFunction(() => document.getElementById('message').textContent === 'Hello from Erlang! Click 1!',
       null, {timeout: 5000});

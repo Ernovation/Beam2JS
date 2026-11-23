@@ -8,15 +8,31 @@ run() ->
 listen() ->
     run(),
     Element = dom:element_by_id(<<"message">>),
-    loop(Element, 1).
+    Button = dom:element_by_id(<<"button">>),
+    MouseArea = dom:element_by_id(<<"mouse-area">>),
+    case dom:listen(Button, click, []) of
+        {ok, ClickRef} ->
+            case dom:listen(MouseArea, mousemove, []) of
+                {ok, MouseRef} -> loop(Element, MouseArea, ClickRef, MouseRef, 1);
+                {error, Reason} -> dom:unlisten(ClickRef), {error, Reason}
+            end;
+        {error, Reason} -> {error, Reason}
+    end.
 
-loop(Element, Count) ->
+loop(Element, MouseArea, ClickRef, MouseRef, Count) ->
     receive
-        {dom_event, click} ->
+        {dom_event, ClickRef, click, _Data} ->
             dom:append_text(Element, <<" Click ">>),
             dom:append_text(Element, integer_to_binary(Count)),
             dom:append_text(Element, <<"!">>),
-            loop(Element, Count + 1);
+            loop(Element, MouseArea, ClickRef, MouseRef, Count + 1);
+        {dom_event, MouseRef, mousemove, #{client_x := X, client_y := Y}} ->
+            dom:set_text(MouseArea, <<"Mouse: ">>),
+            dom:append_text(MouseArea, integer_to_binary(trunc(X))),
+            dom:append_text(MouseArea, <<", ">>),
+            dom:append_text(MouseArea, integer_to_binary(trunc(Y))),
+            loop(Element, MouseArea, ClickRef, MouseRef, Count);
         stop ->
-            ok
+            dom:unlisten(ClickRef),
+            dom:unlisten(MouseRef)
     end.

@@ -6,11 +6,24 @@
   </head>
   <body>
     <h1>Beam2JS browser demo</h1>
-    <p>Each click sends a message to an Erlang process. Erlang counts the clicks and updates the text below.</p>
+    <p>Each click sends an immutable DOM event snapshot to an Erlang process. Erlang counts the clicks and reports the coordinates below.</p>
     <button id="button" type="button">Send click to Erlang</button>
     <button id="stop" type="button">Stop Erlang process</button>
     <p id="status" role="status">Listening for clicks.</p>
     <p id="message"></p>
+    <div id="mouse-area" aria-label="Mouse coordinate area">Move the mouse here</div>
+    <style>
+      #mouse-area {
+        width: min(320px, 80vw);
+        height: 180px;
+        display: grid;
+        place-items: center;
+        border: 2px solid #668;
+        background: #eef4f8;
+        font-family: monospace;
+        user-select: none;
+      }
+    </style>
     <script type="module" src="./main.mjs"></script>
   </body>
 </html>
