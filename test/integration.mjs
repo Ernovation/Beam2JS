@@ -55,7 +55,9 @@ try {
   assert.throws(() => runtime.invoke('unsupported', 'add', [yes, 3n]), /badarith/);
   assert.throws(() => runtime.invoke('slice', 'only', [no]), /function_clause/);
   assert.throws(() => runtime.invoke('slice', 'private', [42n]), /undefined or unsupported/);
-  assert.throws(() => runtime.invoke('slice', 'module_info', []), /undefined or unsupported/);
+  const moduleInfo = runtime.listHead(runtime.invoke('slice', 'module_info', []));
+  assert.equal(runtime.tupleElement(moduleInfo, 1), runtime.atom('module'));
+  assert.equal(runtime.tupleElement(moduleInfo, 2), runtime.atom('slice'));
   assert.throws(() => runtime.invoke('slice', 'id', [42]), /supported Erlang terms/);
   for (const version of [1, 18, 19, 20, 21, 22, 23, 24, 25, 27]) {
     assert.throws(() => runtime.registerModule(version, 'bad', []), /unsupported runtime ABI/);

@@ -15,6 +15,13 @@ The design is a target for [phases 3 and 6](plan.md), with identity-bearing
 types also depending on later process, module-loading and host-integration
 work. The precise API and limits must be finalized and tested before use.
 
+The current runtime stores compound terms and identity-bearing values in
+two-element tagged arrays with directly accessible payloads. The outer arrays
+are frozen, but nested payloads are not private or protected from host mutation.
+Host callers must treat terms as immutable and must not construct tagged arrays
+themselves. A copying, validated host conversion boundary remains future work;
+the private-storage guarantees below describe that target, not the current API.
+
 ## Shared representation rules
 
 - Treat Erlang terms as immutable values. Runtime-internal tagged values have
@@ -58,7 +65,7 @@ the sign bit of zero: OTP 29 treats `+0.0` and `-0.0` as numerically equal but
 not exactly equivalent. `Object.is` can distinguish them; JavaScript `===` and
 `Map` cannot.
 
-The current runtime implements this representation with private storage and
+The current runtime implements this representation with tagged storage and
 explicit `float(number)` / `floatValue(term)` boundary methods. It supports
 float literals, moves, comparisons, selected type tests and arithmetic
 instruction forms. Numeric comparison does not round large
@@ -94,7 +101,7 @@ that require a proper list must detect an improper tail and apply their
 specified failure behavior. In OTP, `is_list([a|b])` is true even though
 `length([a|b])` fails.
 
-The current runtime implements nil and immutable cons cells with private
+The current runtime implements nil and cons cells with tagged
 storage and validated constructors. `listHead` and `listTail` inspect cons
 cells. Equality and ordering walk nested lists and tuples iteratively; operation limits
 and scheduler checkpoints are not yet implemented. `is_list` accepts improper
@@ -113,7 +120,7 @@ backing storage. Erlang tuple operations use one-based indices at the language
 boundary; instruction operands may use different conventions and must be
 translated explicitly.
 
-The current runtime implements private immutable tuples with a defensive copy
+The current runtime implements tagged tuples with a defensive copy
 of constructor inputs. `tupleSize` returns a host integer and `tupleElement`
 uses a one-based host index; these methods are not Erlang BIF dispatch.
 Compiler support includes dynamic construction, tuple tests, arity matching,

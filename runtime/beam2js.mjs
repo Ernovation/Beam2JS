@@ -1,14 +1,29 @@
-const floats = new WeakMap();
-const consCells = new WeakMap();
-const tuples = new WeakMap();
-const bitstrings = new WeakMap();
-const hostHandles = new WeakMap();
-const pids = new WeakMap();
-const references = new WeakMap();
+const CONS = 1;
+const FLOAT = 2;
+const TUPLE = 3;
+const BITSTRING = 4;
+const HOST_HANDLE = 5;
+const PID = 6;
+const REFERENCE = 7;
+const NIL = 8;
+
+function tagged(tag) {
+  return {
+    has: value => Array.isArray(value) && value[0] === tag,
+    get: value => Array.isArray(value) && value[0] === tag ? value[1] : undefined,
+  };
+}
+
+const floats = tagged(FLOAT);
+const tuples = tagged(TUPLE);
+const bitstrings = tagged(BITSTRING);
+const hostHandles = tagged(HOST_HANDLE);
+const pids = tagged(PID);
+const references = tagged(REFERENCE);
 let nextHostHandleId = 0n;
 let nextPidId = 0n;
 let nextReferenceId = 0n;
-const nil = Object.freeze({});
+const nil = Object.freeze([NIL, null]);
 const processInfoItems = new Set([
   'registered_name', 'current_function', 'initial_call', 'status', 'messages', 'message_queue_len',
   'links', 'monitors', 'monitored_by', 'dictionary', 'trap_exit', 'error_handler', 'heap_size',
@@ -103,8 +118,8 @@ callableBifs.set(JSON.stringify(['apply', 3]), {
   run: (rt, [module, name, list]) => {
     if (!isAtom(module) || !isAtom(name)) rt.raiseError(rt.atom('badarg'));
     const args = [];
-    while (consCells.has(list)) {
-      const [head, tail] = consCells.get(list);
+    while (isCons(list)) {
+      const [head, tail] = consValue(list);
       args.push(head);
       list = tail;
       if (args.length > 255) throw new Error('unsupported function arity: more than 255');
@@ -244,23 +259,35 @@ function isAtom(value) {
   return typeof value === 'symbol' && Symbol.keyFor(value) !== undefined;
 }
 
+function isCons(value) {
+  return Array.isArray(value) && value[0] === CONS;
+}
+
+function consValue(value) {
+  return isCons(value) ? value[1] : undefined;
+}
+
 function isTerm(value) {
-  return typeof value === 'bigint' || isAtom(value) || floats.has(value) ||
-    value === nil || consCells.has(value) || tuples.has(value) || bitstrings.has(value) ||
-    hostHandles.has(value) || pids.has(value) || references.has(value);
+  return typeof value === 'bigint' || isAtom(value) || value === nil ||
+    (Array.isArray(value) && Number.isInteger(value[0]) &&
+      value[0] >= CONS && value[0] <= REFERENCE);
 }
 
 function termType(value) {
   if (typeof value === 'bigint') return 'integer';
   if (isAtom(value)) return 'atom';
-  if (floats.has(value)) return 'float';
   if (value === nil) return 'nil';
-  if (consCells.has(value)) return 'cons';
-  if (tuples.has(value)) return 'tuple';
-  if (bitstrings.has(value)) return 'bitstring';
-  if (hostHandles.has(value)) return 'host_handle';
-  if (pids.has(value)) return 'pid';
-  if (references.has(value)) return 'reference';
+  if (Array.isArray(value)) {
+    switch (value[0]) {
+      case CONS: return 'cons';
+      case FLOAT: return 'float';
+      case TUPLE: return 'tuple';
+      case BITSTRING: return 'bitstring';
+      case HOST_HANDLE: return 'host_handle';
+      case PID: return 'pid';
+      case REFERENCE: return 'reference';
+    }
+  }
   throw new TypeError('unsupported Erlang term');
 }
 
@@ -335,8 +362,7 @@ export class Runtime {
     }
     let handle = this.#hostObjects.get(value);
     if (!handle) {
-      handle = Object.freeze({});
-      hostHandles.set(handle, {owner: this, value, id: nextHostHandleId++});
+      handle = Object.freeze([HOST_HANDLE, {owner: this, value, id: nextHostHandleId++}]);
       this.#hostObjects.set(value, handle);
     }
     return handle;
@@ -354,9 +380,7 @@ export class Runtime {
   }
 
   makeRef() {
-    const ref = Object.freeze({});
-    references.set(ref, nextReferenceId++);
-    return ref;
+    return Object.freeze([REFERENCE, nextReferenceId++]);
   }
 
   raiseError(reason) {
@@ -367,9 +391,7 @@ export class Runtime {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new TypeError('float must be a finite number');
     }
-    const term = Object.freeze({});
-    floats.set(term, value);
-    return term;
+    return Object.freeze([FLOAT, value]);
   }
 
   floatValue(value) {
@@ -383,19 +405,17 @@ export class Runtime {
 
   cons(head, tail) {
     if (!isTerm(head) || !isTerm(tail)) throw new TypeError('cons requires Erlang terms');
-    const term = Object.freeze({});
-    consCells.set(term, [head, tail]);
-    return term;
+    return Object.freeze([CONS, [head, tail]]);
   }
 
   listHead(value) {
-    const cell = consCells.get(value);
+    const cell = consValue(value);
     if (!cell) throw new TypeError('expected nonempty Erlang list');
     return cell[0];
   }
 
   listTail(value) {
-    const cell = consCells.get(value);
+    const cell = consValue(value);
     if (!cell) throw new TypeError('expected nonempty Erlang list');
     return cell[1];
   }
@@ -404,9 +424,7 @@ export class Runtime {
     if (!Array.isArray(elements)) throw new TypeError('tuple requires an array of Erlang terms');
     const copy = Array.from(elements);
     if (copy.some(value => !isTerm(value))) throw new TypeError('tuple requires an array of Erlang terms');
-    const term = Object.freeze({});
-    tuples.set(term, copy);
-    return term;
+    return Object.freeze([TUPLE, copy]);
   }
 
   tupleSize(value) {
@@ -432,14 +450,14 @@ export class Runtime {
     }
     for (const value of args) termType(value);
     if (op === 'hd' || op === 'tl') {
-      const cell = consCells.get(args[0]);
+      const cell = consValue(args[0]);
       return cell ? cell[op === 'hd' ? 0 : 1] : null;
     }
     if (op === 'length') {
       let value = args[0];
       let length = 0n;
-      while (consCells.has(value)) {
-        value = consCells.get(value)[1];
+      while (isCons(value)) {
+        value = consValue(value)[1];
         length += 1n;
       }
       return value === nil ? length : null;
@@ -447,8 +465,8 @@ export class Runtime {
     if (op === 'list_to_tuple') {
       let value = args[0];
       const elements = [];
-      while (consCells.has(value)) {
-        const [head, tail] = consCells.get(value);
+      while (isCons(value)) {
+        const [head, tail] = consValue(value);
         elements.push(head);
         value = tail;
       }
@@ -481,9 +499,7 @@ export class Runtime {
     }
     const copy = Uint8Array.from(values);
     if (bitLength % 8) copy[copy.length - 1] &= (0xff << (8 - bitLength % 8)) & 0xff;
-    const term = Object.freeze({});
-    bitstrings.set(term, [copy, bitLength]);
-    return term;
+    return Object.freeze([BITSTRING, [copy, bitLength]]);
   }
 
   isBitstring(value) {
@@ -533,9 +549,7 @@ export class Runtime {
     const start = length < 0n ? end : position;
     const stop = length < 0n ? position : end;
     const copy = bytes.slice(Number(start), Number(stop));
-    const term = Object.freeze({});
-    bitstrings.set(term, [copy, copy.length * 8]);
-    return term;
+    return Object.freeze([BITSTRING, [copy, copy.length * 8]]);
   }
 
   read(registers, index) {
@@ -668,8 +682,8 @@ export class Runtime {
       if (type === 'float') {
         if (!Object.is(floats.get(a), floats.get(b))) return false;
       } else if (type === 'cons') {
-        const [ah, at] = consCells.get(a);
-        const [bh, bt] = consCells.get(b);
+        const [ah, at] = consValue(a);
+        const [bh, bt] = consValue(b);
         pending.push([at, bt], [ah, bh]);
       } else if (type === 'tuple') {
         const x = tuples.get(a);
@@ -730,8 +744,8 @@ export class Runtime {
           if (difference !== 0) return difference < 0 ? -1 : 1;
         }
       } else if (aType === 'cons' && a !== b) {
-        const [ah, at] = consCells.get(a);
-        const [bh, bt] = consCells.get(b);
+        const [ah, at] = consValue(a);
+        const [bh, bt] = consValue(b);
         pending.push([at, bt], [ah, bh]);
       } else if (aType === 'tuple' && a !== b) {
         const x = tuples.get(a);
@@ -849,12 +863,12 @@ export class Runtime {
   processInfo(pid, itemSpec) {
     if (!isTerm(pid) || !isTerm(itemSpec)) throw new TypeError('expected supported Erlang terms');
     if (!this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
-    const list = itemSpec === nil || consCells.has(itemSpec);
+    const list = itemSpec === nil || isCons(itemSpec);
     const items = [];
     if (list) {
       let cursor = itemSpec;
-      while (consCells.has(cursor)) {
-        const [item, tail] = consCells.get(cursor);
+      while (isCons(cursor)) {
+        const [item, tail] = consValue(cursor);
         items.push(item);
         cursor = tail;
       }
@@ -1078,8 +1092,8 @@ export class Runtime {
 
   #parseTimerOptions(options, defaults) {
     const result = {...defaults};
-    while (consCells.has(options)) {
-      const [option, tail] = consCells.get(options);
+    while (isCons(options)) {
+      const [option, tail] = consValue(options);
       const pair = tuples.get(option);
       if (!pair || pair.length !== 2 || !isAtom(pair[0]) ||
           !Object.hasOwn(result, Symbol.keyFor(pair[0])) ||
@@ -1187,8 +1201,7 @@ export class Runtime {
     if (!Array.isArray(args) || args.some(value => !isTerm(value))) {
       throw new TypeError('arguments must be supported Erlang terms');
     }
-    const pid = Object.freeze({});
-    pids.set(pid, nextPidId++);
+    const pid = Object.freeze([PID, nextPidId++]);
     this.#localPids.add(pid);
     this.#livePids.add(pid);
     const process = {
@@ -1202,8 +1215,8 @@ export class Runtime {
   #spawnErlang([module, name, list]) {
     if (!isAtom(module) || !isAtom(name)) this.raiseError(this.atom('badarg'));
     const args = [];
-    while (consCells.has(list)) {
-      const [head, tail] = consCells.get(list);
+    while (isCons(list)) {
+      const [head, tail] = consValue(list);
       args.push(head);
       list = tail;
     }

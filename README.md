@@ -126,8 +126,12 @@ finite floats. Use `runtime.floatValue(term)` to retrieve a float, including
 the sign of zero. `runtime.nil()` constructs the empty list, and
 `runtime.cons(head, tail)` constructs a proper or improper cons cell;
 `runtime.listHead(term)` and `runtime.listTail(term)` inspect a cons. Raw
-JavaScript numbers and arrays are not Erlang terms. `runtime.tuple(elements)`
-copies an array of Erlang terms into an immutable tuple; `tupleSize(term)` and
+JavaScript numbers are not Erlang terms. Compound terms use tagged arrays;
+their outer wrappers are frozen, but their payloads are currently accessible
+and must not be modified by host code. Host inputs are not yet isolated by a
+copying conversion boundary, and arbitrary arrays with matching tags can be
+mistaken for terms. `runtime.tuple(elements)`
+copies an array of Erlang terms into a tuple; `tupleSize(term)` and
 `tupleElement(term, index)` inspect it using a one-based index.
 `runtime.bitstring(bytes, bitLength)` copies an array or `Uint8Array` of
 bytes, with bits in most-significant-bit-first order. The byte count must equal

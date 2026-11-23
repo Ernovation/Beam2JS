@@ -848,6 +848,11 @@ try {
   assert.equal(runtime.equalExact(runtime.float(1.5), runtime.float(1.5)), true);
   assert.equal(runtime.equalExact(runtime.float(0), runtime.float(-0)), false);
   assert.equal(runtime.equalNumeric(runtime.float(0), runtime.float(-0)), true);
+  const taggedTerms = [runtime.nil(), runtime.float(1), runtime.cons(1n, runtime.nil()),
+    runtime.tuple([1n]), runtime.bitstring([128], 1), runtime.hostHandle({}), runtime.makeRef()];
+  assert.ok(taggedTerms.every(value => Array.isArray(value) && value.length === 2 &&
+    Number.isInteger(value[0])));
+  assert.equal(new Set(taggedTerms.map(value => value[0])).size, taggedTerms.length);
   assert.ok(Object.isFrozen(runtime.float(1)));
   for (const value of [NaN, Infinity, -Infinity, 1n, '1', {}, null]) {
     assert.throws(() => runtime.float(value), /finite number/);
