@@ -5,6 +5,8 @@ ES modules for execution with its JavaScript runtime. This is an experimental
 first slice, **not** a general-purpose Erlang implementation.
 
 See the [design](docs/design.md) and [implementation plan](docs/plan.md).
+The [browser event design](docs/browser-events.md) proposes delivering DOM
+events to Erlang process mailboxes, with subscription ownership and cleanup.
 The [term representation design](docs/terms.md) describes the planned Erlang
 types and JavaScript boundary.
 The [OTP 29.1.2 opcode ledger](docs/opcodes-otp-29.1.2.md) tracks the initial
@@ -97,9 +99,18 @@ _build/default/bin/beam2js _build/browser/browser_demo.beam examples/browser/bro
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000/examples/browser/`. The compiled Erlang function
-looks up the page element and calls a JavaScript-backed `dom` module to append
-text. Browser errors are reported in the developer console.
+Open `http://localhost:8000/examples/browser/`. The compiled Erlang process
+appends a greeting, then waits in a `receive` loop. Click **Send click to Erlang**:
+the JavaScript DOM listener sends `{dom_event, click}` to its mailbox, and
+Erlang maintains the click count and appends `Click 1!`, `Click 2!`, and so on
+through the JavaScript-backed `dom` module. **Stop Erlang process** sends `stop`
+and disables the controls. Listeners are removed on completion, failure or
+page teardown; failures appear on the page and in the developer console.
+
+The bootstrap uses `runtime.spawnProcess` rather than synchronous `invoke`,
+so the receive loop can suspend without blocking the browser. This is a small
+host-wired message example, not the proposed `dom:listen/3` subscription API
+in the [browser event design](docs/browser-events.md).
 
 The example adapter exposes only synchronous `dom:element_by_id/1` and
 `dom:append_text/2`: text arguments are UTF-8 binaries, and `append_text`
@@ -314,7 +325,8 @@ Compiled literals can nest the supported literal types; a literal containing an
 unsupported type, such as a map, rejects the module. Binary and partial-byte
 bitstring literals are supported, including nested literals, equality and
 ordering. General dynamic binary/bitstring construction, matching, other
-slicing instructions and other callable binary BIFs remain unsupported.
+slicing instructions and callable binary BIFs beyond those described below
+remain unsupported.
 Tagged tuple tests and selected value and tuple-arity branches are supported.
 Supported source operands include type-tagged x and y registers: their hints
 are ignored, not validated, and y registers require an allocated slot.
@@ -356,6 +368,10 @@ bases must be integers from 2 through 36. Invalid arguments raise `badarg`.
 Conversion is synchronous and may block the host event loop; OTP resource and
 scheduling behavior is not reproduced. The ordinary OTP `list_to_integer/1,2`
 functions are not bundled.
+Callable `binary_to_list/1,3` convert a binary to a list of bytes. The
+three-argument form uses a nonempty, one-based inclusive range. Non-binaries
+and invalid ranges raise `badarg`. Conversion is synchronous and may block the
+host event loop; OTP resource and scheduling behavior is not reproduced.
 Nonzero-label `bit_size/1` and `byte_size/1` guard instructions accept
 bitstrings and branch on other terms. `byte_size/1` rounds partial bytes up;
 zero-label forms raise `badarg` on non-bitstrings. Both instruction forms
@@ -368,12 +384,18 @@ Invalid inputs or ranges branch in guards or raise `badarg` in zero-label forms.
 Both instruction arities support x or y destinations, including aliased
 operands; failed guards leave the destination unchanged.
 `bit_size/1`, `byte_size/1` and both `binary_part` arities are also callable,
-raising `badarg` for invalid inputs. These callable BIFs, the list and tuple and
-integer conversion BIFs,
+raising `badarg` for invalid inputs. These callable BIFs, the list and tuple,
+integer conversion and binary-to-list BIFs,
 predicates and comparison operators take precedence over registered `erlang` functions of the same
 name and arity. Other callable BIFs are limited to `self/0`,
 `is_process_alive/1`, `process_info/2`, `spawn/3`, `send/2`, `!/2`, `make_ref/0`,
 the local process dictionary, registry and timer BIFs above and the numeric BIFs described below.
+`erlang:apply/3` dynamically calls an exported function in a registered module
+or a supported callable BIF. Its arguments must be a proper list of at most
+255 terms. `apply/2` and fun values are unsupported. Generated
+`module_info/0,1` expose only the `module` and `exports` fields; other keys are
+not implemented. Missing modules/functions still produce a host diagnostic,
+not OTP's `undef` exception.
 Slices copy synchronously and may block the host event loop.
 The corresponding guard instructions for integer `band`, `bor`, `bxor` and
 `bnot` also branch on non-integers; their zero-label forms raise `badarith`.

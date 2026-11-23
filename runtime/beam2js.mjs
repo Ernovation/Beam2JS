@@ -86,6 +86,38 @@ callableBifs.set(JSON.stringify(['spawn', 3]), {
   exported: true,
   run: (rt, args) => ({type: 'spawn', args}),
 });
+callableBifs.set(JSON.stringify(['apply', 3]), {
+  exported: true,
+  run: (rt, [module, name, list]) => {
+    if (!isAtom(module) || !isAtom(name)) rt.raiseError(rt.atom('badarg'));
+    const args = [];
+    while (consCells.has(list)) {
+      const [head, tail] = consCells.get(list);
+      args.push(head);
+      list = tail;
+      if (args.length > 255) throw new Error('unsupported function arity: more than 255');
+    }
+    if (list !== nil) rt.raiseError(rt.atom('badarg'));
+    return {
+      type: 'tail', module: Symbol.keyFor(module), name: Symbol.keyFor(name),
+      args, external: true,
+    };
+  },
+});
+callableBifs.set(JSON.stringify(['get_module_info', 1]), {
+  exported: true,
+  run: (rt, [module]) => {
+    if (!isAtom(module)) rt.raiseError(rt.atom('badarg'));
+    return {type: 'module_info', module: Symbol.keyFor(module), arity: 0, args: []};
+  },
+});
+callableBifs.set(JSON.stringify(['get_module_info', 2]), {
+  exported: true,
+  run: (rt, [module, key]) => {
+    if (!isAtom(module)) rt.raiseError(rt.atom('badarg'));
+    return {type: 'module_info', module: Symbol.keyFor(module), arity: 1, args: [key]};
+  },
+});
 callableBifs.set(JSON.stringify(['register', 2]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.registerProcess(...args)}),
@@ -158,6 +190,23 @@ addGuardedBifs([['hd', 1], ['tl', 1], ['length', 1], ['tuple_size', 1], ['elemen
   (rt, name, args) => rt.guardListTuple(name, ...args));
 addGuardedBifs([['bit_size', 1], ['byte_size', 1], ['binary_part', 2], ['binary_part', 3]],
   (rt, name, args) => rt.guardBitstringBif(name, ...args));
+addGuardedBifs([['binary_to_list', 1], ['binary_to_list', 3]], (rt, name, args) => {
+  const bits = bitstrings.get(args[0]);
+  if (!bits || bits[1] % 8 !== 0) return null;
+  const bytes = bits[0];
+  let start = 0;
+  let end = bytes.length;
+  if (args.length === 3) {
+    const [first, last] = args.slice(1);
+    if (typeof first !== 'bigint' || typeof last !== 'bigint' ||
+        first < 1n || last < first || last > BigInt(bytes.length)) return null;
+    start = Number(first - 1n);
+    end = Number(last);
+  }
+  let result = nil;
+  for (let i = end - 1; i >= start; i--) result = rt.cons(BigInt(bytes[i]), result);
+  return result;
+});
 addGuardedBifs([['abs', 1], ['trunc', 1], ['round', 1], ['floor', 1], ['ceil', 1], ['float', 1]],
   (rt, name, args) => rt.guardArithmetic(name, ...args));
 addGuardedBifs([['+', 2], ['-', 1], ['-', 2], ['*', 2], ['/', 2]],
@@ -720,7 +769,39 @@ export class Runtime {
       if (table.has(key)) throw new Error(`duplicate function: ${name}:${fn.name}/${fn.arity}`);
       table.set(key, fn);
     }
+    for (const arity of [0, 1]) {
+      const key = JSON.stringify(['module_info', arity]);
+      if (!table.has(key)) {
+        table.set(key, {
+          name: 'module_info', arity, exported: true,
+          run: (rt, args) => ({type: 'return', value: rt.#moduleInfo(name, arity, args)}),
+        });
+      }
+    }
     this.modules.set(name, table);
+  }
+
+  #moduleInfo(moduleName, arity, args) {
+    const table = this.modules.get(moduleName);
+    if (!table) this.raiseError(this.atom('badarg'));
+    const exports = [...table.values()]
+      .filter(fn => fn.exported)
+      .sort((left, right) => this.compare(this.atom(left.name), this.atom(right.name)) ||
+        left.arity - right.arity)
+      .map(fn => this.tuple([this.atom(fn.name), BigInt(fn.arity)]));
+    let result = this.nil();
+    for (let i = exports.length - 1; i >= 0; i--) result = this.cons(exports[i], result);
+    if (arity === 1) {
+      const key = args[0];
+      if (!isAtom(key)) this.raiseError(this.atom('badarg'));
+      if (key === this.atom('module')) return this.atom(moduleName);
+      if (key === this.atom('exports')) return result;
+      this.raiseError(this.atom('badarg'));
+    }
+    return this.cons(
+      this.tuple([this.atom('module'), this.atom(moduleName)]),
+      this.cons(this.tuple([this.atom('exports'), result]), this.nil()),
+    );
   }
 
   invoke(module, name, args) {
@@ -1297,6 +1378,11 @@ export class Runtime {
         action = {type: 'return', value: this.#spawnErlang(action.args)};
       } else if (action.type === 'dictionary') {
         action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
+      } else if (action.type === 'module_info') {
+        action = {
+          type: 'return',
+          value: this.#moduleInfo(action.module, action.arity, action.args),
+        };
       }
       if (action.type === 'return') {
         if (!isTerm(action.value)) throw new TypeError('return value must be a supported Erlang term');

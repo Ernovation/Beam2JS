@@ -6,6 +6,10 @@
   </head>
   <body>
     <h1>Beam2JS browser demo</h1>
+    <p>Each click sends a message to an Erlang process. Erlang counts the clicks and updates the text below.</p>
+    <button id="button" type="button">Send click to Erlang</button>
+    <button id="stop" type="button">Stop Erlang process</button>
+    <p id="status" role="status">Listening for clicks.</p>
     <p id="message"></p>
     <script type="module" src="./main.mjs"></script>
   </body>

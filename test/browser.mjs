@@ -22,6 +22,7 @@ import {processInfoChecks} from './process-info-cases.mjs';
 import {timerBifChecks} from './timer-bif-cases.mjs';
 import {timerOptionChecks} from './timer-option-cases.mjs';
 import {registryChecks} from './registry-cases.mjs';
+import {applyChecks} from './apply-cases.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-browser-'));
 const compiler = resolve('_build/default/bin/beam2js');
@@ -29,7 +30,8 @@ const run = (command, args) => execFileSync(command, args, {encoding: 'utf8', ti
 const source = path => readFileSync(resolve(path), 'utf8');
 
 try {
-  run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/calls.erl',
+  run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/dynamic_apply.erl',
+    'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
     'fixtures/bif_body.erl', 'fixtures/scheduler_fixture.erl', 'fixtures/scheduler_probe.erl',
     'fixtures/process_identity.erl', 'fixtures/process_spawn.erl', 'fixtures/spawn_probe.erl',
@@ -270,10 +272,13 @@ try {
     'true=lists:any(fun({call_ext_only,N,{extfunc,erlang,Actual,N}}) ' +
     'when Actual=:=Bif, N=:=Arity -> true;(_)->false end,Code) end, ' +
     '[{integer_chars,integer_to_list,1},{integer_chars_base,integer_to_list,2},' +
-    '{integer_binary,integer_to_binary,1},{integer_binary_base,integer_to_binary,2}]), ' +
+    '{integer_binary,integer_to_binary,1},{integer_binary_base,integer_to_binary,2},' +
+    '{binary_list,binary_to_list,1},{binary_list_range,binary_to_list,3}]), ' +
     '{function,integer_text_pair,2,_,TextPair}=lists:keyfind(integer_text_pair,2,BFs), ' +
     'lists:foreach(fun(Bif)->true=lists:any(fun({call_ext,2,{extfunc,erlang,Actual,2}}) ' +
     'when Actual=:=Bif -> true;(_)->false end,TextPair) end,[integer_to_list,integer_to_binary]), ' +
+    '{function,binary_list_across,3,_,BinaryAcross}=lists:keyfind(binary_list_across,2,BFs), ' +
+    'true=lists:any(fun({call_ext,3,{extfunc,erlang,binary_to_list,3}})->true;(_)->false end,BinaryAcross), ' +
     'lists:foreach(fun({Name,Bif}) -> {function,Name,_,_,Code}=lists:keyfind(Name,2,BFs), ' +
     'true=lists:any(fun({bif,Actual,{f,0},_,_}) when Actual=:=Bif -> true;(_)->false end,Code) end, ' +
     '[{bool_not,\'not\'},{bool_and,\'and\'},{bool_or,\'or\'},{bool_xor,\'xor\'}]), ' +
@@ -332,11 +337,12 @@ try {
     '{ge_call_tail,call_ext_only},{list_to_tuple_last,call_ext_last},' +
     '{tuple_to_list_last,call_ext_last},{bool_not_call,call_ext_only},' +
     '{bool_and_call,call_ext_last},{bool_or_call,call_ext},{bool_xor_call,call_ext_only},' +
-    '{integer_chars_last,call_ext_last},{integer_binary_last,call_ext_last}]), ' +
+    '{integer_chars_last,call_ext_last},{integer_binary_last,call_ext_last},' +
+    '{binary_list_last,call_ext_last}]), ' +
     'lists:foreach(fun(Name) -> Input=filename:join(Dir,Name++".beam"), ' +
     '{ok,B}=file:read_file(Input), {ok,{_,S}}=beam_lib:strip(B), ' +
     'ok=file:write_file(filename:join(Dir,Name++"-stripped.beam"),S) end, ' +
-    '["calls","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry","process_dictionary","raw_dictionary","process_info_fixture"]), halt().', '-extra', dir]);
+    '["calls","dynamic_apply","raw_stack","match_failures","raw_failures","arithmetic_body","raw_arithmetic_body","raw_float_registers","bif_body","raw_bif_body","scheduler_fixture","raw_scheduler","process_identity","raw_identity","raw_bifs","process_spawn","raw_spawn","process_send","raw_send","spawn_probe","process_receive","receive_timeout","process_reference","raw_reference","process_timer","process_registry","process_dictionary","raw_dictionary","process_info_fixture"]), halt().', '-extra', dir]);
   for (const [input, output] of [
     [calls, 'calls.mjs'], [stripped, 'calls-stripped.mjs'],
     [join(dir, 'raw_stack.beam'), 'raw_stack.mjs'],
@@ -395,9 +401,26 @@ try {
     [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
     [join(dir, 'browser_demo.beam'), 'browser_demo.mjs'],
+    [join(dir, 'dynamic_apply.beam'), 'dynamic_apply.mjs'],
+    [join(dir, 'dynamic_apply-stripped.beam'), 'dynamic_apply-stripped.mjs'],
   ]) {
     run(compiler, [input, join(dir, output)]);
   }
+  const [applySum, applyExports, applyErrors] = run('erl', ['-pa', dir, '-noshell', '-eval',
+    'Badarg=fun(F)->try F(),false catch error:badarg->true; _:_ ->false end end, ' +
+    'Errors=Badarg(fun()->apply(1,add,[]) end) andalso ' +
+    'Badarg(fun()->apply(dynamic_apply,1,[]) end) andalso ' +
+    'Badarg(fun()->apply(dynamic_apply,add,[2|improper]) end) andalso ' +
+    'Badarg(fun()->dynamic_apply:module_info(unknown) end) andalso ' +
+    'Badarg(fun()->dynamic_apply:module_info(1) end), ' +
+    'io:format("~B~n~w~n~p", [dynamic_apply:apply_tail(dynamic_apply,add,[2,3]), ' +
+    'lists:sort(dynamic_apply:module_info(exports)),Errors]), halt().']).trimEnd().split('\n');
+  const applyExpected = {
+    sum: applySum,
+    errors: applyErrors === 'true',
+    exports: [...applyExports.matchAll(/\{([a-zA-Z0-9_]+),(\d+)\}/g)]
+      .map(([, name, arity]) => `${name}/${arity}`),
+  };
   const oracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Values=[{{1,[]},[2|tail]},{-0.0,<<5:3>>},{make_ref(),self()}], ' +
     'Rich=lists:all(fun({A,B})->calls:stack_tuple(A,B)=:={{A,B},A} andalso ' +
@@ -517,7 +540,11 @@ try {
     '(try raw_bif_body:bool_and_y(false,bad),false catch error:badarg->true end),' +
     '(try erlang:\'or\'(true,bad),false catch error:badarg->true end),' +
     '(try bif_body:integer_chars_base(1,1),false catch error:badarg->true end),' +
-    '(try erlang:integer_to_binary(1,16.0),false catch error:badarg->true end)]]),halt().',
+    '(try erlang:integer_to_binary(1,16.0),false catch error:badarg->true end),' +
+    'erlang:binary_to_list(<<1,2,255>>)=:=[1,2,255],' +
+    'raw_bif_body:binary_list_last(<<1,2,255>>,2,3)=:=[2,255],' +
+    'bif_body:binary_list_across(<<1,2,255>>,1,2)=:={ok,[1,2]},' +
+    '(try bif_body:binary_list_range(<<1,2,255>>,2,1),false catch error:badarg->true end)]]),halt().',
   ]).trim();
   const schedulerOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'io:format("~w~n~w~n",[scheduler_fixture:count(11,8),scheduler_fixture:count(22,8)]),halt().',
@@ -1051,12 +1078,22 @@ try {
     '{bif_body,integer_binary_base,[35,36]},{bif_body,integer_binary_base,[1,37]},' +
     '{bif_body,integer_text_pair,[-255,16]},{bif_body,integer_text_pair,[1,1]},' +
     '{raw_bif_body,integer_chars_last,[255,16]},{raw_bif_body,integer_chars_last,[1,1]},' +
-    '{raw_bif_body,integer_binary_last,[-255,16]},{raw_bif_body,integer_binary_last,[[],10]}], ' +
+    '{raw_bif_body,integer_binary_last,[-255,16]},{raw_bif_body,integer_binary_last,[[],10]}] ++ ' +
+    '[{erlang,binary_to_list,[V]} || V <- [<<>>,Bin,<<1:9>>,<<1:1>>,[],bad,{},1]] ++ ' +
+    '[{erlang,binary_to_list,[Bin,First,Last]} || First <- lists:seq(-1,5), Last <- lists:seq(-1,5)] ++ ' +
+    '[{erlang,binary_to_list,Args} || Args <- [[<<>>,1,1],[<<1:9>>,1,1],[bad,1,1],' +
+    '[Bin,1 bsl 1024,2],[Bin,1,1 bsl 1024],[Bin,1.0,2],[Bin,1,2.0],[Bin,bad,2],[Bin,1,[]]]] ++ ' +
+    '[{bif_body,binary_list,[Bin]},{bif_body,binary_list,[<<1:9>>]},' +
+    '{bif_body,binary_list_range,[Bin,2,4]},{bif_body,binary_list_range,[Bin,2,1]},' +
+    '{bif_body,binary_list_across,[Bin,1,2]},{bif_body,binary_list_across,[Bin,0,1]},' +
+    '{raw_bif_body,binary_list_last,[Bin,3,4]},{raw_bif_body,binary_list_last,[Bin,1,5]}], ' +
     'lists:foreach(fun({M,F,A}) -> Result=try apply(M,F,A) of V->{ok,V} ' +
     'catch C:R->{C,R} end, io:format("~w~n",[Result]) end,Cases), ' +
     'LongTuple=list_to_tuple(Long), LongRoundtrip=tuple_size(LongTuple)=:=10000 andalso ' +
     'element(1,LongTuple)=:=1 andalso element(10000,LongTuple)=:=10000 andalso ' +
-    'tuple_to_list(LongTuple)=:=Long, io:format("~w~n",[{ok,LongRoundtrip}]),halt().',
+    'tuple_to_list(LongTuple)=:=Long, io:format("~w~n",[{ok,LongRoundtrip}]), ' +
+    'LongBytes=binary_to_list(binary:copy(<<255>>,10000)), ' +
+    'io:format("~w~n",[{ok,length(LongBytes)=:=10000 andalso lists:all(fun(X)->X=:=255 end,LongBytes)}]),halt().',
   ]).trimEnd().split('\n');
   const arithmeticOracle = run('erl', ['-pa', dir, '-noshell', '-eval',
     'Huge=1 bsl 1024, MaxIntegerFloat=Huge-(1 bsl 971), FloatOverflowTie=Huge-(1 bsl 970), ' +
@@ -1311,6 +1348,8 @@ try {
   }
 
   for (const suffix of ['', '-stripped']) {
+    const dynamicApply = await import(pathToFileURL(join(dir, `dynamic_apply${suffix}.mjs`)));
+    assert.equal(applyChecks(Runtime, rt => dynamicApply.register(rt), applyExpected), true);
     const modules = await Promise.all([
       `scheduler_fixture${suffix}.mjs`, `raw_scheduler${suffix}.mjs`, `raw_stack${suffix}.mjs`,
       `raw_float_registers${suffix}.mjs`, `calls${suffix}.mjs`, `arithmetic_body${suffix}.mjs`,
@@ -1544,6 +1583,24 @@ try {
   assert.equal(rt.invoke('browser_demo', 'run', []), rt.atom('ok'));
   assert.equal(element.value, 'hélloHello from Erlang!');
 
+  const eventRuntime = new Runtime();
+  const eventElement = {value: '', append(value) { this.value += value; }};
+  registerDom(eventRuntime, {getElementById: id => id === 'message' ? eventElement : null});
+  (await import(pathToFileURL(join(dir, 'browser_demo.mjs')))).register(eventRuntime);
+  const eventReceiver = eventRuntime.spawnProcess('browser_demo', 'listen', []);
+  const clickMessage = eventRuntime.tuple([
+    eventRuntime.atom('dom_event'), eventRuntime.atom('click'),
+  ]);
+  eventRuntime.sendMessage(eventReceiver, clickMessage);
+  eventRuntime.sendMessage(eventReceiver, clickMessage);
+  eventRuntime.sendMessage(eventReceiver, eventRuntime.atom('stop'));
+  let eventTimer;
+  assert.equal(await Promise.race([eventReceiver.result, new Promise((_, reject) => {
+    eventTimer = setTimeout(() => reject(new Error('browser demo receive loop timed out')), 5000);
+  })]).finally(() => clearTimeout(eventTimer)), eventRuntime.atom('ok'));
+  assert.equal(eventElement.value, 'Hello from Erlang! Click 1! Click 2!');
+  assert.equal(eventRuntime.isProcessAlive(eventReceiver.pid), false);
+
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
@@ -1568,6 +1625,7 @@ try {
       ['/test/reference-cases.mjs', ['text/javascript', source('test/reference-cases.mjs')]],
       ['/test/dictionary-cases.mjs', ['text/javascript', source('test/dictionary-cases.mjs')]],
       ['/test/process-info-cases.mjs', ['text/javascript', source('test/process-info-cases.mjs')]],
+      ['/test/apply-cases.mjs', ['text/javascript', source('test/apply-cases.mjs')]],
       ...['calls.mjs', 'calls-stripped.mjs', 'raw_stack.mjs', 'raw_stack-stripped.mjs',
         'match_failures.mjs', 'match_failures-stripped.mjs', 'raw_failures.mjs',
         'raw_failures-stripped.mjs', 'arithmetic_body.mjs', 'arithmetic_body-stripped.mjs',
@@ -1588,6 +1646,7 @@ try {
         'process_dictionary.mjs', 'process_dictionary-stripped.mjs',
         'raw_dictionary.mjs', 'raw_dictionary-stripped.mjs',
         'process_info_fixture.mjs', 'process_info_fixture-stripped.mjs',
+        'dynamic_apply.mjs', 'dynamic_apply-stripped.mjs',
         'raw_bifs.mjs', 'raw_bifs-stripped.mjs',
         'slice_helper.mjs'].map(file =>
         [`/${file}`, ['text/javascript', readFileSync(join(dir, file), 'utf8')]]),
@@ -1602,9 +1661,22 @@ try {
     await page.goto('http://beam2js.test/examples/browser/', {timeout: 30000});
     await page.waitForFunction(() => document.getElementById('message').textContent === 'Hello from Erlang!',
       null, {timeout: 30000});
+    await page.click('#button');
+    await page.waitForFunction(() => document.getElementById('message').textContent === 'Hello from Erlang! Click 1!',
+      null, {timeout: 5000});
+    await page.click('#button');
+    await page.waitForFunction(() => document.getElementById('message').textContent === 'Hello from Erlang! Click 1! Click 2!',
+      null, {timeout: 5000});
+    await page.click('#stop');
+    await page.waitForFunction(() => document.getElementById('status').textContent === 'Stopped.',
+      null, {timeout: 5000});
+    assert.equal(await page.isDisabled('#button'), true);
+    assert.equal(await page.isDisabled('#stop'), true);
+    await page.evaluate(() => document.getElementById('button').dispatchEvent(new MouseEvent('click')));
+    assert.equal(await page.textContent('#message'), 'Hello from Erlang! Click 1! Click 2!');
     assert.deepEqual(errors, []);
     let timer;
-    const browserResults = await Promise.race([page.evaluate(async () => {
+    const browserResults = await Promise.race([page.evaluate(async expectedApply => {
       const {Runtime, ErlangError} = await import('/runtime/beam2js.mjs');
       const {registerDom} = await import('/examples/browser/dom.mjs');
       const {callResults, stackYieldChecks} = await import('/test/call-cases.mjs');
@@ -1622,6 +1694,7 @@ try {
       const {referenceChecks} = await import('/test/reference-cases.mjs');
       const {dictionaryChecks} = await import('/test/dictionary-cases.mjs');
       const {processInfoChecks} = await import('/test/process-info-cases.mjs');
+      const {applyChecks} = await import('/test/apply-cases.mjs');
       const results = [];
       const matches = [];
       const arithmetic = [];
@@ -1638,6 +1711,7 @@ try {
       const refs = [];
       const dictionaries = [];
       const processInfos = [];
+      const dynamicApply = [];
       for (const [file, raw, match, rawFail, body, rawBody, rawFloat, bifBody, rawBifBody] of [
         ['/calls.mjs', '/raw_stack.mjs', '/match_failures.mjs', '/raw_failures.mjs',
           '/arithmetic_body.mjs', '/raw_arithmetic_body.mjs', '/raw_float_registers.mjs',
@@ -1662,6 +1736,8 @@ try {
         arithmetic.push(arithmeticResults(runtime));
       }
       for (const suffix of ['', '-stripped']) {
+        const applyModule = await import(`/dynamic_apply${suffix}.mjs`);
+        dynamicApply.push(applyChecks(Runtime, rt => applyModule.register(rt), expectedApply));
         const modules = await Promise.all([
           `/scheduler_fixture${suffix}.mjs`, `/raw_scheduler${suffix}.mjs`, `/raw_stack${suffix}.mjs`,
           `/raw_float_registers${suffix}.mjs`, `/calls${suffix}.mjs`, `/arithmetic_body${suffix}.mjs`,
@@ -1736,8 +1812,8 @@ try {
       const sameHandle = handle === runtime.invoke('dom', 'element_by_id', [binary('message')]);
       runtime.invoke('dom', 'append_text', [handle, binary(' <b>å</b>')]);
       const element = document.getElementById('message');
-      return {results, matches, arithmetic, scheduled, stackYields, identity, refs, dictionaries, processInfos, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
-    }), new Promise((_, reject) => {
+      return {results, matches, arithmetic, scheduled, stackYields, identity, refs, dictionaries, processInfos, dynamicApply, spawned, sent, received, timeouts, timerBifs, timerOptions, registries, sameHandle, text: element.textContent, children: element.children.length};
+    }, applyExpected), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('browser call tests timed out')), 30000);
     })]).finally(() => clearTimeout(timer));
     assert.deepEqual(browserResults, {
@@ -1747,13 +1823,34 @@ try {
       identity: [identityOracle, identityOracle], refs: [referenceOracle, referenceOracle],
       dictionaries: [dictionaryOracle, dictionaryOracle],
       processInfos: [processInfoOracle, processInfoOracle],
+      dynamicApply: [true, true],
       spawned: [spawnOracle, spawnOracle],
       sent: [sendOracle, sendOracle], received: [receiveOracle, receiveOracle],
       timeouts: [timeoutOracle, timeoutOracle], timerBifs: [timerBifOracle, timerBifOracle],
       timerOptions: [timerOptionOracle, timerOptionOracle],
       registries: [registryOracle, registryOracle], sameHandle: true,
-      text: 'Hello from Erlang! <b>å</b>', children: 0,
+      text: 'Hello from Erlang! Click 1! Click 2! <b>å</b>', children: 0,
     });
+
+    const diagnostics = [];
+    page.on('console', message => {
+      if (message.type() === 'error') diagnostics.push(message.text());
+    });
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById('message').textContent === 'Hello from Erlang!',
+      null, {timeout: 5000});
+    await page.evaluate(() => {
+      document.getElementById('message').append = () => { throw new Error('DOM event update failed'); };
+    });
+    await page.click('#button');
+    await page.waitForFunction(() => document.getElementById('status').textContent === 'Failed: DOM event update failed',
+      null, {timeout: 5000});
+    assert.equal(await page.isDisabled('#button'), true);
+    assert.equal(await page.isDisabled('#stop'), true);
+    await page.evaluate(() => document.getElementById('button').dispatchEvent(new MouseEvent('click')));
+    assert.equal(diagnostics.length, 1);
+    assert.match(diagnostics[0], /Browser event process failed:.*DOM event update failed/s);
+    assert.deepEqual(errors, []);
   } finally {
     await browser.close();
   }

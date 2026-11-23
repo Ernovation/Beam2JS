@@ -6,7 +6,8 @@
          bool_not/1, bool_and/2, bool_or/2, bool_xor/2,
          guard_not/1, guard_and/2, guard_or/2, guard_xor/2,
          integer_chars/1, integer_chars_base/2, integer_binary/1,
-         integer_binary_base/2, integer_text_pair/2]).
+         integer_binary_base/2, integer_text_pair/2,
+         binary_list/1, binary_list_range/3, binary_list_across/3]).
 
 head(Value) -> hd(Value).
 tail(Value) -> tl(Value).
@@ -42,6 +43,11 @@ integer_binary_base(Value, Base) -> integer_to_binary(Value, Base).
 integer_text_pair(Value, Base) ->
     Chars = integer_to_list(Value, Base),
     {Chars, integer_to_binary(Value, Base)}.
+
+binary_list(Value) -> binary_to_list(Value).
+binary_list_range(Value, First, Last) -> binary_to_list(Value, First, Last).
+binary_list_across(Value, First, Last) ->
+    {ok, binary_to_list(Value, First, Last)}.
 
 head_across(Value) ->
     Result = head(Value),

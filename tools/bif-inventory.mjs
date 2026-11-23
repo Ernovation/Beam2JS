@@ -142,6 +142,8 @@ const details = new Map([
   ['erlang:integer_to_list/2', {exceptions: 'badarg for non-integer input or invalid base'}],
   ['erlang:integer_to_binary/1', {exceptions: 'badarg for non-integer input'}],
   ['erlang:integer_to_binary/2', {exceptions: 'badarg for non-integer input or invalid base'}],
+  ['erlang:binary_to_list/1', {exceptions: 'badarg for non-binary input'}],
+  ['erlang:binary_to_list/3', {exceptions: 'badarg for non-binary input or invalid range'}],
   ['erlang:bit_size/1', {exceptions: 'badarg for non-bitstring input'}],
   ['erlang:byte_size/1', {exceptions: 'badarg for non-bitstring input'}],
   ['erlang:element/2', {exceptions: 'badarg for invalid index or non-tuple'}],
@@ -239,6 +241,7 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:list_to_tuple/1', 'erlang:tuple_to_list/1',
   'erlang:integer_to_list/1', 'erlang:integer_to_list/2',
   'erlang:integer_to_binary/1', 'erlang:integer_to_binary/2',
+  'erlang:binary_to_list/1', 'erlang:binary_to_list/3',
   'erlang:monotonic_time/0', 'erlang:monotonic_time/1',
   'erlang:get/0', 'erlang:get_keys/0', 'erlang:get_keys/1', 'erlang:put/2', 'erlang:erase/0', 'erlang:erase/1',
   'erlang:send_after/3', 'erlang:send_after/4', 'erlang:start_timer/3', 'erlang:start_timer/4',
@@ -367,6 +370,13 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   callers. Conversion is synchronous and can block the event loop; OTP resource
   limits and scheduling behavior are not implemented. \`list_to_integer/1,2\`
   are ordinary preloaded Erlang functions, not runtime BIFs.
+- Callable \`binary_to_list/1,3\` convert a binary to a list of byte integers.
+  The three-argument form uses a nonempty, one-based inclusive range. Non-binaries
+  and invalid ranges raise \`badarg\`. OTP, Node and Chromium tests cover empty
+  and partial bitstrings, range boundaries, long binaries, external calls and
+  scheduler yields, including stripped callers. Conversion is synchronous and
+  can block the event loop; OTP resource limits and scheduling behavior are not
+  implemented.
 - \`element/2\` uses one-based tuple indexes; a non-tuple or invalid index
   raises \`badarg\` in a body. \`tuple_size/1\` returns the number of tuple
   elements and raises \`badarg\` for a non-tuple. Guard and zero-label

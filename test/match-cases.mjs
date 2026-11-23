@@ -362,6 +362,40 @@ export function matchResults(runtime) {
     ['raw_bif_body', 'integer_chars_last', [255n, 16n]], ['raw_bif_body', 'integer_chars_last', [1n, 1n]],
     ['raw_bif_body', 'integer_binary_last', [-255n, 16n]], ['raw_bif_body', 'integer_binary_last', [nil, 10n]],
   );
+  for (const value of [emptyBinary, binary, partial, oneBit, nil, atom('bad'), tuple(), 1n]) {
+    cases.push(['erlang', 'binary_to_list', [value]]);
+  }
+  for (let first = -1; first <= 5; first++) {
+    for (let last = -1; last <= 5; last++) {
+      cases.push(['erlang', 'binary_to_list', [binary, BigInt(first), BigInt(last)]]);
+    }
+  }
+  for (const args of [
+    [emptyBinary, 1n, 1n], [partial, 1n, 1n], [atom('bad'), 1n, 1n],
+    [binary, 1n << 1024n, 2n], [binary, 1n, 1n << 1024n],
+    [binary, runtime.float(1), 2n], [binary, 1n, runtime.float(2)],
+    [binary, atom('bad'), 2n], [binary, 1n, nil],
+  ]) cases.push(['erlang', 'binary_to_list', args]);
+  cases.push(
+    ['bif_body', 'binary_list', [binary]], ['bif_body', 'binary_list', [partial]],
+    ['bif_body', 'binary_list_range', [binary, 2n, 4n]],
+    ['bif_body', 'binary_list_range', [binary, 2n, 1n]],
+    ['bif_body', 'binary_list_across', [binary, 1n, 2n]],
+    ['bif_body', 'binary_list_across', [binary, 0n, 1n]],
+    ['raw_bif_body', 'binary_list_last', [binary, 3n, 4n]],
+    ['raw_bif_body', 'binary_list_last', [binary, 1n, 5n]],
+  );
+  const longBytes = runtime.bitstring(new Uint8Array(10000).fill(255), 80000);
+  let longByteList = runtime.invoke('erlang', 'binary_to_list', [longBytes]);
+  let longBinaryOK = true;
+  for (let i = 0; i < 10000; i++) {
+    if (!runtime.isType('is_nonempty_list', longByteList) || runtime.listHead(longByteList) !== 255n) {
+      longBinaryOK = false;
+      break;
+    }
+    longByteList = runtime.listTail(longByteList);
+  }
+  longBinaryOK &&= runtime.isType('is_nil', longByteList);
   const longTuple = runtime.invoke('erlang', 'list_to_tuple', [longProper]);
   const longRoundtrip = runtime.tupleSize(longTuple) === 10000 &&
     runtime.tupleElement(longTuple, 1) === 9999n && runtime.tupleElement(longTuple, 10000) === 0n &&
@@ -382,6 +416,7 @@ export function matchResults(runtime) {
     ...['and', 'or', 'xor'].map(name => ({name, arity: 2})), {name: 'not', arity: 1},
     {name: 'not', arity: 2},
     ...['integer_to_list', 'integer_to_binary'].flatMap(name => [1, 2, 3].map(arity => ({name, arity}))),
+    ...[1, 2, 3].map(arity => ({name: 'binary_to_list', arity})),
   ].map(entry => ({
     ...entry, exported: true,
     run: rt => ({type: 'return', value: rt.atom('shadow')}),
@@ -421,6 +456,14 @@ export function matchResults(runtime) {
         shadow.bitstring([70, 70], 16)) ||
       shadow.invoke('erlang', 'integer_to_list', [1n, 2n, 3n]) !== shadow.atom('shadow')) {
     throw new Error('incorrect integer conversion BIF dispatch');
+  }
+  const bytes = shadow.bitstring([1, 2, 3], 24);
+  if (!shadow.equalExact(shadow.invoke('erlang', 'binary_to_list', [bytes]),
+      shadow.cons(1n, shadow.cons(2n, shadow.cons(3n, shadow.nil())))) ||
+      !shadow.equalExact(shadow.invoke('erlang', 'binary_to_list', [bytes, 2n, 2n]),
+        shadow.cons(2n, shadow.nil())) ||
+      shadow.invoke('erlang', 'binary_to_list', [bytes, 1n]) !== shadow.atom('shadow')) {
+    throw new Error('incorrect binary_to_list BIF dispatch');
   }
   const handle = shadow.hostHandle({});
   if (shadow.invoke('erlang', '=:=', [handle, handle]) !== shadow.atom('true') ||
@@ -463,5 +506,6 @@ export function matchResults(runtime) {
     }
   });
   results.push(`{ok,${longRoundtrip}}`);
+  results.push(`{ok,${longBinaryOK}}`);
   return results;
 }

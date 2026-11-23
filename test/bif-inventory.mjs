@@ -41,6 +41,11 @@ for (const name of ['integer_to_list/1', 'integer_to_list/2', 'integer_to_binary
 }
 assert.match(row('erlang:integer_to_list/2')[9], /invalid base/);
 assert.match(row('erlang:integer_to_binary/2')[9], /invalid base/);
+for (const name of ['binary_to_list/1', 'binary_to_list/3']) {
+  assert.equal(row(`erlang:${name}`)[11], 'callable-only');
+  assert.match(row(`erlang:${name}`)[9], /badarg.*non-binary/);
+}
+assert.match(row('erlang:binary_to_list/3')[9], /invalid range/);
 for (const name of ['get/0', 'get_keys/0', 'get_keys/1', 'put/2', 'erase/0', 'erase/1']) {
   assert.equal(row(`erlang:${name}`)[11], 'callable-only');
 }

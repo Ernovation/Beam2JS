@@ -82,6 +82,17 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   in zero-label and callable forms. Both operands of binary operators are
   validated. OTP, Node and Chromium tests cover truth tables, invalid values,
   aliased x/y destinations, external calls and stripped inputs.
+- `apply/3` requires atom module/function names and a proper argument list, then
+  invokes the named function. Beam2JS supports exported functions in registered
+  modules and its supported callable BIFs; the function transfer is a tail
+  transfer while any caller continuation remains intact. Invalid argument
+  shapes raise `badarg`. `apply/2` and function terms are not supported.
+- OTP-generated `module_info/0,1` are ordinary exported module functions backed
+  by `erlang:get_module_info/1,2`. Beam2JS supports only the `module` and
+  `exports` keys; its `/0` result contains those two fields, not OTP's full
+  metadata. Unknown keys raise `badarg`. Export lists are derived from the
+  registered module table and sorted by name and arity; metadata such as
+  attributes, compile options and MD5 is unavailable.
 - `hd/1` and `tl/1` accept nonempty cons cells, including improper lists;
   `length/1` requires a proper list. Invalid inputs tested here raise
   `badarg` in a body. Nonzero-label `length/1` guard instructions are
@@ -106,6 +117,13 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   callers. Conversion is synchronous and can block the event loop; OTP resource
   limits and scheduling behavior are not implemented. `list_to_integer/1,2`
   are ordinary preloaded Erlang functions, not runtime BIFs.
+- Callable `binary_to_list/1,3` convert a binary to a list of byte integers.
+  The three-argument form uses a nonempty, one-based inclusive range. Non-binaries
+  and invalid ranges raise `badarg`. OTP, Node and Chromium tests cover empty
+  and partial bitstrings, range boundaries, long binaries, external calls and
+  scheduler yields, including stripped callers. Conversion is synchronous and
+  can block the event loop; OTP resource limits and scheduling behavior are not
+  implemented.
 - `element/2` uses one-based tuple indexes; a non-tuple or invalid index
   raises `badarg` in a body. `tuple_size/1` returns the number of tuple
   elements and raises `badarg` for a non-tuple. Guard and zero-label
@@ -380,7 +398,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `append/2` | bif | yes | list / tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `append_element/2` | bif | yes | tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `apply/2` | runtime | yes | function / call | no | ? | ? | ? | not implemented |
-| `erlang` | `apply/3` | runtime | yes | function / call | no | ? | ? | ? | not implemented |
+| `erlang` | `apply/3` | runtime | yes | function / call | no | ? | badarg for invalid module/function/arguments | registered modules | callable-only |
 | `erlang` | `atom_to_binary/2` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `atom_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `band/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-integer input | ? | instruction-and-callable |
@@ -389,8 +407,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `binary_to_atom/2` | ubif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `binary_to_existing_atom/2` | ubif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `binary_to_float/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
-| `erlang` | `binary_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
-| `erlang` | `binary_to_list/3` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `binary_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-binary input | ? | callable-only |
+| `erlang` | `binary_to_list/3` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-binary input or invalid range | ? | callable-only |
 | `erlang` | `binary_to_term/1` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `binary_to_term/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `bit_size/1` | ubif | yes | binary / bitstring | BIF | optimizer-pure | badarg for non-bitstring input | ? | instruction-and-callable |
@@ -462,8 +480,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `get/1` | bif | yes | process dictionary | no | reads a key from the calling process dictionary | optimizer-safe | process runtime | instruction-and-callable |
 | `erlang` | `get_keys/0` | bif | yes | process dictionary | no | lists the calling process dictionary keys | ? | process runtime | callable-only |
 | `erlang` | `get_keys/1` | bif | yes | process dictionary | no | lists keys with an exact matching value | optimizer-safe | process runtime | callable-only |
-| `erlang` | `get_module_info/1` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
-| `erlang` | `get_module_info/2` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
+| `erlang` | `get_module_info/1` | bif | yes | module / native loading | no | ? | badarg for unavailable module | registered modules | callable-only |
+| `erlang` | `get_module_info/2` | bif | yes | module / native loading | no | ? | badarg for unavailable module or key | registered modules | callable-only |
 | `erlang` | `group_leader/0` | bif | yes | process / scheduling | no | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `halt/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `has_prepared_code_on_load/1` | bif | yes | ? | no | ? | ? | ? | not implemented |

@@ -22,9 +22,17 @@
           {bool_not_y,1},{bool_and_y,2},{bool_or_y,2},{bool_xor_y,2},
           {bool_not_guard,1},{bool_and_guard,2},{bool_or_guard,2},{bool_xor_guard,2},
           {bool_not_call,1},{bool_and_call,2},{bool_or_call,2},{bool_xor_call,2},
-          {bool_xor_same,1},{integer_chars_last,2},{integer_binary_last,2}]}.
+          {bool_xor_same,1},{integer_chars_last,2},{integer_binary_last,2},
+          {binary_list_last,3}]}.
 {attributes,[]}.
-{labels,167}.
+{labels,169}.
+
+{function,binary_list_last,3,168}.
+{label,167}.
+{func_info,{atom,raw_bif_body},{atom,binary_list_last},3}.
+{label,168}.
+{allocate,0,3}.
+{call_ext_last,3,{extfunc,erlang,binary_to_list,3},0}.
 
 {function,integer_chars_last,2,164}.
 {label,163}.

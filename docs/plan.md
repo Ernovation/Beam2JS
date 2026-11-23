@@ -270,10 +270,12 @@ BIFs.
   exact equality also supports a zero-label BIF instruction.
   Boolean `not`, `and`, `or` and `xor` support instructions and callable forms.
   `list_to_tuple/1`, `tuple_to_list/1`, `integer_to_list/1,2` and
-  `integer_to_binary/1,2` are callable.
+  `integer_to_binary/1,2`, and `binary_to_list/1,3` are callable.
   `self/0`, `is_process_alive/1`, local `spawn/3`, `send/2`, `!/2` and
   `make_ref/0` are callable, as are the local timer, dictionary, process-info and registry BIFs
-  described in phases 8 and 10; other callable BIFs remain unimplemented.
+  described in phases 8 and 10. `apply/3` and `get_module_info/1,2` are also
+  callable for the limited behavior described below; other callable BIFs
+  remain unimplemented.
 - [ ] Implement and test common type predicates, arithmetic and bitwise
   operations, comparisons, tuple/list operations, atom and number conversions,
   and relevant binary operations as their term support becomes available.
@@ -306,9 +308,20 @@ BIFs.
   scheduler yields against OTP in Node and Chromium, including stripped callers.
   Conversion remains synchronous; OTP resource and scheduling behavior is not
   reproduced.
-- [ ] Implement dynamic `apply`/function resolution and the supported portions
+- [x] Support callable `binary_to_list/1,3`, including one-based inclusive
+  ranges and `badarg` failures. Test empty and long binaries, partial bitstrings,
+  range boundaries, external calls and scheduler yields against OTP in Node
+  and Chromium, including stripped callers. Conversion remains synchronous;
+  OTP resource and scheduling behavior is not reproduced.
+- [x] Implement dynamic `apply`/function resolution and the supported portions
   of module introspection, including `module_info`, rather than treating BIFs
-  as ordinary missing external modules.
+  as ordinary missing external modules. `apply/3` tail-transfers to exported
+  functions in registered modules and supported callable BIFs, with proper-list,
+  atom and 255-argument validation. `module_info/0,1` and compiler-emitted
+  `get_module_info/1,2` expose only the `module` and `exports` fields. Test
+  tail and non-tail calls, errors, exports and stripped modules against OTP in
+  Node and Chromium. `apply/2`, funs, full module metadata and OTP `undef`
+  exceptions remain unsupported.
 - [ ] Prioritize further BIFs using the inventory and actual fixture/application
   usage. Mark host-dependent or unavailable operations explicitly.
 - [ ] Run representative pure Erlang modules and selected OTP library
@@ -329,8 +342,8 @@ Erlang programs.
   updates, sizes, alignment and failure paths; cover relevant generic opcodes.
   Binary and partial-byte bitstring literals, comparisons, type tests and
   size and `binary_part/2` and `/3` guard, zero-label and callable forms are
-  supported; general construction, matching, other slicing instructions and
-  other callable binary BIFs are not.
+  supported, as are callable `binary_to_list/1,3`. General construction,
+  matching, other slicing instructions and other callable binary BIFs are not.
 - [ ] Implement funs, closures and captured environments, exported funs,
   indirect calls and arity checks; retain required module/lambda metadata.
 - [ ] Complete comparison, ordering, exact map-key behavior and host conversion

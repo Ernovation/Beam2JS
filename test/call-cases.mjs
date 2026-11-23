@@ -214,13 +214,21 @@ export async function stackYieldChecks(Runtime, registerModules) {
     runtime.spawnProcess('erlang', 'integer_to_binary', [1n, runtime.float(16)]),
   ].map(process => process.result.then(() => false,
     error => error.erlangClass === 'error' && error.reason === runtime.atom('badarg')));
+  const bytes = runtime.bitstring([1, 2, 255], 24);
+  const binaryConversions = [
+    runtime.spawnProcess('erlang', 'binary_to_list', [bytes]).result,
+    runtime.spawnProcess('raw_bif_body', 'binary_list_last', [bytes, 2n, 3n]).result,
+    runtime.spawnProcess('bif_body', 'binary_list_across', [bytes, 1n, 2n]).result,
+    runtime.spawnProcess('bif_body', 'binary_list_range', [bytes, 2n, 1n]).result.then(() => false,
+      error => error.erlangClass === 'error' && error.reason === runtime.atom('badarg')),
+  ];
   let timer;
   const [first, second, third, fourth, ...lists] = await Promise.race([
     Promise.all([generated.result, raw.result, generatedElement.result, rawElement.result,
       generatedHead.result, generatedTail.result, rawHead.result, rawTail.result,
       generatedPut.result, rawPut.result, generatedHd.result, generatedTl.result, rawParts.result,
       ...bifs.map(process => process.result), invalidResult, ...invalidConversions, ...invalidBooleans,
-      ...invalidIntegers]),
+      ...invalidIntegers, ...binaryConversions]),
     new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('stack yield test timed out')), 5000);
     }),
@@ -335,6 +343,11 @@ export async function stackYieldChecks(Runtime, registerModules) {
     runtime.equalExact(lists[102], runtime.bitstring([45, 70, 70], 24)),
     runtime.equalExact(lists[103], runtime.tuple([runtime.cons(90n, runtime.nil()), runtime.bitstring([90], 8)])),
     lists[104], lists[105], lists[106], lists[107], lists[108], lists[109], lists[110],
+    runtime.equalExact(lists[111], runtime.cons(1n, runtime.cons(2n, runtime.cons(255n, runtime.nil())))),
+    runtime.equalExact(lists[112], runtime.cons(2n, runtime.cons(255n, runtime.nil()))),
+    runtime.equalExact(lists[113], runtime.tuple([runtime.atom('ok'),
+      runtime.cons(1n, runtime.cons(2n, runtime.nil()))])),
+    lists[114],
   ];
   return `[${results.join(',')}]`;
 }
