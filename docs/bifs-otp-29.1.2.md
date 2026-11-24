@@ -541,7 +541,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `list_to_port/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `list_to_ref/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `list_to_tuple/1` | bif | yes | list / tuple | no | optimizer-pure | badarg for improper or non-list input | ? | callable-only |
-| `erlang` | `load_nif/2` | bif | yes | module / native loading | no | ? | ? | native / distribution | not implemented |
+| `erlang` | `load_nif/2` | bif | yes | module / native loading | no | downloads a JavaScript NIF and atomically replaces existing caller functions | badarg for invalid name; error tuple on load failure | trusted ES modules; scheduled processes only; not native ABI | callable-only |
 | `erlang` | `loaded/0` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `localtime/0` | bif | yes | clock / calendar | no | ? | ? | clock / scheduler | not implemented |
 | `erlang` | `localtime_to_universaltime/2` | bif | yes | clock / calendar | no | ? | ? | ? | not implemented |
@@ -565,8 +565,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `monitor_node/3` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
 | `erlang` | `monotonic_time/0` | bif | yes | clock / calendar | no | reads the runtime monotonic clock | ? | clock / scheduler | callable-only |
 | `erlang` | `monotonic_time/1` | bif | yes | clock / calendar | no | reads the runtime monotonic clock in the requested unit | badarg for invalid time unit | clock / scheduler | callable-only |
-| `erlang` | `nif_error/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `nif_error/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
+| `erlang` | `nif_error/1` | bif | yes | exception | no | raises the supplied reason when a NIF fallback executes | ErlangError with supplied reason | process runtime | callable-only |
+| `erlang` | `nif_error/2` | bif | yes | exception | no | raises the supplied reason; argument-list stack metadata is not modeled | ErlangError with supplied reason | process runtime | callable-only |
 | `erlang` | `node/0` | ubif | yes | distribution | BIF | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `node/1` | ubif | yes | distribution | BIF | ? | ? | ? | not implemented |
 | `erlang` | `nodes/0` | bif | yes | distribution | no | ? | optimizer-safe | native / distribution | not implemented |

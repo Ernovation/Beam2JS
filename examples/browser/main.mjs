@@ -1,10 +1,6 @@
 import {Runtime} from '../../runtime/beam2js.mjs';
-import {register} from './browser_demo.mjs';
-import {registerDom} from './dom.mjs';
 
-const runtime = new Runtime();
-registerDom(runtime, document);
-register(runtime);
+const runtime = new Runtime({moduleBaseURL: new URL('./', import.meta.url)});
 
 const button = document.getElementById('button');
 const stopButton = document.getElementById('stop');

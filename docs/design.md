@@ -97,6 +97,19 @@ including dynamic calls and exported funs; missing modules/functions produce
 Erlang-compatible errors. Registration and module loading, including `on_load`,
 must have defined failure and ordering behavior.
 
+The implemented ABI 26 loader imports `<module>.mjs` relative to
+`moduleBaseURL`, registers it once per runtime, and suspends scheduled callers
+until its `on_load` initializer returns `ok`. Concurrent callers share the
+pending load; initializer failure removes the module, and circular initializer
+dependencies fail explicitly. Missing targets currently produce host
+diagnostics, not full OTP `undef` exceptions. Synchronous invocation requires
+preloaded and initialized code.
+`erlang:load_nif/2` imports `<name>.nif.mjs`; its `nif(runtime, loadInfo)` factory
+returns function descriptors replacing existing functions of the caller.
+Validation completes before table updates, and export visibility is preserved.
+This trusted JavaScript extension is not OTP's native shared-library ABI.
+See the [usage contract](../README.md#dynamic-loading-and-javascript-nifs).
+
 Each Erlang function is represented by a generated JavaScript function with a
 resumable entry point. Its control-flow blocks can be emitted as a program
 counter and switch/loop. A process-owned frame contains live registers, stack

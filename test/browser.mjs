@@ -6,7 +6,8 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {ErlangError, Runtime} from '../runtime/beam2js.mjs';
-import {registerDom} from '../examples/browser/dom.mjs';
+import {domFunctions} from '../examples/browser/dom.nif.mjs';
+const registerDom = (runtime, document) => runtime.registerModule(26, 'dom', domFunctions(runtime, document));
 import {callResults, stackYieldChecks} from './call-cases.mjs';
 import {matchResults} from './match-cases.mjs';
 import {arithmeticResults} from './arithmetic-cases.mjs';
@@ -32,7 +33,7 @@ const run = (command, args) => execFileSync(command, args, {encoding: 'utf8', ti
 const source = path => readFileSync(resolve(path), 'utf8');
 
 try {
-  run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/atom_conversion.erl',
+  run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'examples/browser/dom.erl', 'fixtures/atom_conversion.erl',
     'fixtures/map_slice.erl', 'fixtures/compound_maps.erl', 'fixtures/error_process_slice.erl',
     'fixtures/dynamic_apply.erl',
     'fixtures/calls.erl',
@@ -405,6 +406,7 @@ try {
     [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
     [join(dir, 'browser_demo.beam'), 'browser_demo.mjs'],
+    [join(dir, 'dom.beam'), 'dom.mjs'],
     [join(dir, 'atom_conversion.beam'), 'atom_conversion.mjs'],
     [join(dir, 'atom_conversion-stripped.beam'), 'atom_conversion-stripped.mjs'],
     [join(dir, 'map_slice.beam'), 'map_slice.mjs'],
@@ -1498,7 +1500,7 @@ try {
     error => error instanceof ErlangError && error.erlangClass === 'error' && error.reason === bifRuntime.atom('badarg'));
   assert.equal(bifRuntime.invoke('erlang', 'other', [1n]), 1n);
   assert.throws(() => bifRuntime.invoke('erlang', 'is_atom', []), /undefined or unsupported/);
-  assert.throws(() => bifRuntime.invoke('erlang', 'is_map', [1n]), /undefined or unsupported/);
+  assert.equal(bifRuntime.invoke('erlang', 'is_map', [1n]), bifRuntime.atom('false'));
 
   const rt = new Runtime();
   const object = {};
@@ -1671,7 +1673,8 @@ try {
     const resources = new Map([
       ['/examples/browser/', ['text/html', source('examples/browser/index.html')]],
       ['/examples/browser/main.mjs', ['text/javascript', source('examples/browser/main.mjs')]],
-      ['/examples/browser/dom.mjs', ['text/javascript', source('examples/browser/dom.mjs')]],
+      ['/examples/browser/dom.nif.mjs', ['text/javascript', source('examples/browser/dom.nif.mjs')]],
+      ['/examples/browser/dom.mjs', ['text/javascript', readFileSync(join(dir, 'dom.mjs'), 'utf8')]],
       ['/examples/browser/browser_demo.mjs', ['text/javascript', readFileSync(join(dir, 'browser_demo.mjs'), 'utf8')]],
       ['/runtime/beam2js.mjs', ['text/javascript', source('runtime/beam2js.mjs')]],
       ['/test/call-cases.mjs', ['text/javascript', source('test/call-cases.mjs')]],
@@ -1747,7 +1750,8 @@ try {
     let timer;
     const browserResults = await Promise.race([page.evaluate(async expected => {
       const {Runtime, ErlangError} = await import('/runtime/beam2js.mjs');
-      const {registerDom} = await import('/examples/browser/dom.mjs');
+      const {domFunctions} = await import('/examples/browser/dom.nif.mjs');
+      const registerDom = (runtime, document) => runtime.registerModule(26, 'dom', domFunctions(runtime, document));
       const {callResults, stackYieldChecks} = await import('/test/call-cases.mjs');
       const {matchResults} = await import('/test/match-cases.mjs');
       const {arithmeticResults} = await import('/test/arithmetic-cases.mjs');

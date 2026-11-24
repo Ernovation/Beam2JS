@@ -75,17 +75,13 @@ try {
   assert.equal(strippedRuntime.invoke('slice', 'choose', [yes]), 1n);
 
   writeFileSync(output, 'existing output');
-  const unsupported = spawnSync(compiler, [join(dir, 'on_load.beam'), output],
-    {encoding: 'utf8', timeout: 30000});
-  assert.notEqual(unsupported.status, 0);
-  assert.match(unsupported.stderr, /unsupported instruction on_load/);
-  assert.equal(readFileSync(output, 'utf8'), 'existing output');
-  const missingOutput = join(dir, 'should-not-exist.mjs');
-  const onLoad = spawnSync(compiler, [join(dir, 'on_load.beam'), missingOutput],
-    {encoding: 'utf8', timeout: 30000});
-  assert.notEqual(onLoad.status, 0);
-  assert.match(onLoad.stderr, /unsupported instruction on_load/);
-  assert.throws(() => readFileSync(missingOutput), {code: 'ENOENT'});
+  const onLoadOutput = join(dir, 'on_load.mjs');
+  run(compiler, [join(dir, 'on_load.beam'), onLoadOutput]);
+  const onLoadRuntime = new Runtime({moduleBaseURL: pathToFileURL(`${dir}/`)});
+  (await import(pathToFileURL(onLoadOutput))).register(onLoadRuntime);
+  assert.throws(() => onLoadRuntime.invoke('on_load', 'value', []), /use invokeAsync or loadModule/);
+  await onLoadRuntime.loadModule('on_load');
+  assert.equal(onLoadRuntime.invoke('on_load', 'value', []), 1n);
   const malformed = join(dir, 'malformed.beam');
   writeFileSync(malformed, 'not a BEAM file');
   const invalid = spawnSync(compiler, [malformed, output], {encoding: 'utf8', timeout: 30000});

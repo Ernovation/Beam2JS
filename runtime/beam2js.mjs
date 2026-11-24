@@ -48,6 +48,16 @@ const callableBifs = new Map([
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
 }]));
+callableBifs.set(JSON.stringify(['load_nif', 2]), {
+  exported: true,
+  run: (rt, [name, info]) => ({type: 'load_nif', name, info}),
+});
+for (const arity of [1, 2]) {
+  callableBifs.set(JSON.stringify(['nif_error', arity]), {
+    exported: true,
+    run: (rt, [reason]) => rt.raiseError(reason),
+  });
+}
 callableBifs.set(JSON.stringify(['map_size', 1]), {
   exported: true,
   run: (rt, [value]) => {
@@ -473,8 +483,14 @@ export class Runtime {
   #processLinks = new WeakMap();
   #processMonitors = new WeakMap();
   #processMonitoredBy = new WeakMap();
+  #moduleBaseURL;
+  #moduleLoads = new Map();
+  #moduleWaits = new Map();
+  #onLoads = new Map();
+  #nifLoads = new Map();
 
   constructor({schedulers = 1, reductionLimit = 1000,
+    moduleBaseURL = globalThis.document?.baseURI ?? new URL('../', import.meta.url),
     onProcessError = (pid, error) => console.error('Erlang-spawned process failed:', error),
     clock = {now: () => performance.now(), setTimeout: (callback, delay) => setTimeout(callback, delay),
       clearTimeout: handle => clearTimeout(handle)}} = {}) {
@@ -489,6 +505,7 @@ export class Runtime {
     this.#reductionLimit = reductionLimit;
     this.#onProcessError = onProcessError;
     this.#clock = clock;
+    this.#moduleBaseURL = new URL(moduleBaseURL);
     this.modules = new Map();
     this.registerMapsModule();
   }
@@ -1169,7 +1186,7 @@ export class Runtime {
     }
   }
 
-  registerModule(version, name, functions) {
+  registerModule(version, name, functions, {onLoad} = {}) {
     if (version !== 26) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
@@ -1189,7 +1206,137 @@ export class Runtime {
         });
       }
     }
+    if (onLoad !== undefined && (typeof onLoad !== 'string' || !table.has(JSON.stringify([onLoad, 0])))) {
+      throw new TypeError('onLoad must name a zero-arity function in the module');
+    }
     this.modules.set(name, table);
+    if (onLoad !== undefined) this.#onLoads.set(name, onLoad);
+  }
+
+  loadModule(name) {
+    if (typeof name !== 'string' || !name) throw new TypeError('module name must be a nonempty string');
+    if (this.#moduleLoads.has(name)) return this.#moduleLoads.get(name);
+    if (this.modules.has(name) && !this.#onLoads.has(name)) return Promise.resolve();
+    const loading = Promise.resolve().then(async () => {
+      try {
+        if (!this.modules.has(name)) {
+          const source = await import(new URL(`${encodeURIComponent(name)}.mjs`, this.#moduleBaseURL).href);
+          if (typeof source.register !== 'function') throw new TypeError(`module ${name} has no register function`);
+          await source.register(this);
+          if (!this.modules.has(name)) throw new Error(`module ${name} did not register itself`);
+        }
+        const onLoad = this.#onLoads.get(name);
+        if (onLoad !== undefined) {
+          const handle = this.spawnProcess(name, onLoad, []);
+          const process = this.#processes.get(handle);
+          process.external = false;
+          process.initializingModule = name;
+          const result = await handle.result;
+          if (result !== this.atom('ok')) {
+            const detail = tuples.get(tuples.get(result)?.[1]);
+            const message = detail?.[0] === this.atom('load_failed') && bitstrings.has(detail[1])
+              ? `: ${new TextDecoder().decode(this.bitstringBytes(detail[1]))}` : '';
+            throw new Error(`on_load failed for module ${name}${message}`);
+          }
+          this.#onLoads.delete(name);
+        }
+      } catch (error) {
+        this.modules.delete(name);
+        this.#onLoads.delete(name);
+        for (const key of this.#nifLoads.keys()) {
+          if (JSON.parse(key)[0] === name) this.#nifLoads.delete(key);
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`cannot load module ${name}: ${message}`, {cause: error});
+      } finally {
+        this.#moduleLoads.delete(name);
+        this.#moduleWaits.delete(name);
+      }
+    });
+    this.#moduleLoads.set(name, loading);
+    return loading;
+  }
+
+  invokeAsync(module, name, args) {
+    return this.spawnProcess(module, name, args).result;
+  }
+
+  #loadDependency(process, module) {
+    const parent = process.initializingModule;
+    if (parent !== undefined) {
+      for (let dependency = module; dependency !== undefined; dependency = this.#moduleWaits.get(dependency)) {
+        if (dependency === parent) throw new Error(`circular on_load dependency: ${parent} -> ${module}`);
+      }
+      this.#moduleWaits.set(parent, module);
+    }
+    return this.loadModule(module).finally(() => {
+      if (parent !== undefined) this.#moduleWaits.delete(parent);
+    });
+  }
+
+  #nifName(term) {
+    const points = [];
+    while (isCons(term)) {
+      const [point, tail] = consValue(term);
+      if (typeof point !== 'bigint' || point < 0n || point > 0x10ffffn ||
+          point >= 0xd800n && point <= 0xdfffn) this.raiseError(this.atom('badarg'));
+      points.push(String.fromCodePoint(Number(point)));
+      term = tail;
+    }
+    if (term !== nil || points.length === 0) this.raiseError(this.atom('badarg'));
+    const name = points.join('');
+    if (name.includes('\0')) this.raiseError(this.atom('badarg'));
+    return name;
+  }
+
+  #loadNif(module, name, info) {
+    const key = JSON.stringify([module, name]);
+    if (this.#nifLoads.has(key)) return this.#nifLoads.get(key);
+    const loading = Promise.resolve().then(async () => {
+      const table = this.modules.get(module);
+      if (!table) throw new Error('load_nif requires a calling Erlang module');
+      const path = name.split('/').map(encodeURIComponent).join('/');
+      const source = await import(new URL(`${path}.nif.mjs`, this.#moduleBaseURL).href);
+      if (typeof source.nif !== 'function') throw new TypeError(`NIF ${name} has no nif function`);
+      const functions = await source.nif(this, info);
+      if (!Array.isArray(functions)) throw new TypeError('nif must return an array of functions');
+      const replacements = new Map();
+      for (const fn of functions) {
+        if (!fn || typeof fn.name !== 'string' || !Number.isSafeInteger(fn.arity) ||
+            fn.arity < 0 || typeof fn.run !== 'function') throw new TypeError('invalid NIF function');
+        const fnKey = JSON.stringify([fn.name, fn.arity]);
+        const original = table.get(fnKey);
+        if (!original) throw new Error(`NIF target does not exist: ${module}:${fn.name}/${fn.arity}`);
+        if (replacements.has(fnKey)) throw new Error(`duplicate NIF function: ${fn.name}/${fn.arity}`);
+        replacements.set(fnKey, {...original, run: fn.run});
+      }
+      for (const [fnKey, fn] of replacements) table.set(fnKey, fn);
+      return this.atom('ok');
+    }).catch(error => {
+      this.#nifLoads.delete(key);
+      const bytes = new TextEncoder().encode(error instanceof Error ? error.message : String(error));
+      return this.tuple([this.atom('error'), this.tuple([
+        this.atom('load_failed'), this.bitstring(bytes, bytes.length * 8),
+      ])]);
+    });
+    this.#nifLoads.set(key, loading);
+    return loading;
+  }
+
+  #suspendForLoad(process, promise, resume) {
+    if (!process.scheduled) throw new Error('synchronous invocation cannot load code; use invokeAsync or loadModule');
+    promise.then(value => {
+      if (!this.#livePids.has(process.pid)) return;
+      if (resume) process.resumedAction = {type: 'return', value};
+      process.status = 'runnable';
+      this.#enqueue(process);
+    }, error => {
+      if (!this.#livePids.has(process.pid)) return;
+      process.startError = error;
+      process.status = 'runnable';
+      this.#enqueue(process);
+    });
+    return {done: false, loading: true};
   }
 
   #moduleInfo(moduleName, arity, args) {
@@ -1717,6 +1864,8 @@ export class Runtime {
         this.#notifyProcessMonitors(process, this.atom('normal'));
         this.#unlinkOnFinish(process);
         process.resolve(result.value);
+      } else if (result.loading) {
+        process.status = 'loading';
       } else if (result.waiting) {
         process.status = 'waiting';
         this.#waiting.add(process);
@@ -1985,6 +2134,14 @@ export class Runtime {
         }
         const {external, module, name, args} = process;
         process.fn = external && module === 'erlang' ? callableBifs.get(JSON.stringify([name, args.length])) : undefined;
+        if (!process.fn && module !== 'erlang' && process.initializingModule !== module &&
+            (!this.modules.has(module) || this.#moduleLoads.has(module) || this.#onLoads.has(module))) {
+          const diagnostic = `undefined or unsupported function: ${module}:${name}/${args.length}`;
+          if (!process.scheduled) throw new Error(`${diagnostic}; use invokeAsync or loadModule to load code`);
+          return this.#suspendForLoad(process, this.#loadDependency(process, module).catch(error => {
+            throw new Error(`${diagnostic}; ${error.message}`, {cause: error});
+          }), false);
+        }
         if (!process.fn) process.fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
         if (!process.fn || (external && !process.fn.exported)) {
           throw new Error(`undefined or unsupported function: ${module}:${name}/${args.length}`);
@@ -1993,7 +2150,9 @@ export class Runtime {
       const previous = budget.remaining;
       let action;
       try {
-        action = process.fn.run(this, process.args.slice(), process.state, budget, process.pid);
+        action = process.resumedAction ?? process.fn.run(this, process.args.slice(), process.state, budget, process.pid);
+        process.resumedAction = undefined;
+        if (action.type === 'load_nif') action = {...action, name: this.#nifName(action.name)};
       } catch (error) {
         if (error instanceof ErlangError && process.exceptionHandlers?.length) {
           const handler = process.exceptionHandlers.pop();
@@ -2003,6 +2162,11 @@ export class Runtime {
             ? {pc: handler.pc, y: continuation.state?.y ?? process.state?.y ?? null}
             : {pc: handler.pc, y: process.state?.y ?? null};
           process.fn = continuation?.fn ?? process.fn;
+          if (continuation) {
+            process.module = continuation.module;
+            process.name = continuation.name;
+            process.external = continuation.external;
+          }
           process.exceptionTriplet = [this.atom(error.erlangClass), error.reason, error.stack ?? nil];
           process.exceptionKind = handler.kind;
           return this.#runProcess(process, budget.remaining);
@@ -2010,12 +2174,21 @@ export class Runtime {
         throw error;
       }
       if (budget.remaining === previous) budget.remaining--;
-      if (action.type === 'spawn') {
+      if (action.type === 'load_nif') {
+        if (!process.scheduled) throw new Error('synchronous invocation cannot load a NIF; use invokeAsync');
+        return this.#suspendForLoad(process,
+          this.#loadNif(process.callingModule, action.name, action.info), true);
+      } else if (action.type === 'dictionary') {
+        action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
+      } else if (action.type === 'spawn') {
         action = {type: 'return', value: this.#spawnErlang(action.args)};
       } else if (action.type === 'fun_call' || action.type === 'tail_fun') {
         const data = this.funValue(action.fun);
         const callArgs = this.funCallArgs(action.fun, action.args);
-        if (action.type === 'fun_call') process.continuations.push({fn: process.fn, state: action.state});
+        if (action.type === 'fun_call') process.continuations.push({
+          fn: process.fn, state: action.state, module: process.module, name: process.name, external: process.external,
+        });
+        if (process.module !== 'erlang') process.callingModule = process.module;
         process.module = data.module;
         process.name = data.name;
         process.args = callArgs;
@@ -2042,10 +2215,13 @@ export class Runtime {
       if (action.type === 'return') {
         if (!isTerm(action.value)) throw new TypeError('return value must be a supported Erlang term');
         if (process.continuations.length === 0) return {done: true, value: action.value};
-        ({fn: process.fn, state: process.state} = process.continuations.pop());
+        Object.assign(process, process.continuations.pop());
         process.args = [action.value];
       } else if (action.type === 'call' || action.type === 'tail') {
-        if (action.type === 'call') process.continuations.push({fn: process.fn, state: action.state});
+        if (action.type === 'call') process.continuations.push({
+          fn: process.fn, state: action.state, module: process.module, name: process.name, external: process.external,
+        });
+        if (process.module !== 'erlang') process.callingModule = process.module;
         ({module: process.module, name: process.name, args: process.args, external: process.external} = action);
         process.fn = undefined;
         process.state = undefined;

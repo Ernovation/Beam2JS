@@ -32,7 +32,7 @@ for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
 }
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 52);
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 57);
 assert.equal(row('erlang:list_to_tuple/1')[11], 'callable-only');
 assert.equal(row('erlang:tuple_to_list/1')[11], 'callable-only');
 assert.equal(row('erlang:atom_to_list/1')[11], 'callable-only');
@@ -74,7 +74,7 @@ for (const name of ['register/2', 'unregister/1', 'whereis/1', 'registered/0']) 
 assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length, 0);
 assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 0);
 assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 0);
-assert.equal(row('erlang:is_map/1')[11], 'implemented');
+assert.equal(row('erlang:is_map/1')[11], 'instruction-and-callable');
 assert.equal(row('erlang:is_function/1')[11], 'instruction-and-callable');
 assert.equal(row('erlang:+/2')[7], 'operator');
 assert.equal(row('erlang:list_to_atom/1')[7], 'no');
@@ -86,11 +86,11 @@ assert.match(row('erlang:tuple_size/1')[9], /badarg/);
 assert.match(row('maps:get/2')[9], /badkey.*badmap/);
 assert.match(row('maps:is_key/2')[9], /badmap/);
 assert.equal(row('erlang:map_get/2')[7], 'BIF');
-assert.equal(row('erlang:map_get/2')[11], 'implemented');
+assert.equal(row('erlang:map_get/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:is_map_key/2')[7], 'BIF');
-assert.equal(row('erlang:is_map_key/2')[11], 'implemented');
+assert.equal(row('erlang:is_map_key/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:map_size/1')[7], 'BIF');
-assert.equal(row('erlang:map_size/1')[11], 'implemented');
+assert.equal(row('erlang:map_size/1')[11], 'instruction-and-callable');
 assert.equal(row('erlang:tuple_size/1')[7], 'BIF');
 assert.equal(row('maps:get/2')[7], 'no');
 assert.equal(row('maps:is_key/2')[7], 'no');

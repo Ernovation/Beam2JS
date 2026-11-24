@@ -1,9 +1,7 @@
 import {Runtime} from '../../runtime/beam2js.mjs';
-import {register} from '../../_build/sudoku/sudoku.mjs';
-
-const runtime = new Runtime();
-register(runtime);
-const result = runtime.invoke('sudoku', 'solve', [runtime.invoke('sudoku', 'sample', [])]);
+const runtime = new Runtime({moduleBaseURL: new URL('../../_build/sudoku/', import.meta.url)});
+const sample = await runtime.invokeAsync('sudoku', 'sample', []);
+const result = await runtime.invokeAsync('sudoku', 'solve', [sample]);
 if (!runtime.isType('is_tuple', result) || runtime.tupleElement(result, 1) !== runtime.atom('ok')) {
   throw new Error(`Sudoku solver failed: ${String(result)}`);
 }

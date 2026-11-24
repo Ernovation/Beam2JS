@@ -21,3 +21,4 @@
 
 # Generated browser demo module
 /examples/browser/browser_demo.mjs
+/examples/browser/dom.mjs

@@ -21,8 +21,9 @@ implementation.
 
 ## What works today
 
-The [DOM adapter](../examples/browser/dom.mjs) registers JavaScript-backed
-Erlang functions through `runtime.registerModule`. The
+The [DOM NIF](../examples/browser/dom.nif.mjs) supplies JavaScript-backed
+Erlang functions, loaded by `erlang:load_nif/2` from the `-on_load` function of
+[dom.erl](../examples/browser/dom.erl). The
 [browser bootstrap](../examples/browser/main.mjs) starts a scheduled Erlang
 process with `runtime.spawnProcess`, sends `{dom_event, click}` on a DOM click,
 and removes its listeners when the process stops or fails.

@@ -4,6 +4,7 @@
   "scripts": {
     "test:bifs": "node test/bif-inventory.mjs",
     "test:browser": "node test/browser.mjs",
+    "test:loader": "node test/loader.mjs",
     "test:execution": "node test/opcodes.mjs",
     "test:maps": "node --input-type=module -e \"import('./test/map-cases.mjs').then(({mapChecks}) => mapChecks())\"",
     "test:funs": "node test/fun-cases.mjs",

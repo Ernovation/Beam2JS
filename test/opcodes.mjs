@@ -1132,28 +1132,24 @@ try {
   }
   assert.equal(strippedLong, strippedRuntime.nil());
 
-  const badAsm = join(dir, 'unsupported_operand.S');
-  writeFileSync(badAsm, '{module,unsupported_operand}.\n{exports,[{f,1}]}.\n{attributes,[]}.\n{labels,4}.\n' +
-    '{function,f,1,2}.\n{label,1}.\n{func_info,{atom,unsupported_operand},{atom,f},1}.\n{label,2}.\n' +
+  const mapLiteralAsm = join(dir, 'map_literal.S');
+  writeFileSync(mapLiteralAsm, '{module,map_literal}.\n{exports,[{f,1}]}.\n{attributes,[]}.\n{labels,4}.\n' +
+    '{function,f,1,2}.\n{label,1}.\n{func_info,{atom,map_literal},{atom,f},1}.\n{label,2}.\n' +
     '{test,is_eq,{f,3},[{x,0},{literal,{outer,[1,#{x=>1}]}}]}.\n{move,{atom,yes},{x,0}}.\nreturn.\n' +
     '{label,3}.\n{move,{atom,no},{x,0}}.\nreturn.\n');
   run('erl', ['-noshell', '-eval',
-    '[File,Dir]=init:get_plain_arguments(), {ok,unsupported_operand}=' +
+    '[File,Dir]=init:get_plain_arguments(), {ok,map_literal}=' +
     'compile:file(File,[from_asm,no_postopt,{outdir,Dir},report_errors]), halt().',
-    '-extra', badAsm, dir]);
+    '-extra', mapLiteralAsm, dir]);
+  const mapLiteralOutput = join(dir, 'map_literal.mjs');
+  const compiledMapLiteral = spawnSync(compiler, [join(dir, 'map_literal.beam'), mapLiteralOutput],
+    {encoding: 'utf8', timeout: 30000});
+  assert.equal(compiledMapLiteral.status, 0, compiledMapLiteral.stderr);
+  const generatedMapLiteral = readFileSync(mapLiteralOutput, 'utf8');
+  assert.match(generatedMapLiteral, /rt\.map\(/);
+  assert.match(generatedMapLiteral, /rt\.atom\("outer"\)/);
   const preserved = join(dir, 'preserved.mjs');
   writeFileSync(preserved, 'existing output');
-  const rejected = spawnSync(compiler, [join(dir, 'unsupported_operand.beam'), preserved],
-    {encoding: 'utf8', timeout: 30000});
-  assert.notEqual(rejected.status, 0);
-  assert.match(rejected.stderr, /unsupported literal value/);
-  assert.equal(readFileSync(preserved, 'utf8'), 'existing output');
-  const missingLiteralOutput = join(dir, 'missing-literal-output.mjs');
-  const unsupportedLiteral = spawnSync(compiler, [join(dir, 'unsupported_operand.beam'), missingLiteralOutput],
-    {encoding: 'utf8', timeout: 30000});
-  assert.notEqual(unsupportedLiteral.status, 0);
-  assert.match(unsupportedLiteral.stderr, /unsupported literal value/);
-  assert.throws(() => readFileSync(missingLiteralOutput), {code: 'ENOENT'});
   run('erl', ['+S', '1:1', '-noshell', '-eval',
     '[Dir]=init:get_plain_arguments(), ' +
     'Build=fun(Module,Select) -> Is=[{label,1},{func_info,{atom,Module},{atom,f},1},' +

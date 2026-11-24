@@ -448,7 +448,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 146 | `bs_utf16_size/3` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 147 | `bs_put_utf16/3` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 148 | `bs_put_utf32/3` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
-| 149 | `on_load/0` | active | not specified | ? | N | N | N | N | OTP: Marks an on-load function; module loading behavior is required. |
+| 149 | `on_load/0` | active | not specified | ? | N | P | P | P | OTP: Marks an on-load function; module loading behavior is required. Beam2JS: Emits initializer metadata; scheduled loading waits for ok before exposing the module. Failure removes the module. Normalized compiler-generated forms tested in Node and Chromium by test:loader. |
 | 150 | `recv_mark/1` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 151 | `recv_set/1` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 152 | `gc_bif3/7` | active | Lbl Live Bif Arg1 Arg2 Arg3 Reg | ? | N | P | P | P | OTP: As BIFs, with live x-register count and possible GC; zero failure label denotes exception. Raw evidence: binary_part/3 import, three x sources, x destination, live count 3 and nonzero failure label. Beam2JS: Normalized binary_part/3 guard with supported sources, ordinary x or y destination, including aliased operands, live count 0..1024 and nonzero failure label; invalid arguments or ranges branch without writing the destination, or raise badarg with zero label. Slicing copies synchronously; OTP GC, resource and scheduling effects are not reproduced. |
@@ -478,7 +478,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 176 | `recv_marker_use/1` | active | Reference | ? | N | N | N | N | OTP: Reference; moves the receive cursor to its associated marker. |
 | 177 | `bs_create_bin/6` | active | Fail Alloc Live Unit Dst OpList | ? | N | N | N | N | OTP: Failure label, heap need, live count, unit, destination and segment list; failure may branch or raise. |
 | 178 | `call_fun2/3` | active | Tag Arity Func | ? | N | N | N | N | OTP: Arity and fun; tag is local fun index, safe or unsafe. Non-tail call may raise. |
-| 179 | `nif_start/0` | active | (none) | ? | N | N | N | N | OTP: NIF function-entry marker; execution continues. |
+| 179 | `nif_start/0` | active | (none) | ? | N | P | P | P | OTP: NIF function-entry marker; execution continues. Beam2JS: Marker is a no-op; JavaScript NIF replacement occurs in the runtime function table. Compiler-generated NIF fallbacks tested in Node and Chromium by test:loader; native shared-library ABI is not implemented. |
 | 180 | `badrecord/1` | active | Value | ? | N | N | N | N | OTP: Raises badrecord with the supplied term; no normal fallthrough. |
 | 181 | `update_record/5` | active | Hint Size Src Dst Updates=[Index, Value] | ? | N | N | N | N | OTP: Tuple size, source, destination and index/value list; copy or reuse hint. |
 | 182 | `bs_match/3` | active | Fail Ctx {commands,Commands} | ? | N | N | N | N | OTP: Failure label and match context; commands include ensure_at_least, ensure_exactly, binary, integer, skip, get_tail and exact comparison. |
