@@ -513,7 +513,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `is_boolean/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_builtin/3` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `is_float/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
-| `erlang` | `is_function/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
+| `erlang` | `is_function/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_function/2` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `is_integer/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_integer/3` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |

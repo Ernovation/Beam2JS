@@ -228,7 +228,7 @@ const details = new Map([
 const instructionAndCallable = new Set([
   'erlang:is_integer/1', 'erlang:is_number/1', 'erlang:is_atom/1',
   'erlang:is_boolean/1', 'erlang:is_float/1', 'erlang:is_list/1', 'erlang:is_tuple/1',
-  'erlang:is_binary/1', 'erlang:is_bitstring/1', 'erlang:is_pid/1', 'erlang:is_reference/1',
+  'erlang:is_binary/1', 'erlang:is_bitstring/1', 'erlang:is_pid/1', 'erlang:is_reference/1', 'erlang:is_function/1',
   'erlang:is_map/1', 'erlang:is_map_key/2', 'erlang:map_get/2', 'erlang:map_size/1',
   'erlang:self/0', 'erlang:!/2', 'erlang:get/1',
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',

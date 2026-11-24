@@ -75,6 +75,7 @@ assert.equal(rows.filter(entry => entry[11] === 'guard-instruction-only').length
 assert.equal(rows.filter(entry => entry[11] === 'body-and-guard-instruction-only').length, 0);
 assert.equal(rows.filter(entry => entry[11] === 'arithmetic-instruction-only').length, 0);
 assert.equal(row('erlang:is_map/1')[11], 'implemented');
+assert.equal(row('erlang:is_function/1')[11], 'instruction-and-callable');
 assert.equal(row('erlang:+/2')[7], 'operator');
 assert.equal(row('erlang:list_to_atom/1')[7], 'no');
 assert.match(row('erlang:list_to_atom/1')[8], /global atom table/);

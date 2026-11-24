@@ -189,11 +189,11 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             Condition = comparison(Op, operand(Left, Context, Index), operand(Right, Context, Index)),
             branch(Condition, Target, Index, Labels, Context);
         {test, Op, {f, Target}, [Source]}
-          when Op =:= is_integer; Op =:= is_number; Op =:= is_atom;
+          when Op =:= is_integer; Op =:= is_number; Op =:= is_atom; Op =:= is_function;
                Op =:= is_boolean; Op =:= is_float; Op =:= is_nil;
                Op =:= is_list; Op =:= is_nonempty_list; Op =:= is_tuple;
                Op =:= is_binary; Op =:= is_bitstr; Op =:= is_pid; Op =:= is_reference;
-               Op =:= is_map ->
+               Op =:= is_map; Op =:= is_function ->
             Condition = type_test(Op, Source, Context, Index),
             branch(Condition, Target, Index, Labels, Context);
         {test, test_arity, {f, Target}, [Source, Arity]}
@@ -201,6 +201,9 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             Condition = [<<"rt.tupleSize(">>, operand(Source, Context, Index), <<") === ">>,
                          integer_to_list(Arity)],
             branch(Condition, Target, Index, Labels, Context);
+        {test, is_function, {f, Target}, [Source]}
+          when is_integer(Target), Target >= 0 ->
+            branch(type_test(is_function, Source, Context, Index), Target, Index, Labels, Context);
         {test, is_tagged_tuple, {f, Target}, [Source, Arity, {atom, Tag}]}
           when is_integer(Arity), Arity > 0, Arity =< 9007199254740991, is_atom(Tag) ->
             Condition = [<<"(value => rt.isType('is_tuple', value) && rt.tupleSize(value) === ">>,
@@ -211,13 +214,16 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
           when (Op =:= is_integer orelse Op =:= is_number orelse Op =:= is_atom orelse
                 Op =:= is_boolean orelse Op =:= is_float orelse Op =:= is_list orelse
                 Op =:= is_tuple orelse Op =:= is_binary orelse Op =:= is_bitstring orelse
-                Op =:= is_pid orelse Op =:= is_reference) ->
+                Op =:= is_pid orelse Op =:= is_reference orelse Op =:= is_map orelse
+                Op =:= is_function) ->
             Value = [<<"rt.atom(">>, type_test(Op, Source, Context, Index),
                      <<" ? 'true' : 'false')">>],
             [write_register(Dest, Value, Context, Index), next(Index)];
         {bif, Op, {f, Target}, [Key, Map], Dest}
           when Op =:= map_get; Op =:= is_map_key ->
             guard_bif(Op, [Key, Map], Dest, Target, Index, Labels, Context);
+        {bif, is_function, {f, 0}, [Source], Dest} ->
+            [write_register(Dest, [<<"rt.atom(rt.isType('is_function', ">>, operand(Source, Context, Index), <<") ? 'true' : 'false')">>], Context, Index), next(Index)];
         {bif, is_map, {f, 0}, [Map], Dest} ->
             [write_register(Dest, [<<"rt.atom(rt.isType('is_map', ">>, operand(Map, Context, Index), <<") ? 'true' : 'false')">>], Context, Index), next(Index)];
         {bif, Op, {f, Target}, [Map], Dest}
@@ -309,6 +315,21 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
                      lists:join(<<", ">>, [operand(E, Context, Index) || E <- Elements]),
                      <<"])">>],
             [write_register(Dest, Value, Context, Index), next(Index)];
+        {make_fun3, {Module, Name, Arity}, _OldIndex, _Dst, Source, {list, Environment}}
+          when is_integer(Arity), Arity >= 0, is_list(Environment) ->
+            [write_register(Source, [<<"rt.makeFun(">>, string(Module), <<", ">>, string(Name), <<", ">>,
+                                     integer_to_list(Arity), <<", [">>,
+                                     lists:join(<<", ">>, [operand(E, Context, Index) || E <- Environment]),
+                                     <<"])">>], Context, Index), next(Index)];
+        {make_fun3, {Module, Name, Arity}, _OldIndex, _Dst, {x, Dest}, {list, Environment}}
+          when is_integer(Arity), Arity >= 0, is_list(Environment) ->
+            [write_register({x, Dest}, [<<"rt.makeFun(">>, string(Module), <<", ">>, string(Name), <<", ">>,
+                                         integer_to_list(Arity), <<", [">>,
+                                         lists:join(<<", ">>, [operand(E, Context, Index) || E <- Environment]),
+                                         <<"])">>], Context, Index), next(Index)];
+        {call_fun, Arity}
+          when is_integer(Arity), Arity >= 0, Arity < 1024 ->
+            [<<"return {type: 'fun_call', fun: rt.read(x, ">>, integer_to_list(Arity), <<"), args: rt.args(x, ">>, integer_to_list(Arity), <<"), state: {pc: ">>, integer_to_list(Index + 1), <<", y}, y: y};">>];
         {put_map_assoc, {f, _}, Source, Dest, Size, {list, Pairs}}
           when is_integer(Size), Size >= 0, is_list(Pairs) ->
             Entries = lists:join(<<", ">>, [[<<"[">>, operand(K, Context, Index), <<", ">>,
@@ -617,6 +638,15 @@ literal_steps([{term, []} | Rest], Steps, Context, Index) ->
     literal_steps(Rest, [<<"s.push(rt.nil());">> | Steps], Context, Index);
 literal_steps([{term, [Head | Tail]} | Rest], Steps, Context, Index) ->
     literal_steps([{term, Tail}, {term, Head}, cons | Rest], Steps, Context, Index);
+literal_steps([{term, Fun} | Rest], Steps, Context, Index) when is_function(Fun) ->
+    {module, Module} = erlang:fun_info(Fun, module),
+    {name, Name} = erlang:fun_info(Fun, name),
+    {arity, Arity} = erlang:fun_info(Fun, arity),
+    {env, Environment} = erlang:fun_info(Fun, env),
+    Step = [<<"s.push(rt.makeFun(">>, string(Module), <<", ">>, string(Name), <<", ">>,
+            integer_to_list(Arity), <<", [">>,
+            lists:join(<<", ">>, [literal_inline(E) || E <- Environment]), <<"]));">>],
+    literal_steps(Rest, [Step | Steps], Context, Index);
 literal_steps([{term, Map} | Rest], Steps, Context, Index) when is_map(Map) ->
     Entries = maps:to_list(Map),
     literal_steps([{map_elements, Entries}, {map, map_size(Map)} | Rest], Steps, Context, Index);
@@ -657,6 +687,19 @@ literal_steps([{map, Size} | Rest], Steps, Context, Index) ->
 literal_steps([{tuple, Arity} | Rest], Steps, Context, Index) ->
     literal_steps(Rest, [[<<"s.push(rt.tuple(s.splice(s.length-">>, integer_to_list(Arity),
                            <<",">>, integer_to_list(Arity), <<")));">>] | Steps], Context, Index).
+
+literal_inline(Term) ->
+    case Term of
+        I when is_integer(I) -> [integer_to_list(I), <<"n">>];
+        F when is_float(F) -> [<<"rt.float(">>, float_to_binary(F, [short]), <<")">>];
+        A when is_atom(A) -> [<<"rt.atom(">>, string(A), <<")">>];
+        [] -> <<"rt.nil()">>;
+        L when is_list(L) -> unsupported_literal_inline(L);
+        T when is_tuple(T) -> unsupported_literal_inline(T);
+        _ -> <<"null">>
+    end.
+unsupported_literal_inline(Term) ->
+    error({unsupported_fun_environment, Term}).
 
 target(Label, Labels, Context, Index) ->
     case maps:find(Label, Labels) of

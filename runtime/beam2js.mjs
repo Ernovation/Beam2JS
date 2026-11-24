@@ -6,7 +6,8 @@ const HOST_HANDLE = 5;
 const PID = 6;
 const REFERENCE = 7;
 const MAP = 8;
-const NIL = 9;
+const FUN = 9;
+const NIL = 10;
 
 function tagged(tag) {
   return {
@@ -22,6 +23,8 @@ const hostHandles = tagged(HOST_HANDLE);
 const pids = tagged(PID);
 const references = tagged(REFERENCE);
 const maps = tagged(MAP);
+const funs = tagged(FUN);
+let nextFunId = 0n;
 let nextHostHandleId = 0n;
 let nextPidId = 0n;
 let nextReferenceId = 0n;
@@ -40,7 +43,7 @@ const supportedProcessInfoItems = new Set([
 ]);
 const callableBifs = new Map([
   'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
-  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference', 'is_map',
+  'is_list', 'is_tuple', 'is_binary', 'is_bitstring', 'is_pid', 'is_reference', 'is_map', 'is_function',
 ].map(name => [JSON.stringify([name, 1]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.atom(rt.isType(name, args[0]) ? 'true' : 'false')}),
@@ -178,6 +181,22 @@ callableBifs.set(JSON.stringify(['process_info', 2]), {
 callableBifs.set(JSON.stringify(['spawn', 3]), {
   exported: true,
   run: (rt, args) => ({type: 'spawn', args}),
+});
+callableBifs.set(JSON.stringify(['apply', 2]), {
+  exported: true,
+  run: (rt, [fun, list]) => {
+    if (!funs.has(fun) || !isCons(list) && list !== nil) rt.raiseError(rt.atom('badarg'));
+    const args = [];
+    let cursor = list;
+    while (isCons(cursor)) {
+      const [head, tail] = consValue(cursor);
+      args.push(head);
+      cursor = tail;
+    }
+    if (cursor !== nil) rt.raiseError(rt.atom('badarg'));
+    rt.funCallArgs(fun, args);
+    return {type: 'tail_fun', fun, args, module: rt.funValue(fun).module, name: rt.funValue(fun).name};
+  },
 });
 callableBifs.set(JSON.stringify(['apply', 3]), {
   exported: true,
@@ -352,6 +371,7 @@ function termType(value) {
       case HOST_HANDLE: return 'host_handle';
       case PID: return 'pid';
       case REFERENCE: return 'reference';
+      case FUN: return 'fun';
       case MAP: return 'map';
     }
   }
@@ -461,17 +481,17 @@ export class Runtime {
       {name: 'with', arity: 2, exported: true, run: (r, [keys, map]) => { requireMap(map); const wanted = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { wanted.push(r.listHead(cursor)); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(rt.mapEntries(map).filter(([key]) => wanted.some(candidate => rt.equalExact(key, candidate))))}; }},
       {name: 'without', arity: 2, exported: true, run: (r, [keys, map]) => { requireMap(map); const unwanted = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { unwanted.push(r.listHead(cursor)); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.mapRemove(map, unwanted)}; }},
       {name: 'intersect', arity: 2, exported: true, run: (r, [left, right]) => { requireMap(left); requireMap(right); return {type: 'return', value: rt.map(rt.mapEntries(left).filter(([key]) => rt.mapGet(right, key) !== null))}; }},
-      {name: 'merge_with', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'intersect_with', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'filter', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'filtermap', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'map', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'fold', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'foreach', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'groups_from_list', arity: 2, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'groups_from_list', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'update_with', arity: 3, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
-      {name: 'update_with', arity: 4, exported: true, run: () => { rt.raiseError(rt.atom('badfun')); }},
+      {name: 'merge_with', arity: 3, exported: true, run: (r, [fun, left, right]) => { requireMap(left); requireMap(right); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const combined = rt.mapEntries(left).map(entry => [entry[0], entry[1]]); for (const [key, rightValue] of rt.mapEntries(right)) { const leftValue = rt.mapGet(left, key); if (leftValue === null) combined.push([key, rightValue]); else { const replacement = rt.invokeFun(fun, [key, leftValue, rightValue]); const index = combined.findIndex(([candidate]) => rt.equalExact(candidate, key)); combined[index] = [key, replacement]; } } return {type: 'return', value: rt.map(combined)}; }},
+      {name: 'intersect_with', arity: 3, exported: true, run: (r, [fun, left, right]) => { requireMap(left); requireMap(right); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const combined = []; for (const [key, leftValue] of rt.mapEntries(left)) { const rightValue = rt.mapGet(right, key); if (rightValue !== null) combined.push([key, rt.invokeFun(fun, [key, leftValue, rightValue])]); } return {type: 'return', value: rt.map(combined)}; }},
+      {name: 'filter', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const kept = rt.mapEntries(map).filter(([key, value]) => rt.equalExact(rt.invokeFun(fun, [key, value]), rt.atom('true'))); return {type: 'return', value: rt.map(kept)}; }},
+      {name: 'filtermap', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const kept = []; for (const [key, value] of rt.mapEntries(map)) { const result = rt.invokeFun(fun, [key, value]); if (rt.equalExact(result, rt.atom('true'))) kept.push([key, value]); else if (rt.isType('is_tuple', result) && rt.tupleSize(result) === 2 && rt.equalExact(rt.tupleElement(result, 1), rt.atom('true'))) kept.push([key, rt.tupleElement(result, 2)]); } return {type: 'return', value: rt.map(kept)}; }},
+      {name: 'map', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const changed = rt.mapEntries(map).map(([key, value]) => [key, rt.invokeFun(fun, [key, value])]); return {type: 'return', value: rt.map(changed)}; }},
+      {name: 'fold', arity: 3, exported: true, run: (r, [fun, initial, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); let accumulator = initial; for (const [key, value] of rt.mapEntries(map)) accumulator = rt.invokeFun(fun, [key, value, accumulator]); return {type: 'return', value: accumulator}; }},
+      {name: 'foreach', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); for (const [key, value] of rt.mapEntries(map)) rt.invokeFun(fun, [key, value]); return {type: 'return', value: rt.atom('ok')}; }},
+      {name: 'groups_from_list', arity: 2, exported: true, run: (r, [fun, list]) => { if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const entries = []; let cursor = list; while (r.isType('is_nonempty_list', cursor)) { const item = r.listHead(cursor); const key = rt.invokeFun(fun, [item]); let index = entries.findIndex(([candidate]) => rt.equalExact(candidate, key)); if (index < 0) { index = entries.length; entries.push([key, []]); } entries[index][1].push(item); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(entries.map(([key, values]) => { let result = rt.nil(); for (let i = values.length - 1; i >= 0; i--) result = rt.cons(values[i], result); return [key, result]; }))}; }},
+      {name: 'groups_from_list', arity: 3, exported: true, run: (r, [keyFun, valueFun, list]) => { if (!rt.isType('is_function', keyFun) || !rt.isType('is_function', valueFun)) rt.raiseError(rt.atom('badfun')); const entries = []; let cursor = list; while (r.isType('is_nonempty_list', cursor)) { const item = r.listHead(cursor); const key = rt.invokeFun(keyFun, [item]); const value = rt.invokeFun(valueFun, [item]); let index = entries.findIndex(([candidate]) => rt.equalExact(candidate, key)); if (index < 0) { index = entries.length; entries.push([key, []]); } entries[index][1].push(value); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(entries.map(([key, values]) => { let result = rt.nil(); for (let i = values.length - 1; i >= 0; i--) result = rt.cons(values[i], result); return [key, result]; }))}; }},
+      {name: 'update_with', arity: 3, exported: true, run: (r, [key, fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const found = rt.mapGet(map, key); if (found === null) rt.raiseError(r.tuple([r.atom('badkey'), key])); return {type: 'return', value: rt.mapUpdate(map, key, rt.invokeFun(fun, [found]))}; }},
+      {name: 'update_with', arity: 4, exported: true, run: (r, [key, fun, initial, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const found = rt.mapGet(map, key); return {type: 'return', value: found === null ? rt.mapPut(map, [[key, initial]]) : rt.mapUpdate(map, key, rt.invokeFun(fun, [found]))}; }},
       {name: 'iterator', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: rt.tuple([rt.atom('maps_iterator'), map, erlPairs(rt.mapEntries(map))])}; }},
       {name: 'iterator', arity: 2, exported: true, run: (r, [map, order]) => { requireMap(map); if (!rt.isType('is_atom', order)) rt.raiseError(rt.atom('badarg')); const name = Symbol.keyFor(order); if (!['ordered','reversed','undefined'].includes(name)) rt.raiseError(rt.atom('badarg')); let entries = rt.mapEntries(map); if (name === 'reversed') entries = entries.reverse(); else if (name === 'ordered') entries = entries.slice().sort((left, right) => rt.compare(left[0], right[0])).map(entry => [entry[0], entry[1]]); return {type: 'return', value: rt.tuple([rt.atom('maps_iterator'), map, erlPairs(entries)])}; }},
       {name: 'next', arity: 1, exported: true, run: (r, [iterator]) => { if (!rt.isType('is_tuple', iterator) || rt.tupleSize(iterator) !== 3 || !rt.equalExact(rt.tupleElement(iterator, 1), rt.atom('maps_iterator'))) rt.raiseError(rt.atom('badarg')); const entries = rt.tupleElement(iterator, 3); if (entries === r.nil()) return {type: 'return', value: rt.atom('none')}; if (!r.isType('is_nonempty_list', entries)) rt.raiseError(rt.atom('badarg')); const pair = r.listHead(entries); const tail = r.listTail(entries); if (!r.isType('is_tuple', pair) || r.tupleSize(pair) !== 2) rt.raiseError(rt.atom('badarg')); const rest = rt.tuple([rt.atom('maps_iterator'), rt.tupleElement(iterator, 2), tail]); return {type: 'return', value: rt.tuple([r.tupleElement(pair, 1), r.tupleElement(pair, 2), rest])}; }},
@@ -500,6 +520,60 @@ export class Runtime {
   atom(name) {
     if (typeof name !== 'string') throw new TypeError('atom name must be a string');
     return Symbol.for(name);
+  }
+
+  makeFun(module, name, arity, environment = []) {
+    if (typeof module !== 'string' || typeof name !== 'string' ||
+        !Number.isInteger(arity) || arity < 0 || arity > 255 ||
+        !Array.isArray(environment) || environment.some(value => !isTerm(value))) {
+      throw new TypeError('invalid Erlang fun definition');
+    }
+    return Object.freeze([FUN, Object.freeze({id: nextFunId++, module, name, arity,
+      environment: Object.freeze(environment.slice())})]);
+  }
+
+  funValue(value) {
+    if (!funs.has(value)) throw new TypeError('expected Erlang fun');
+    return funs.get(value);
+  }
+
+  funArity(value) {
+    const data = this.funValue(value);
+    return data.arity - data.environment.length;
+  }
+
+  invokeFun(value, args) {
+    if (!funs.has(value)) this.raiseError(this.atom('badfun'));
+    const data = this.funValue(value);
+    const callArgs = this.funCallArgs(value, args);
+    const process = this.#newProcess(data.module, data.name, callArgs);
+    process.external = false;
+    process.status = 'running';
+    let failed = false;
+    let failure;
+    try {
+      const result = this.#runProcess(process, Infinity);
+      if (result.waiting) throw new Error('synchronous fun invocation cannot wait for a message');
+      if (!result.done) throw new Error('unexpected yield in synchronous fun invocation');
+      return result.value;
+    } catch (error) {
+      failed = true;
+      failure = error;
+      throw error;
+    } finally {
+      try {
+        this.#finishProcess(process, 'completed');
+      } catch (error) {
+        if (failed) throw new AggregateError([failure, error], 'fun process and timer cleanup failed');
+        throw error;
+      }
+    }
+  }
+
+  funCallArgs(value, args) {
+    const data = this.funValue(value);
+    if (args.length !== this.funArity(value)) this.raiseError(this.atom('badarity'));
+    return [...data.environment, ...args];
   }
 
   makeRef() {
@@ -894,6 +968,8 @@ export class Runtime {
         for (let i = elements.length - 1; i >= 0; i--) {
           pending.push([elements[i], otherElements[i]]);
         }
+      } else if (type === 'fun') {
+        if (funs.get(a).id !== funs.get(b).id) return false;
       } else if (type === 'bitstring') {
         if (compareBitstrings(a, b) !== 0) return false;
       } else {
@@ -909,7 +985,7 @@ export class Runtime {
 
   compare(left, right) {
     const rank = {integer: 0, float: 0, atom: 1, reference: 2, host_handle: 3, pid: 4,
-      tuple: 5, map: 6, nil: 7, cons: 8, bitstring: 9};
+      tuple: 5, map: 6, fun: 7, nil: 8, cons: 9, bitstring: 10};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -934,6 +1010,10 @@ export class Runtime {
         const x = references.get(a);
         const y = references.get(b);
         if (x !== y) return x < y ? -1 : 1;
+      } else if (aType === 'fun') {
+        const x = funs.get(a);
+        const y = funs.get(b);
+        if (x.id !== y.id) return x.id < y.id ? -1 : 1;
       } else if (aType === 'atom') {
         const leftChars = Symbol.keyFor(a)[Symbol.iterator]();
         const rightChars = Symbol.keyFor(b)[Symbol.iterator]();
@@ -996,6 +1076,8 @@ export class Runtime {
       case 'is_tuple': return actual === 'tuple';
       case 'is_pid': return actual === 'pid';
       case 'is_reference': return actual === 'reference';
+      case 'is_function': return actual === 'fun';
+      case 'is_fun': return actual === 'fun';
       case 'is_map': return actual === 'map';
       case 'is_binary':
         return actual === 'bitstring' && bitstrings.get(value)[1] % 8 === 0;
@@ -1650,8 +1732,17 @@ export class Runtime {
       if (budget.remaining === previous) budget.remaining--;
       if (action.type === 'spawn') {
         action = {type: 'return', value: this.#spawnErlang(action.args)};
-      } else if (action.type === 'dictionary') {
-        action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
+      } else if (action.type === 'fun_call' || action.type === 'tail_fun') {
+        const data = this.funValue(action.fun);
+        const callArgs = this.funCallArgs(action.fun, action.args);
+        if (action.type === 'fun_call') process.continuations.push({fn: process.fn, state: action.state});
+        process.module = data.module;
+        process.name = data.name;
+        process.args = callArgs;
+        process.external = false;
+        process.fn = undefined;
+        process.state = undefined;
+        continue;
       } else if (action.type === 'module_info') {
         action = {
           type: 'return',

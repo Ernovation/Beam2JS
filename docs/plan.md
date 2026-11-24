@@ -358,8 +358,10 @@ Erlang programs.
   size and `binary_part/2` and `/3` guard, zero-label and callable forms are
   supported, as are callable `binary_to_list/1,3`. General construction,
   matching, other slicing instructions and other callable binary BIFs are not.
-- [ ] Implement funs, closures and captured environments, exported funs,
-  indirect calls and arity checks; retain required module/lambda metadata.
+- [~] Implement funs, closures and captured environments, exported funs,
+  indirect calls and arity checks. Exported fun literals, local closures,
+  `make_fun3`, `call_fun/1`, `apply/2`, `is_function/1`, bad-arity and callback
+  invocation are implemented; general tail-call and broader fun forms remain open.
 - [ ] Complete comparison, ordering, exact map-key behavior and host conversion
   for the newly supported types. Preserve immutable Erlang term semantics.
 - [ ] Support external term encoding/decoding where needed, with explicit
