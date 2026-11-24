@@ -53,23 +53,99 @@ It does not check whether the solution is unique.
 
 ### Browser demo
 
-Build and serve the example from the repository root:
+Build the compiler and the example's BEAM files, then serve them with the
+Beam2JS web server from the repository root:
 
 ```sh
 rebar3 escriptize
 mkdir -p _build/browser
 erlc -o _build/browser examples/browser/browser_demo.erl examples/browser/dom.erl
-_build/default/bin/beam2js _build/browser/browser_demo.beam examples/browser/browser_demo.mjs
-_build/default/bin/beam2js _build/browser/dom.beam examples/browser/dom.mjs
-python3 -m http.server 8000
+_build/default/bin/beam2js serve --beam-dir _build/browser --module-root /examples/browser/
 ```
 
-Open <http://localhost:8000/examples/browser/>. The Erlang process listens for
+Open <http://localhost:8080/examples/browser/> (the page, not the server root
+`http://localhost:8080/`, which has no application). The Erlang process listens for
 click and mouse-move events, updates the page, and exits when you select **Stop
-Erlang process**. The runtime downloads `browser_demo.mjs` and `dom.mjs` when
-needed. The `dom` module loads its JavaScript implementation from
-`dom.nif.mjs` in its `-on_load` initializer. The example uses browser APIs; it
-is not a general JavaScript interop layer.
+Erlang process**. The runtime requests `browser_demo.mjs` and `dom.mjs` when
+needed and the server compiles them from the BEAM files. The `dom` module loads
+its JavaScript implementation from `dom.nif.mjs` in its `-on_load` initializer;
+that file and the page itself are served as static files. The example uses
+browser APIs; it is not a general JavaScript interop layer.
+
+### Server demo
+
+The [server demo](examples/server/server_demo.erl) calls OTP's own `ordsets`
+module from the browser without compiling it in advance:
+
+```sh
+rebar3 escriptize
+mkdir -p _build/server
+erlc -o _build/server examples/server/server_demo.erl
+_build/default/bin/beam2js serve --pa _build/server
+```
+
+Open <http://localhost:8080/examples/server/>. The page imports the runtime
+with `moduleBaseURL` set to `/modules/`; the server compiles `server_demo.mjs`
+from `_build/server` and `ordsets.mjs` from the OTP installation on first use.
+
+## Web server
+
+`beam2js serve` starts an Erlang web server that compiles BEAM files to
+JavaScript when the browser requests them, so modules need no separate build
+step. Point the runtime's `moduleBaseURL` at the server's module root:
+
+```js
+const runtime = new Runtime({moduleBaseURL: new URL('/modules/', document.baseURI)});
+```
+
+Requests under the module root are handled as follows:
+
+| Request | Response |
+| --- | --- |
+| `<root><module>.mjs` | `<module>.beam`, compiled to JavaScript |
+| `<root><name>.nif.mjs` | `<name>.nif.mjs` from a NIF directory or next to the BEAM files, unchanged |
+| anything else | the document root's file at that path, or 404 |
+
+By default every module the server's own Erlang node can load is served: the
+BEAM file is located on the code path, which includes the OTP installation and
+any `--pa` directories. With one or more `--beam-dir` options only those
+directories are searched. A module that the compiler does not support returns
+HTTP 500 with the compiler's diagnostic, which makes the runtime's load fail.
+Compiled output is cached in memory until the BEAM file's size or modification
+time changes.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--port N` | `8080` | TCP port; `0` picks a free port |
+| `--ip ADDRESS` | `127.0.0.1` | Listening address |
+| `--module-root PATH` | `/modules/` | URL path under which modules are served |
+| `--beam-dir DIR` | code path | Serve only BEAM files from `DIR`; repeatable |
+| `--pa DIR` | | Add `DIR` to the code path; repeatable |
+| `--nif-dir DIR` | | Also look for `.nif.mjs` files in `DIR`; repeatable |
+| `--root DIR` | `.` | Document root for static files such as pages and the runtime |
+| `--no-root` | | Serve no static files |
+
+The server can also run inside an existing Erlang node:
+
+```erlang
+{ok, Server} = beam2js_server:start(#{port => 8080,
+                                      beam_dirs => ["ebin"],   % or code_path
+                                      nif_dirs => ["priv/js"],
+                                      document_root => "www"}),
+Port = beam2js_server:port(Server),
+beam2js_server:stop(Server).
+```
+
+The map keys match the command-line options (`ip`, `port`, `module_root`,
+`beam_dirs`, `nif_dirs`, `document_root`); `start/1` defaults to no document
+root. The server uses OTP `inets` and listens on the loopback address unless
+told otherwise. In the default mode it exposes the compiled code of every
+module on the code path, so restrict it with `--beam-dir` before making it
+reachable from other machines.
+
+The compiler supports only part of the BEAM instruction set, so many OTP
+library modules cannot be compiled yet. For example `ordsets` compiles, but
+`lists` does not (it uses unsupported closure and type-test instructions).
 
 ## Runtime API
 
@@ -230,7 +306,9 @@ npm test
 
 Each suite can also be run on its own: `npm run test:integration`,
 `test:execution`, `test:opcodes`, `test:bifs`, `test:maps`, `test:funs`,
-`test:errors`, `test:links`, `test:loader`, `test:sudoku` and `test:browser`.
+`test:errors`, `test:links`, `test:loader`, `test:sudoku`, `test:server` and
+`test:browser`. `test:server` starts `beam2js serve` and loads both browser
+examples through it in Chromium.
 `test:links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
 and checks that its link, monitor, exit-signal and exception scenarios produce
 the same results in Beam2JS as in OTP.

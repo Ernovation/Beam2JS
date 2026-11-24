@@ -3,6 +3,8 @@
 
 -define(MAX_INPUT_SIZE, 32 * 1024 * 1024).
 
+main(["serve" | Args]) ->
+    beam2js_server:main(Args);
 main([Input, Output]) ->
     case compile_file(Input, Output) of
         ok -> ok;
@@ -11,7 +13,8 @@ main([Input, Output]) ->
             erlang:halt(1)
     end;
 main(_) ->
-    io:format(standard_error, "usage: beam2js INPUT.beam OUTPUT.mjs~n", []),
+    io:format(standard_error, "usage: beam2js INPUT.beam OUTPUT.mjs~n"
+                              "       beam2js serve [OPTIONS]~n", []),
     erlang:halt(2).
 
 compile_file(Input, Output) ->
@@ -37,7 +40,10 @@ compile_binary(Binary) when is_binary(Binary), byte_size(Binary) =< ?MAX_INPUT_S
                     try generate(Module, Exports, Functions) of
                         Source -> {ok, iolist_to_binary(Source)}
                     catch
-                        throw:{unsupported, Detail} -> {error, lists:flatten(Detail)}
+                        throw:{unsupported, Detail} -> {error, lists:flatten(Detail)};
+                        Class:Reason:Stack ->
+                            error_message("internal compiler error (~p): ~tP at ~tP",
+                                          [Class, Reason, 20, hd(Stack ++ [none]), 10])
                     end;
                 Other -> error_message("cannot disassemble BEAM: ~tp", [Other])
             catch
