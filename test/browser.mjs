@@ -35,7 +35,7 @@ const source = path => readFileSync(resolve(path), 'utf8');
 try {
   run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'examples/browser/dom.erl', 'fixtures/atom_conversion.erl',
     'fixtures/map_slice.erl', 'fixtures/compound_maps.erl', 'fixtures/error_process_slice.erl',
-    'fixtures/dynamic_apply.erl',
+    'fixtures/dynamic_apply.erl', 'fixtures/dom_probe.erl',
     'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
     'fixtures/bif_body.erl', 'fixtures/scheduler_fixture.erl', 'fixtures/scheduler_probe.erl',
@@ -406,6 +406,7 @@ try {
     [join(dir, 'raw_bifs-stripped.beam'), 'raw_bifs-stripped.mjs'],
     [join(dir, 'slice_helper.beam'), 'slice_helper.mjs'],
     [join(dir, 'browser_demo.beam'), 'browser_demo.mjs'],
+    [join(dir, 'dom_probe.beam'), 'dom_probe.mjs'],
     [join(dir, 'dom.beam'), 'dom.mjs'],
     [join(dir, 'atom_conversion.beam'), 'atom_conversion.mjs'],
     [join(dir, 'atom_conversion-stripped.beam'), 'atom_conversion-stripped.mjs'],
@@ -1666,6 +1667,37 @@ try {
     buttonHandle, eventRuntime.atom('click'), eventRuntime.nil(),
   ]);
   assert.equal(subscription[1][1], eventRuntime.atom('scheduled_process_required'));
+
+  (await import(pathToFileURL(join(dir, 'dom_probe.mjs')))).register(eventRuntime);
+  const probe = eventRuntime.spawnProcess('dom_probe', 'listen', [buttonHandle, eventRuntime.atom('pointerdown')]);
+  while (!listeners.has('pointerdown')) await new Promise(resolve => setTimeout(resolve, 0));
+  // DOM attributes are enumerable accessors on the prototype, so mirror that.
+  const eventProto = {};
+  for (const [name, get] of Object.entries({
+    pointerId: () => 7, pressure: () => 0.5, pointerType: () => 'pen', isPrimary: () => true,
+    target: () => eventElement, relatedTarget: () => null, preventDefault: () => () => {},
+    tiltX: () => NaN, broken: () => { throw new Error('getter failed'); },
+  })) Object.defineProperty(eventProto, name, {get, enumerable: true});
+  listeners.get('pointerdown')(Object.assign(Object.create(eventProto), {isTrusted: false}));
+  const [probeEvent] = eventRuntime.processMailbox(probe);
+  assert.equal(eventRuntime.tupleElement(probeEvent, 3), eventRuntime.atom('pointerdown'));
+  const probeData = eventRuntime.tupleElement(probeEvent, 4);
+  const field = name => eventRuntime.mapGet(probeData, eventRuntime.atom(name));
+  assert.equal(field('pointerId'), 7n);
+  assert.equal(eventRuntime.floatValue(field('pressure')), 0.5);
+  assert.equal(new TextDecoder().decode(eventRuntime.bitstringBytes(field('pointerType'))), 'pen');
+  assert.equal(field('isPrimary'), eventRuntime.atom('true'));
+  assert.equal(field('isTrusted'), eventRuntime.atom('false'));
+  assert.equal(eventRuntime.hostValue(field('target')), eventElement);
+  for (const omitted of ['relatedTarget', 'preventDefault', 'tiltX', 'broken']) {
+    assert.equal(field(omitted), null, omitted);
+  }
+  assert.equal(eventRuntime.mapSize(probeData), 6n);
+  eventRuntime.invoke('dom', 'set_text', [field('target'), eventRuntime.bitstring([0x6f, 0x6b], 16)]);
+  assert.equal(eventElement.textContent, 'ok');
+  eventRuntime.sendMessage(probe, eventRuntime.atom('stop'));
+  assert.equal(await probe.result, eventRuntime.atom('ok'));
+  assert.equal(listeners.has('pointerdown'), false);
 
   const browser = await chromium.launch();
   try {

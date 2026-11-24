@@ -28,8 +28,38 @@ export function domFunctions(runtime, document) {
     return value;
   }
 
-  function propertyMap(entries) {
-    return runtime.map(entries.map(([name, value]) => [runtime.atom(name), value]));
+  // Converts a property value to an Erlang term, or undefined to omit it.
+  // Objects become host handles that the DOM functions accept.
+  function propertyTerm(rt, value) {
+    switch (typeof value) {
+      case 'string': return binary(value);
+      case 'boolean': return rt.atom(value ? 'true' : 'false');
+      case 'bigint': return value;
+      case 'number':
+        if (Number.isInteger(value)) return BigInt(value);
+        return Number.isFinite(value) ? rt.float(value) : undefined;
+      case 'object':
+        if (value === null) return undefined;
+        elements.add(value);
+        return rt.hostHandle(value);
+      default: return undefined;
+    }
+  }
+
+  // Snapshots every readable property of the event, including inherited ones.
+  function eventMap(rt, event) {
+    const entries = [];
+    for (const name in event) {
+      let value;
+      try {
+        value = event[name];
+      } catch {
+        continue;
+      }
+      const term = propertyTerm(rt, value);
+      if (term !== undefined) entries.push([rt.atom(name), term]);
+    }
+    return rt.map(entries);
   }
 
   function list(term) {
@@ -103,9 +133,7 @@ export function domFunctions(runtime, document) {
           const eventType = rt.read(args, 1);
           if (!rt.isType('is_atom', eventType)) rt.raiseError(rt.atom('badarg'));
           const type = Symbol.keyFor(eventType);
-          if (!['click', 'mousemove', 'input', 'keydown', 'submit'].includes(type)) {
-            return {type: 'return', value: rt.tuple([rt.atom('error'), rt.atom('unsupported_event')])};
-          }
+          if (!type) rt.raiseError(rt.atom('badarg'));
           if (typeof found.addEventListener !== 'function') {
             return {type: 'return', value: rt.tuple([rt.atom('error'), rt.atom('unsupported_target')])};
           }
@@ -127,44 +155,8 @@ export function domFunctions(runtime, document) {
             if (!subscriptions.has(ref) || !runtime.isProcessAlive(pid)) return;
             if (flags.prevent_default) event.preventDefault?.();
             if (flags.stop_propagation) event.stopPropagation?.();
-            let entries;
-            if (type === 'click') {
-              entries = [
-                ['button', BigInt(event.button ?? 0)],
-                ['client_x', rt.float(Number(event.clientX ?? 0))],
-                ['client_y', rt.float(Number(event.clientY ?? 0))],
-                ['alt_key', rt.atom(event.altKey ? 'true' : 'false')],
-                ['ctrl_key', rt.atom(event.ctrlKey ? 'true' : 'false')],
-                ['meta_key', rt.atom(event.metaKey ? 'true' : 'false')],
-                ['shift_key', rt.atom(event.shiftKey ? 'true' : 'false')],
-              ];
-            } else if (type === 'mousemove') {
-              entries = [
-                ['client_x', rt.float(Number(event.clientX ?? 0))],
-                ['client_y', rt.float(Number(event.clientY ?? 0))],
-                ['offset_x', rt.float(Number(event.offsetX ?? 0))],
-                ['offset_y', rt.float(Number(event.offsetY ?? 0))],
-              ];
-            } else if (type === 'input') {
-              entries = [
-                ['value', binary(event.target?.value ?? '')],
-                ['is_composing', rt.atom(event.isComposing ? 'true' : 'false')],
-              ];
-            } else if (type === 'keydown') {
-              entries = [
-                ['key', binary(event.key ?? '')],
-                ['code', binary(event.code ?? '')],
-                ['repeat', rt.atom(event.repeat ? 'true' : 'false')],
-                ['alt_key', rt.atom(event.altKey ? 'true' : 'false')],
-                ['ctrl_key', rt.atom(event.ctrlKey ? 'true' : 'false')],
-                ['meta_key', rt.atom(event.metaKey ? 'true' : 'false')],
-                ['shift_key', rt.atom(event.shiftKey ? 'true' : 'false')],
-              ];
-            } else {
-              entries = [];
-            }
             const message = rt.tuple([
-              rt.atom('dom_event'), ref, rt.atom(type), propertyMap(entries),
+              rt.atom('dom_event'), ref, rt.atom(type), eventMap(rt, event),
             ]);
             runtime.sendMessage(runtime.processHandle(pid), message);
           };

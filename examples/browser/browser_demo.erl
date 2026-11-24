@@ -26,7 +26,7 @@ loop(Element, MouseArea, ClickRef, MouseRef, Count) ->
             dom:append_text(Element, integer_to_binary(Count)),
             dom:append_text(Element, <<"!">>),
             loop(Element, MouseArea, ClickRef, MouseRef, Count + 1);
-        {dom_event, MouseRef, mousemove, #{client_x := X, client_y := Y}} ->
+        {dom_event, MouseRef, mousemove, #{clientX := X, clientY := Y}} ->
             dom:set_text(MouseArea, <<"Mouse: ">>),
             dom:append_text(MouseArea, integer_to_binary(trunc(X))),
             dom:append_text(MouseArea, <<", ">>),

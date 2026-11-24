@@ -25,8 +25,8 @@ The [DOM NIF](../examples/browser/dom.nif.mjs) supplies JavaScript-backed
 Erlang functions, loaded by `erlang:load_nif/2` from the `-on_load` function of
 [dom.erl](../examples/browser/dom.erl). The
 [browser bootstrap](../examples/browser/main.mjs) starts a scheduled Erlang
-process with `runtime.spawnProcess`, sends `{dom_event, click}` on a DOM click,
-and removes its listeners when the process stops or fails.
+process with `runtime.spawnProcess`. Erlang subscribes with `dom:listen/3`,
+receives `{dom_event, Ref, Type, Data}` messages, and the adapter removes its listeners when the process stops or fails.
 
 The [runtime](../runtime/beam2js.mjs) already supports:
 
@@ -92,9 +92,8 @@ Runtime mailbox -> cooperative scheduler -> UI process receive loop
                                             DOM adapter
 ```
 
-Keep the core runtime independent of `window`, `document`, DOM classes and
-event schemas. Extend the existing capability-scoped `dom` adapter rather
-than exposing arbitrary JavaScript property access or callbacks.
+Keep the core runtime independent of `window`, `document` and DOM classes.
+Extend the `dom` adapter rather than exposing arbitrary JavaScript callbacks.
 
 Use one process per independently stateful UI component, not per DOM element.
 That process owns its subscriptions and state, serializes UI updates, and can
@@ -117,10 +116,11 @@ dom:unlisten(SubscriptionRef) -> ok | {error, Reason}.
 - The calling process is both receiver and owner. It must be a live scheduled
   process; subscribing from synchronous `invoke` returns
   `{error, scheduled_process_required}`.
-- `Element` must be a handle obtained from this adapter. Retain the existing
-  document/element capability checks; never accept arbitrary host objects.
-- `EventType` is an allowlisted atom, initially `click`, `input`, `keydown`
-  and `submit`. Unsupported types return `{error, unsupported_event}`.
+- `Element` must be a handle obtained from this adapter, through
+  `element_by_id/1` or an event snapshot; never accept arbitrary host objects.
+- `EventType` is any atom naming a DOM event type, such as `click`,
+  `pointerdown` or `input`. A non-atom raises `badarg`; a target without
+  `addEventListener` returns `{error, unsupported_target}`.
 - `Options` is a proper list of unique supported options. Initially:
   `{capture, Boolean}`, `{prevent_default, Boolean}` and
   `{stop_propagation, Boolean}`, all defaulting to `false`. Unknown or duplicate
@@ -139,17 +139,24 @@ Messages have a single envelope:
 {dom_event, SubscriptionRef, EventType, Data}
 ```
 
-Use immutable Erlang maps for `Data`. Map keys are fixed atoms, so field access
-is independent of property insertion or iteration order. Define fixed schemas, rather than recursively converting
-arbitrary browser objects:
+`Data` is an immutable Erlang map snapshot of every enumerable property of the
+event, including those inherited from its prototype chain (DOM attributes are
+enumerable accessors). Keys are the JavaScript property names as atoms, for
+example `clientX`, `shiftKey` and `target`. Values are converted by type:
 
-| Event | Snapshot fields |
+| JavaScript value | Erlang term |
 | --- | --- |
-| `click` | `button` integer; `client_x`, `client_y` floats; `alt_key`, `ctrl_key`, `meta_key`, `shift_key` boolean atoms |
-| `mousemove` | `client_x`, `client_y`, `offset_x`, `offset_y` floats |
-| `input` | `value` UTF-8 binary; `is_composing` boolean atom |
-| `keydown` | `key`, `code` UTF-8 binaries; `repeat` and modifier boolean atoms |
-| `submit` | empty map initially; form-value extraction is a separate explicit API |
+| integral number | integer |
+| other finite number | float |
+| string | UTF-8 binary |
+| boolean | `true` or `false` atom |
+| non-null object, such as `target`, `view` or `currentTarget` | opaque host handle |
+
+`null`, `undefined`, functions, symbols, `NaN`, infinities and properties whose
+getter throws are omitted, so use `maps:get/3` with a default for optional
+fields. Integer-valued coordinates arrive as integers and fractional ones as
+floats. Object handles are accepted by the `dom` functions, so Erlang can, for
+example, call `dom:read_value(Target)` on an input event's target.
 
 `maps:filter/2`, `filtermap/2`, `fold/3`, `foreach/2`, `map/2`,
 `merge_with/3`, `intersect_with/3`, `update_with/3/4`, and
@@ -157,18 +164,12 @@ arbitrary browser objects:
 `badfun`. Pure map construction, conversion and transformation functions are
 available.
 
-The `input` schema initially requires a supported value-bearing input/textarea
-element; other targets return `{error, unsupported_target}` on subscription.
-Do not pretend this schema implements contenteditable editing.
-Bound text snapshots with an adapter limit; reject an oversized snapshot
-explicitly rather than truncating it. Continuous events such as `pointermove`,
-`scroll` and `wheel` are deferred until bounded stream delivery exists.
-
-Do not pass a live `Event`, mutable DOM object, JavaScript array or object as
-the payload. The subscription reference identifies the source. Browser
-strings, including key names and user text, become binaries, never dynamically
-created atoms. Coordinate numbers use `runtime.float`; integer fields use
-`bigint`, and booleans use `true`/`false` atoms.
+Snapshot construction is synchronous in the event callback, so values reflect
+the event's state at dispatch. Continuous events such as `pointermove`,
+`scroll` and `wheel` are delivered unthrottled; bounded stream delivery remains
+future work. Browser strings, including key names and user text, become
+binaries; property names become atoms, so only listen to event types whose
+property names are a bounded set.
 
 ## Erlang consumer
 
@@ -278,7 +279,7 @@ an attempted workaround. Browser activation rules still govern that action.
 
 Snapshot fields during the callback, particularly input values. Reading a DOM
 value later could observe a subsequent event's state. Synthetic events use the
-same schema; event delivery is not proof of a trusted user gesture.
+same snapshot conversion; check `isTrusted` where it matters. Event delivery is not proof of a trusted user gesture.
 
 ## Ordering, load and failure
 
