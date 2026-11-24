@@ -464,12 +464,12 @@ receive and timer tests agree with OTP's observable guarantees.
 
 **Goal:** Support process supervision primitives and their races.
 
-- [ ] Implement bidirectional links, unlinking, exit signals, exit reasons and
+- [~] Implement bidirectional links, unlinking, exit signals, exit reasons and
   `trap_exit`, including normal exits, untrappable kill and already-dead PIDs.
 - [x] Implement unique local references with `make_ref/0` and `is_reference/1`,
   including identity, comparisons and message transport. Distributed reference
   identity and serialization remain unsupported.
-- [ ] Implement process monitors, `DOWN` messages,
+- [~] Implement process monitors, `DOWN` messages,
   demonitoring and flush/info options, including monitor-after-exit and
   cancellation races.
 - [ ] Define signal ordering and lifecycle cleanup; cover simultaneous exits,

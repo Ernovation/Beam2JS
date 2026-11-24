@@ -33,7 +33,7 @@ const source = path => readFileSync(resolve(path), 'utf8');
 
 try {
   run('erlc', ['-o', dir, 'examples/browser/browser_demo.erl', 'fixtures/atom_conversion.erl',
-    'fixtures/map_slice.erl', 'fixtures/compound_maps.erl',
+    'fixtures/map_slice.erl', 'fixtures/compound_maps.erl', 'fixtures/error_process_slice.erl',
     'fixtures/dynamic_apply.erl',
     'fixtures/calls.erl',
     'fixtures/slice_helper.erl', 'fixtures/match_failures.erl', 'fixtures/arithmetic_body.erl',
@@ -409,6 +409,7 @@ try {
     [join(dir, 'atom_conversion-stripped.beam'), 'atom_conversion-stripped.mjs'],
     [join(dir, 'map_slice.beam'), 'map_slice.mjs'],
     [join(dir, 'compound_maps.beam'), 'compound_maps.mjs'],
+    [join(dir, 'error_process_slice.beam'), 'error_process_slice.mjs'],
     [join(dir, 'dynamic_apply.beam'), 'dynamic_apply.mjs'],
     [join(dir, 'dynamic_apply-stripped.beam'), 'dynamic_apply-stripped.mjs'],
   ]) {

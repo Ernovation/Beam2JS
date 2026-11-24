@@ -251,7 +251,10 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:send_after/3', 'erlang:send_after/4', 'erlang:start_timer/3', 'erlang:start_timer/4',
   'erlang:read_timer/1', 'erlang:cancel_timer/1',
   'erlang:read_timer/2', 'erlang:cancel_timer/2',
-  'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0']);
+  'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0',
+  'erlang:error/1', 'erlang:error/2', 'erlang:exit/1', 'erlang:exit/2', 'erlang:throw/1',
+  'erlang:raise/2', 'erlang:process_flag/2', 'erlang:link/1', 'erlang:unlink/1',
+  'erlang:monitor/2', 'erlang:demonitor/1', 'erlang:demonitor/2']);
 const guardInstructionOnly = new Set();
 const bodyAndGuardInstructionOnly = new Set();
 const arithmeticInstructionOnly = new Set();

@@ -122,6 +122,29 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             <<"rt.raiseError(rt.atom('function_clause'));">>;
         {case_end, Source} ->
             raise_match(case_clause, Source, Context, Index);
+        {'try', {y, Handler}, {f, Target}} ->
+            [<<"rt.pushExceptionHandler(pid, {pc: ">>, target(Target, Labels, Context, Index),
+             <<", kind: 'try'}); rt.writeY(y, ">>, integer_to_list(Handler),
+             <<", rt.atom('try')); ">>, next(Index)];
+        {'catch', {y, Handler}, {f, Target}} ->
+            [<<"rt.pushExceptionHandler(pid, {pc: ">>, target(Target, Labels, Context, Index),
+             <<", kind: 'catch'}); rt.writeY(y, ">>, integer_to_list(Handler),
+             <<", rt.atom('catch')); ">>, next(Index)];
+        try_end ->
+            [<<"rt.popExceptionHandler(pid); ">>, next(Index)];
+        {try_case, {y, _Handler}} ->
+            [<<"{ const exception = rt.getExceptionTriplet(pid); rt.popExceptionHandler(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; } ">>, next(Index)];
+        {catch_end, {y, _Handler}} ->
+            [<<"{ const exception = rt.getExceptionTriplet(pid); rt.popExceptionHandler(pid); x[0] = exception[1]; } ">>, next(Index)];
+        try_case_end ->
+            [<<"rt.raiseError(rt.atom('try_clause'));">>];
+        build_stacktrace ->
+            [<<"x[0] = rt.nil(); ">>, next(Index)];
+        {raise, Class, Reason} ->
+            [<<"rt.raiseException(">>, operand(Class, Context, Index), <<", ">>,
+             operand(Reason, Context, Index), <<");">>];
+        raw_raise ->
+            [<<"rt.raiseExceptionFromRegisters(x);">>];
         {badmatch, Source} ->
             raise_match(badmatch, Source, Context, Index);
         if_end ->
@@ -232,6 +255,9 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
         {gc_bif, Op, {f, Target}, Live, [Map], Dest}
           when Op =:= map_size, is_integer(Live), Live >= 0, Live =< 1024 ->
             guard_bif(Op, [Map], Dest, Target, Index, Labels, Context);
+        {bif, raise, {f, 0}, [Class, Reason], _Dest} ->
+            [<<"rt.raiseException(">>, operand(Class, Context, Index), <<", ">>,
+             operand(Reason, Context, Index), <<", rt.nil());">>];
         {bif, '=:=', {f, 0}, [Left, Right], Dest} ->
             Condition = comparison(is_eq_exact, operand(Left, Context, Index), operand(Right, Context, Index)),
             Value = [<<"rt.atom(">>, Condition, <<" ? 'true' : 'false')">>],
