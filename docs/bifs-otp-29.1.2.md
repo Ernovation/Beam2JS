@@ -333,6 +333,15 @@ instructions for supported terms, with differential coverage from the
 and their assembly fixtures. Their zero-label forms are supported and raise
 `badarg` on invalid inputs.
 
+OTP implements `lists:reverse/2`, `lists:member/2`, `lists:keyfind/3`,
+`lists:keymember/3` and `lists:keysearch/3` as BIFs; their bodies in
+`lists.beam` only call `erlang:nif_error/1`. When a module named `lists`
+registers, the runtime replaces those five functions with JavaScript
+implementations, so OTP's own `lists.beam` compiles and runs unchanged. The
+[lists fixture](../fixtures/lists_cases.erl) compares every exported `lists`
+function with OTP, including `erlang:++/2`, `erlang:--/2`,
+`erlang:setelement/3`, `erlang:float_to_list/1` and `erlang:is_function/2`.
+
 Regenerate or verify using the exact upstream file and OTP 29.1.2:
 
 ```sh
@@ -400,10 +409,10 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erl_debugger` | `xregs_count/1` | bif | yes | debugger | no | ? | ? | ? | not implemented |
 | `erlang` | `!/2` | bif | yes | message / timer | no | sends a message to a local PID or registered name | badarg for invalid destination | process runtime | instruction-and-callable |
 | `erlang` | `*/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
-| `erlang` | `++/2` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `++/2` | bif | yes | list / tuple | no | optimizer-pure | badarg for improper or non-list left operand | ? | callable-only |
 | `erlang` | `+/1` | ubif | yes | arithmetic | operator | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `+/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
-| `erlang` | `--/2` | bif | yes | list / tuple | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `--/2` | bif | yes | list / tuple | no | optimizer-pure | badarg for improper or non-list operands | ? | callable-only |
 | `erlang` | `-/1` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input | ? | instruction-and-callable |
 | `erlang` | `-/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
 | `erlang` | `//2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input, zero divisor or float conversion/result overflow | ? | instruction-and-callable |
@@ -482,7 +491,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `erase/1` | hbif | yes | process dictionary | no | removes a key from the calling process dictionary | ? | process runtime | callable-only |
 | `erlang` | `error/1` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
 | `erlang` | `error/2` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
-| `erlang` | `error/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
+| `erlang` | `error/3` | bif | yes | exception / signal | no | ? | raises the supplied reason; arguments and error_info are not modeled | ? | callable-only |
 | `erlang` | `exit/1` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
 | `erlang` | `exit/2` | bif | yes | exception / signal | no | ? | ? | ? | callable-only |
 | `erlang` | `exit/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
@@ -495,7 +504,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `float/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input or integer-to-float overflow | ? | instruction-and-callable |
 | `erlang` | `float_to_binary/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `float_to_binary/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
-| `erlang` | `float_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `float_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-float input | ? | callable-only |
 | `erlang` | `float_to_list/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `floor/1` | ubif | yes | number | BIF | optimizer-pure | badarg for non-number input | ? | instruction-and-callable |
 | `erlang` | `fun_info/2` | bif | yes | function / call | no | ? | ? | ? | not implemented |
@@ -528,7 +537,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `is_builtin/3` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `is_float/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_function/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
-| `erlang` | `is_function/2` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `is_function/2` | ubif | yes | type test | BIF | optimizer-pure | badarg for negative or non-integer arity | ? | instruction-and-callable |
 | `erlang` | `is_integer/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_integer/3` | ubif | yes | type test | BIF | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `is_list/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
@@ -622,7 +631,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `seq_trace_info/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `seq_trace_print/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `seq_trace_print/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `setelement/3` | bif | yes | tuple | no | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `setelement/3` | bif | yes | tuple | no | optimizer-pure | badarg for invalid index or non-tuple | ? | callable-only |
 | `erlang` | `setnode/2` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
 | `erlang` | `size/1` | ubif | yes | ? | BIF | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `spawn/3` | bif | yes | process / scheduling | no | schedules a local process | badarg for non-atom module/function or improper argument list | process runtime | callable-only |
@@ -815,11 +824,11 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `ets` | `whereis/1` | bif | yes | shared term table | no | ? | ? | ? | not implemented |
 | `file` | `native_name_encoding/0` | bif | yes | file / OS | no | ? | ? | OS / host | not implemented |
 | `io` | `printable_range/0` | bif | yes | I/O | no | ? | ? | OS / host | not implemented |
-| `lists` | `keyfind/3` | bif | yes | list | no | ? | ? | ? | not implemented |
-| `lists` | `keymember/3` | bif | yes | list | no | ? | ? | ? | not implemented |
-| `lists` | `keysearch/3` | bif | yes | list | no | ? | ? | ? | not implemented |
-| `lists` | `member/2` | bif | yes | list | no | ? | ? | ? | not implemented |
-| `lists` | `reverse/2` | bif | yes | list | no | ? | ? | ? | not implemented |
+| `lists` | `keyfind/3` | bif | yes | list | no | ? | badarg for invalid position or improper list | replaces the lists.beam stub | callable-only |
+| `lists` | `keymember/3` | bif | yes | list | no | ? | badarg for invalid position or improper list | replaces the lists.beam stub | callable-only |
+| `lists` | `keysearch/3` | bif | yes | list | no | ? | badarg for invalid position or improper list | replaces the lists.beam stub | callable-only |
+| `lists` | `member/2` | bif | yes | list | no | ? | badarg for improper list before a match | replaces the lists.beam stub | callable-only |
+| `lists` | `reverse/2` | bif | yes | list | no | ? | badarg for improper or non-list first argument | replaces the lists.beam stub | callable-only |
 | `maps` | `find/2` | bif | yes | map | no | ? | ? | ? | not implemented |
 | `maps` | `from_keys/2` | bif | yes | map | no | ? | ? | ? | not implemented |
 | `maps` | `from_list/1` | bif | yes | map | no | ? | ? | ? | not implemented |

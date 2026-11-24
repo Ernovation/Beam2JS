@@ -177,6 +177,17 @@ const details = new Map([
   ['erlang:is_map_key/2', {exceptions: '{badmap,Map} for non-map'}],
   ['erlang:map_size/1', {exceptions: '{badmap,Map} for non-map'}],
   ['erlang:tuple_size/1', {exceptions: 'badarg for non-tuple'}],
+  ['erlang:is_function/2', {exceptions: 'badarg for negative or non-integer arity'}],
+  ['erlang:setelement/3', {exceptions: 'badarg for invalid index or non-tuple'}],
+  ['erlang:float_to_list/1', {exceptions: 'badarg for non-float input'}],
+  ['erlang:++/2', {exceptions: 'badarg for improper or non-list left operand'}],
+  ['erlang:--/2', {exceptions: 'badarg for improper or non-list operands'}],
+  ['erlang:error/3', {exceptions: 'raises the supplied reason; arguments and error_info are not modeled'}],
+  ['lists:reverse/2', {exceptions: 'badarg for improper or non-list first argument', host: 'replaces the lists.beam stub'}],
+  ['lists:member/2', {exceptions: 'badarg for improper list before a match', host: 'replaces the lists.beam stub'}],
+  ['lists:keyfind/3', {exceptions: 'badarg for invalid position or improper list', host: 'replaces the lists.beam stub'}],
+  ['lists:keymember/3', {exceptions: 'badarg for invalid position or improper list', host: 'replaces the lists.beam stub'}],
+  ['lists:keysearch/3', {exceptions: 'badarg for invalid position or improper list', host: 'replaces the lists.beam stub'}],
   ['maps:get/2', {exceptions: '{badkey,Key} if absent; {badmap,Map} for non-map'}],
   ['maps:is_key/2', {exceptions: '{badmap,Map} for non-map'}],
   ['erlang:list_to_atom/1', {effects: 'may add a permanent atom to the global atom table'}],
@@ -252,7 +263,7 @@ const instructionAndCallable = new Set([
   'erlang:==/2', 'erlang:/=/2', 'erlang:=/=/2', 'erlang:</2', 'erlang:=</2',
   'erlang:>/2', 'erlang:>=/2',
   'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1', 'erlang:div/2', 'erlang:rem/2',
-  'erlang:not/1', 'erlang:and/2', 'erlang:or/2', 'erlang:xor/2',
+  'erlang:not/1', 'erlang:and/2', 'erlang:or/2', 'erlang:xor/2', 'erlang:is_function/2',
 ]);
 const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/2', 'erlang:spawn/3', 'erlang:send/2', 'erlang:make_ref/0',
   'erlang:list_to_tuple/1', 'erlang:tuple_to_list/1',
@@ -269,7 +280,9 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:error/1', 'erlang:error/2', 'erlang:exit/1', 'erlang:exit/2', 'erlang:throw/1',
   'erlang:raise/3', 'erlang:spawn_link/3', 'erlang:apply/3', 'erlang:atom_to_list/1',
   'erlang:get_module_info/1', 'erlang:get_module_info/2', 'erlang:load_nif/2', 'erlang:nif_error/1', 'erlang:nif_error/2', 'erlang:process_flag/2', 'erlang:link/1', 'erlang:unlink/1',
-  'erlang:monitor/2', 'erlang:demonitor/1', 'erlang:demonitor/2']);
+  'erlang:monitor/2', 'erlang:demonitor/1', 'erlang:demonitor/2',
+  'erlang:setelement/3', 'erlang:float_to_list/1', 'erlang:++/2', 'erlang:--/2', 'erlang:error/3',
+  'lists:reverse/2', 'lists:member/2', 'lists:keyfind/3', 'lists:keymember/3', 'lists:keysearch/3']);
 const guardInstructionOnly = new Set();
 const bodyAndGuardInstructionOnly = new Set();
 const arithmeticInstructionOnly = new Set();
@@ -618,6 +631,15 @@ instructions for supported terms, with differential coverage from the
 [guard fixture](../fixtures/guard_bifs.erl), [size fixture](../fixtures/length_guards.erl)
 and their assembly fixtures. Their zero-label forms are supported and raise
 \`badarg\` on invalid inputs.
+
+OTP implements \`lists:reverse/2\`, \`lists:member/2\`, \`lists:keyfind/3\`,
+\`lists:keymember/3\` and \`lists:keysearch/3\` as BIFs; their bodies in
+\`lists.beam\` only call \`erlang:nif_error/1\`. When a module named \`lists\`
+registers, the runtime replaces those five functions with JavaScript
+implementations, so OTP's own \`lists.beam\` compiles and runs unchanged. The
+[lists fixture](../fixtures/lists_cases.erl) compares every exported \`lists\`
+function with OTP, including \`erlang:++/2\`, \`erlang:--/2\`,
+\`erlang:setelement/3\`, \`erlang:float_to_list/1\` and \`erlang:is_function/2\`.
 
 Regenerate or verify using the exact upstream file and OTP 29.1.2:
 

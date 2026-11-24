@@ -262,6 +262,14 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
         {test, is_function, {f, Target}, [Source]}
           when is_integer(Target), Target >= 0 ->
             branch(type_test(is_function, Source, Context, Index), Target, Index, Labels, Context);
+        {test, is_function2, {f, Target}, [Source, Arity]} ->
+            Condition = [<<"rt.isFunctionArity(">>, operand(Source, Context, Index), <<", ">>,
+                         operand(Arity, Context, Index), <<") === true">>],
+            branch(Condition, Target, Index, Labels, Context);
+        {test, has_map_fields, {f, Fail}, Source, {list, Fields}} when is_list(Fields) ->
+            has_map_fields(Source, Fail, Fields, Index, Labels, Context);
+        {bif, is_function, {f, Target}, [Source, Arity], Dest} ->
+            guard_bif(is_function, [Source, Arity], Dest, Target, Index, Labels, Context);
         {test, is_tagged_tuple, {f, Target}, [Source, Arity, {atom, Tag}]}
           when is_integer(Arity), Arity > 0, Arity =< 9007199254740991, is_atom(Tag) ->
             Condition = [<<"(value => rt.isType('is_tuple', value) && rt.tupleSize(value) === ">>,
@@ -403,6 +411,13 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
         {call_fun, Arity}
           when is_integer(Arity), Arity >= 0, Arity < 1024 ->
             [<<"return {type: 'fun_call', fun: rt.read(x, ">>, integer_to_list(Arity), <<"), args: rt.args(x, ">>, integer_to_list(Arity), <<"), state: {pc: ">>, integer_to_list(Index + 1), <<", y}, y: y};">>];
+        %% The tag only tells the loader whether Func is known to be a fun of
+        %% the right arity; the runtime checks it either way.
+        {call_fun2, _Tag, Arity, Func}
+          when is_integer(Arity), Arity >= 0, Arity < 1024 ->
+            [<<"return {type: 'fun_call', fun: ">>, operand(Func, Context, Index),
+             <<", args: rt.args(x, ">>, integer_to_list(Arity), <<"), state: {pc: ">>,
+             integer_to_list(Index + 1), <<", y}};">>];
         {put_map_assoc, {f, _}, Source, Dest, Size, {list, Pairs}}
           when is_integer(Size), Size >= 0, is_list(Pairs) ->
             Entries = lists:join(<<", ">>, [[<<"[">>, operand(K, Context, Index), <<", ">>,
@@ -519,6 +534,9 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
         {is_map, [Map]} ->
             {[<<"const result = rt.isType('is_map', ">>, Map, <<"); ">>],
              <<"true">>, <<"rt.atom(result ? 'true' : 'false')">>};
+        {is_function, [Fun, Arity]} ->
+            {[<<"const result = rt.isFunctionArity(">>, Fun, <<", ">>, Arity, <<"); ">>],
+             <<"result !== null">>, <<"rt.atom(result ? 'true' : 'false')">>};
         {'bnot', [Value]} ->
             {[<<"const value = ">>, Value, <<"; ">>],
              <<"typeof value === 'bigint'">>, <<"~value">>};
@@ -568,6 +586,7 @@ guard_bif(Op, Sources, Dest, Target, Index, Labels, Context) ->
                             FailureOp =:= floor; FailureOp =:= ceil; FailureOp =:= float;
                             FailureOp =:= bit_size; FailureOp =:= byte_size;
                             FailureOp =:= binary_part; FailureOp =:= 'not';
+                            FailureOp =:= is_function;
                             FailureOp =:= 'and'; FailureOp =:= 'or'; FailureOp =:= 'xor' ->
             <<"rt.raiseError(rt.atom('badarg'));">>;
         _ -> [<<"pc = ">>, target(Target, Labels, Context, Index), <<";">>]

@@ -32,7 +32,13 @@ for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
 }
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 57);
+assert.equal(row('erlang:is_function/2')[11], 'instruction-and-callable');
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 58);
+for (const key of ['erlang:++/2', 'erlang:--/2', 'erlang:setelement/3', 'erlang:float_to_list/1',
+  'erlang:error/3', 'lists:reverse/2', 'lists:member/2', 'lists:keyfind/3', 'lists:keymember/3',
+  'lists:keysearch/3']) {
+  assert.equal(row(key)[11], 'callable-only');
+}
 assert.equal(row('erlang:list_to_tuple/1')[11], 'callable-only');
 assert.equal(row('erlang:tuple_to_list/1')[11], 'callable-only');
 assert.equal(row('erlang:atom_to_list/1')[11], 'callable-only');

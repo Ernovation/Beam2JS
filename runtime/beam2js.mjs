@@ -164,7 +164,7 @@ for (const [name, arity, operation] of [
     },
   });
 }
-for (const arity of [1, 2]) {
+for (const arity of [1, 2, 3]) {
   callableBifs.set(JSON.stringify(['error', arity]), {
     exported: true,
     run: (rt, args) => rt.raiseException('error', args[0]),
@@ -414,6 +414,97 @@ addGuardedBifs([
   for (let i = text.length - 1; i >= 0; i--) list = rt.cons(BigInt(text.charCodeAt(i)), list);
   return list;
 });
+addGuardedBifs([['is_function', 2]], (rt, name, [fun, arity]) => {
+  const result = rt.isFunctionArity(fun, arity);
+  return result === null ? null : rt.atom(result ? 'true' : 'false');
+});
+addGuardedBifs([['setelement', 3]], (rt, name, [index, tuple, value]) => {
+  const elements = tuples.get(tuple);
+  if (!elements || typeof index !== 'bigint' || index < 1n || index > BigInt(elements.length)) return null;
+  const copy = elements.slice();
+  copy[Number(index) - 1] = value;
+  return rt.tuple(copy);
+});
+addGuardedBifs([['float_to_list', 1]], (rt, name, [value]) => {
+  if (!floats.has(value)) return null;
+  // Matches the C library's "%.20e", which OTP uses for float_to_list/1.
+  const [mantissa, exponent] = floats.get(value).toExponential(20).split('e');
+  const sign = exponent[0] === '-' ? '-' : '+';
+  const text = `${mantissa}e${sign}${exponent.replace(/^[+-]/, '').padStart(2, '0')}`;
+  return listFromArray(Array.from(text, char => BigInt(char.charCodeAt(0))));
+});
+addGuardedBifs([['++', 2]], (rt, name, [left, right]) => {
+  const elements = properList(left);
+  return elements === null ? null : listFromArray(elements, right);
+});
+addGuardedBifs([['--', 2]], (rt, name, [left, right]) => {
+  const kept = properList(left);
+  const removed = properList(right);
+  if (kept === null || removed === null) return null;
+  for (const value of removed) {
+    const index = kept.findIndex(candidate => rt.equalExact(candidate, value));
+    if (index >= 0) kept.splice(index, 1);
+  }
+  return listFromArray(kept);
+});
+
+// Functions that OTP implements as BIFs in modules other than erlang. Their
+// BEAM bodies only call erlang:nif_error/1, so registering such a module
+// replaces them with these implementations, as the BEAM loader does.
+function keyFind(rt, key, position, list) {
+  if (typeof position !== 'bigint' || position < 1n) rt.raiseError(rt.atom('badarg'));
+  const index = Number(position);
+  let cursor = list;
+  while (isCons(cursor)) {
+    const [head, tail] = consValue(cursor);
+    const elements = tuples.get(head);
+    if (elements && elements.length >= index && rt.equalNumeric(elements[index - 1], key)) return head;
+    cursor = tail;
+  }
+  if (cursor !== nil) rt.raiseError(rt.atom('badarg'));
+  return null;
+}
+const moduleBifs = new Map([['lists', [
+  ['reverse', 2, (rt, [list, tail]) => {
+    const elements = properList(list);
+    if (elements === null) rt.raiseError(rt.atom('badarg'));
+    let result = tail;
+    for (const value of elements) result = rt.cons(value, result);
+    return result;
+  }],
+  ['member', 2, (rt, [value, list]) => {
+    let cursor = list;
+    while (isCons(cursor)) {
+      const [head, tail] = consValue(cursor);
+      if (rt.equalExact(head, value)) return rt.atom('true');
+      cursor = tail;
+    }
+    if (cursor !== nil) rt.raiseError(rt.atom('badarg'));
+    return rt.atom('false');
+  }],
+  ['keyfind', 3, (rt, args) => keyFind(rt, ...args) ?? rt.atom('false')],
+  ['keymember', 3, (rt, args) => rt.atom(keyFind(rt, ...args) === null ? 'false' : 'true')],
+  ['keysearch', 3, (rt, args) => {
+    const found = keyFind(rt, ...args);
+    return found === null ? rt.atom('false') : rt.tuple([rt.atom('value'), found]);
+  }],
+]]]);
+
+function properList(value) {
+  const elements = [];
+  while (isCons(value)) {
+    const [head, tail] = consValue(value);
+    elements.push(head);
+    value = tail;
+  }
+  return value === nil ? elements : null;
+}
+
+function listFromArray(elements, tail = nil) {
+  let result = tail;
+  for (let i = elements.length - 1; i >= 0; i--) result = Object.freeze([CONS, [elements[i], result]]);
+  return result;
+}
 
 function isAtom(value) {
   return typeof value === 'symbol' && Symbol.keyFor(value) !== undefined;
@@ -665,8 +756,16 @@ export class Runtime {
 
   funCallArgs(value, args) {
     const data = this.funValue(value);
-    if (args.length !== this.funArity(value)) this.raiseError(this.atom('badarity'));
+    if (args.length !== this.funArity(value)) {
+      this.raiseError(this.tuple([this.atom('badarity'), this.tuple([value, listFromArray(args)])]));
+    }
     return [...data.environment, ...args];
+  }
+
+  // is_function/2: null when the arity is not a non-negative integer (badarg).
+  isFunctionArity(value, arity) {
+    if (typeof arity !== 'bigint' || arity < 0n) return null;
+    return funs.has(value) && BigInt(this.funArity(value)) === arity;
   }
 
   makeRef() {
@@ -1248,6 +1347,13 @@ export class Runtime {
       const key = JSON.stringify([fn.name, fn.arity]);
       if (table.has(key)) throw new Error(`duplicate function: ${name}:${fn.name}/${fn.arity}`);
       table.set(key, fn);
+    }
+    for (const [bifName, arity, run] of moduleBifs.get(name) ?? []) {
+      const key = JSON.stringify([bifName, arity]);
+      table.set(key, {
+        name: bifName, arity, exported: table.get(key)?.exported ?? true,
+        run: (rt, args) => ({type: 'return', value: run(rt, args)}),
+      });
     }
     for (const arity of [0, 1]) {
       const key = JSON.stringify(['module_info', arity]);
@@ -2309,6 +2415,7 @@ export class Runtime {
       } else if (action.type === 'exit_signal') {
         action = {type: 'return', value: this.#exitSignal(process, action.pid, action.reason)};
       } else if (action.type === 'fun_call' || action.type === 'tail_fun') {
+        if (!funs.has(action.fun)) this.raiseError(this.tuple([this.atom('badfun'), action.fun]));
         const data = this.funValue(action.fun);
         const callArgs = this.funCallArgs(action.fun, action.args);
         if (action.type === 'fun_call') process.continuations.push({

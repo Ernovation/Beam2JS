@@ -415,7 +415,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 112 | `apply/1` | active | not specified | ? | N | P | P | P | OTP: Dynamic module/function call; arity arguments plus module and function occupy x registers; non-tail. Beam2JS: Arity N with arguments in x0..x(N-1), module in xN and function in xN+1; non-tail call through erlang:apply/3, loading the module on demand. |
 | 113 | `apply_last/2` | active | not specified | ? | N | P | P | P | OTP: Dynamic tail call with frame deallocation. Beam2JS: As apply, with frame deallocation and tail transfer. |
 | 114 | `is_boolean/2` | active | Lbl Arg1 | ? | N | P | P | P | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. Raw evidence: Failure label and x or y register, with or without an any type hint. Beam2JS: Supported operands only; true and false are atoms. |
-| 115 | `is_function2/3` | active | Lbl Arg1 Arity | ? | N | N | N | N | OTP: Term and arity term; branches if not a fun of that arity. |
+| 115 | `is_function2/3` | active | Lbl Arg1 Arity | ? | N | P | P | P | OTP: Term and arity term; branches if not a fun of that arity. Beam2JS: Supported source and arity operand; falls through for a fun of that arity, otherwise branches, including for a negative or non-integer arity. |
 | 116 | `bs_start_match2/5` | deprecated | not specified | ? | N | N | N | N | OTP: Obsolete; OTP 29 loader refuses it. Historical forms not yet inventoried. |
 | 117 | `bs_get_integer2/7` | active | not specified | ? | N | N | N | N | OTP: Failure label, match context, live count, size, unit, flags and destination; binary size may be all. |
 | 118 | `bs_get_float2/7` | active | not specified | ? | N | N | N | N | OTP: Failure label, match context, live count, size, unit, flags and destination; binary size may be all. |
@@ -457,7 +457,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 154 | `put_map_assoc/5` | active | not specified | ? | N | N | N | N | OTP: Failure label, source, destination, live count and key/value list; exact updates require existing keys. |
 | 155 | `put_map_exact/5` | active | not specified | ? | N | N | N | N | OTP: Failure label, source, destination, live count and key/value list; exact updates require existing keys. |
 | 156 | `is_map/2` | active | not specified | ? | N | N | N | N | OTP: One term and a failure label; branches if the named type or value test fails, otherwise continues. |
-| 157 | `has_map_fields/3` | active | not specified | ? | N | N | N | N | OTP: Failure label, map source and key list; branches when a key is missing. |
+| 157 | `has_map_fields/3` | active | not specified | ? | N | P | P | P | OTP: Failure label, map source and key list; branches when a key is missing. Beam2JS: Failure label, supported map source and key list; branches when a key is missing. |
 | 158 | `get_map_elements/3` | active | not specified | ? | N | N | N | N | OTP: Failure label, map source and key/destination list; branches if extraction fails. |
 | 159 | `is_tagged_tuple/4` | active | Lbl Reg N Atom | ? | N | P | P | P | OTP: Term, arity and atom tag; branches if tuple, size or first element does not match. Beam2JS: Supported source, positive safe-integer arity and atom tag; falls through or branches. |
 | 160 | `build_stacktrace/0` | active | (none) | ? | N | P | P | P | OTP: Converts raw stack trace in x0 to a trace term; other x registers are destroyed and GC may occur. Beam2JS: Converts the raw stack in x0 to a list of {Module, Function, Arity, []} entries. |
@@ -478,7 +478,7 @@ node tools/opcode-ledger.mjs --check /tmp/beam2js-genop.tab
 | 175 | `recv_marker_reserve/1` | active | Marker | ? | N | P | P | P | OTP: Destination; reserves a receive marker. Beam2JS: Writes a placeholder marker to the destination; receive markers are an optimization only. |
 | 176 | `recv_marker_use/1` | active | Reference | ? | N | P | P | P | OTP: Reference; moves the receive cursor to its associated marker. Beam2JS: No-op; the receive scan always starts at the oldest message. |
 | 177 | `bs_create_bin/6` | active | Fail Alloc Live Unit Dst OpList | ? | N | N | N | N | OTP: Failure label, heap need, live count, unit, destination and segment list; failure may branch or raise. |
-| 178 | `call_fun2/3` | active | Tag Arity Func | ? | N | N | N | N | OTP: Arity and fun; tag is local fun index, safe or unsafe. Non-tail call may raise. |
+| 178 | `call_fun2/3` | active | Tag Arity Func | ? | N | P | P | P | OTP: Arity and fun; tag is local fun index, safe or unsafe. Non-tail call may raise. Beam2JS: Any tag, arity 0..1023 and fun operand; non-tail call. Non-funs raise {badfun, F}; arity mismatches raise {badarity, {F, Args}}. |
 | 179 | `nif_start/0` | active | (none) | ? | N | N | N | N | OTP: NIF function-entry marker; execution continues. |
 | 180 | `badrecord/1` | active | Value | ? | N | N | N | N | OTP: Raises badrecord with the supplied term; no normal fallthrough. |
 | 181 | `update_record/5` | active | Hint Size Src Dst Updates=[Index, Value] | ? | N | N | N | N | OTP: Tuple size, source, destination and index/value list; copy or reuse hint. |

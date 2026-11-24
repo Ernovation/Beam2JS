@@ -144,8 +144,9 @@ module on the code path, so restrict it with `--beam-dir` before making it
 reachable from other machines.
 
 The compiler supports only part of the BEAM instruction set, so many OTP
-library modules cannot be compiled yet. For example `ordsets` compiles, but
-`lists` does not (it uses unsupported closure and type-test instructions).
+library modules cannot be compiled yet. `lists`, `ordsets`, `orddict`,
+`proplists` and `queue` compile from OTP's own BEAM files; modules that
+match binaries, such as `string`, do not yet.
 
 ## Runtime API
 
@@ -272,6 +273,11 @@ processes, message passing, selective receive, references, timers, a local
 process registry, links and monitors, Erlang `try`/`catch` exception
 handling with stack traces, and JavaScript NIF replacements.
 
+OTP's own `lists.beam` compiles and runs unchanged. OTP implements
+`lists:reverse/2`, `member/2`, `keyfind/3`, `keymember/3` and `keysearch/3` as
+BIFs, so the runtime supplies JavaScript versions of those five when the
+`lists` module is loaded.
+
 This is not a drop-in OTP runtime. Unsupported instructions or operand forms
 reject compilation. Stack traces have no line information. Distributed processes,
 serialization, worker-based parallelism, and many OTP library functions are
@@ -306,9 +312,12 @@ npm test
 
 Each suite can also be run on its own: `npm run test:integration`,
 `test:execution`, `test:opcodes`, `test:bifs`, `test:maps`, `test:funs`,
-`test:errors`, `test:links`, `test:loader`, `test:sudoku`, `test:server` and
-`test:browser`. `test:server` starts `beam2js serve` and loads both browser
+`test:errors`, `test:links`, `test:lists`, `test:loader`, `test:sudoku`,
+`test:server` and `test:browser`. `test:server` starts `beam2js serve` and loads both browser
 examples through it in Chromium.
 `test:links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
 and checks that its link, monitor, exit-signal and exception scenarios produce
 the same results in Beam2JS as in OTP.
+`test:lists` compiles OTP's installed `lists.beam` and
+[fixtures/lists_cases.erl](fixtures/lists_cases.erl) and compares every
+exported `lists` function with OTP.

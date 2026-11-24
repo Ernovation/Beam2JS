@@ -64,9 +64,10 @@ try {
   const head = await get(base, '/modules/ordsets.mjs', 'HEAD');
   assert.deepEqual([head.status, head.type, head.body], [200, 'text/javascript; charset=utf-8', '']);
 
-  const unsupported = await get(base, '/modules/lists.mjs');
+  assert.equal((await get(base, '/modules/lists.mjs')).status, 200);
+  const unsupported = await get(base, '/modules/string.mjs');
   assert.equal(unsupported.status, 500);
-  assert.match(unsupported.body, /^beam2js: lists: .*unsupported instruction/);
+  assert.match(unsupported.body, /^beam2js: string: .*unsupported instruction/);
   for (const path of ['/modules/no_such_module.mjs', '/modules/ordsets.beam', '/modules/..%2Fpackage.mjs',
     '/modules/%2E%2E.mjs', '/modules/.hidden.mjs', '/modules/a%00b.mjs', '/modules/.nif.mjs',
     '/modules/..%2F..%2F..%2Fetc%2Fpasswd', '/modules/no_such.nif.mjs']) {
