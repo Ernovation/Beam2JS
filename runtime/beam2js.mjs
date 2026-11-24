@@ -169,16 +169,28 @@ for (const arity of [1, 2]) {
     exported: true,
     run: (rt, args) => rt.raiseException('error', args[0]),
   });
-  callableBifs.set(JSON.stringify(['exit', arity]), {
-    exported: true,
-    run: (rt, args) => rt.raiseException('exit', args[0]),
-  });
 }
+callableBifs.set(JSON.stringify(['exit', 1]), {
+  exported: true,
+  run: (rt, [reason]) => rt.raiseException('exit', reason),
+});
+callableBifs.set(JSON.stringify(['exit', 2]), {
+  exported: true,
+  run: (rt, [pid, reason]) => ({type: 'exit_signal', pid, reason}),
+});
 callableBifs.set(JSON.stringify(['raise', 2]), {
   exported: true,
   run: (rt, [erlangClass, reason]) => {
     if (!isAtom(erlangClass)) rt.raiseError(rt.atom('badarg'));
     rt.raiseException(erlangClass, reason);
+  },
+});
+callableBifs.set(JSON.stringify(['raise', 3]), {
+  exported: true,
+  run: (rt, [erlangClass, reason, stack]) => {
+    if (!['error', 'exit', 'throw'].includes(isAtom(erlangClass) ? Symbol.keyFor(erlangClass) : undefined) ||
+        !rt.isType('is_list', stack)) rt.raiseError(rt.atom('badarg'));
+    rt.raiseException(erlangClass, reason, stack);
   },
 });
 callableBifs.set(JSON.stringify(['throw', 1]), {
@@ -233,10 +245,18 @@ callableBifs.set(JSON.stringify(['process_info', 2]), {
   exported: true,
   run: (rt, [pid, items]) => ({type: 'return', value: rt.processInfo(pid, items)}),
 });
-callableBifs.set(JSON.stringify(['spawn', 3]), {
-  exported: true,
-  run: (rt, args) => ({type: 'spawn', args}),
-});
+for (const [name, options] of [
+  ['spawn', {}], ['spawn_link', {link: true}], ['spawn_monitor', {monitor: true}],
+]) {
+  callableBifs.set(JSON.stringify([name, 1]), {
+    exported: true,
+    run: (rt, [fun]) => ({type: 'spawn', fun, ...options}),
+  });
+  callableBifs.set(JSON.stringify([name, 3]), {
+    exported: true,
+    run: (rt, args) => ({type: 'spawn', args, ...options}),
+  });
+}
 callableBifs.set(JSON.stringify(['apply', 2]), {
   exported: true,
   run: (rt, [fun, list]) => {
@@ -460,6 +480,13 @@ export class ErlangError extends Error {
     this.erlangClass = erlangClass;
     this.reason = reason;
     this.stack = stack;
+  }
+}
+
+// Termination by an exit signal; unlike an exception it cannot be caught by try/catch.
+class ProcessExit extends ErlangError {
+  constructor(reason) {
+    super(reason, 'exit');
   }
 }
 
@@ -727,26 +754,51 @@ export class Runtime {
     throw new ErlangError(reason, Symbol.keyFor(erlangClass), stack);
   }
 
-  getExceptionTriplet(pid) {
+  // Returns [Class, Reason, RawStack]; the raw stack carries the class for rethrowing.
+  takeException(pid) {
     const process = this.#pidProcesses.get(pid);
-    const error = process?.exceptionValue;
-    if (!error) {
-      const triplet = this.#pidProcesses.get(pid)?.exceptionTriplet;
-      if (triplet) return triplet;
-      return [this.atom('error'), this.atom('undef'), nil];
+    const exception = process?.pendingException;
+    if (!exception) throw new Error('no exception is being handled');
+    process.pendingException = undefined;
+    const [erlangClass, reason, stack] = exception;
+    return [erlangClass, reason, this.tuple([erlangClass, stack])];
+  }
+
+  catchEnd(pid, value) {
+    const process = this.#pidProcesses.get(pid);
+    if (!process?.pendingException) {
+      this.popExceptionHandler(pid);
+      return value;
     }
-    return [this.atom(error.erlangClass), error.reason, error.stack ?? nil];
+    const [erlangClass, reason, stack] = process.pendingException;
+    process.pendingException = undefined;
+    switch (Symbol.keyFor(erlangClass)) {
+      case 'throw': return reason;
+      case 'error': return this.tuple([this.atom('EXIT'), this.tuple([reason, stack])]);
+      default: return this.tuple([this.atom('EXIT'), reason]);
+    }
+  }
+
+  buildStacktrace(raw) {
+    if (raw === nil || isCons(raw)) return raw;
+    if (this.isType('is_tuple', raw) && this.tupleSize(raw) === 2) return this.buildStacktrace(this.tupleElement(raw, 2));
+    return nil;
+  }
+
+  raiseRaw(raw, reason) {
+    const erlangClass = this.isType('is_tuple', raw) && this.tupleSize(raw) === 2 ? this.tupleElement(raw, 1) : this.atom('error');
+    this.raiseException(erlangClass, reason, this.buildStacktrace(raw));
   }
 
   raiseExceptionFromRegisters(registers) {
-    this.raiseException(registers[0], registers[1], registers[2] ?? nil);
+    this.raiseException(registers[0], registers[1], this.buildStacktrace(registers[2] ?? nil));
   }
 
   pushExceptionHandler(pid, handler) {
     const process = this.#pidProcesses.get(pid);
     if (!process) this.raiseError(this.atom('badarg'));
     if (!process.exceptionHandlers) process.exceptionHandlers = [];
-    process.exceptionHandlers.push(handler);
+    process.exceptionHandlers.push({...handler, depth: process.continuations.length});
   }
 
   popExceptionHandler(pid) {
@@ -1494,12 +1546,8 @@ export class Runtime {
 
   monitorProcess(monitorPid, targetPid) {
     const monitor = this.#pidProcesses.get(monitorPid);
-    if (!monitor || !this.#localPids.has(targetPid)) this.raiseError(this.atom('badarg'));
-    const reference = this.makeRef();
-    monitor.monitors.set(reference, targetPid);
-    const target = this.#pidProcesses.get(targetPid);
-    target?.monitoredBy.set(reference, monitorPid);
-    return reference;
+    if (!monitor) this.raiseError(this.atom('badarg'));
+    return this.#monitorProcess(monitor, this.atom('process'), targetPid);
   }
 
   sendExitSignal(fromPid, toPid, reason) {
@@ -1514,18 +1562,13 @@ export class Runtime {
     if (!isTerm(reason)) throw new TypeError('exit reason must be a supported Erlang term');
     const process = this.#pidProcesses.get(pid);
     if (!process) this.raiseError(this.atom('noproc'));
-    this.#notifyProcessMonitors(process, reason);
-    this.#notifyLinkedProcesses(process, reason);
-    this.#unlinkOnFinish(process);
+    this.#terminateProcess(process, reason);
   }
 
   demonitorProcess(monitorPid, reference, options = false) {
     const monitor = this.#pidProcesses.get(monitorPid);
-    if (!monitor || !references.has(reference)) this.raiseError(this.atom('badarg'));
-    const targetPid = monitor.monitors.get(reference);
-    monitor.monitors.delete(reference);
-    this.#pidProcesses.get(targetPid)?.monitoredBy.delete(reference);
-    return this.atom('true');
+    if (!monitor) this.raiseError(this.atom('badarg'));
+    return this.#demonitorProcess(monitor, reference, options === true ? this.cons(this.atom('flush'), nil) : nil);
   }
 
   processHandle(pid) {
@@ -1816,7 +1859,14 @@ export class Runtime {
     return process;
   }
 
-  #spawnErlang([module, name, list]) {
+  #spawnErlang(process, action) {
+    let module, name, list;
+    if (action.args) {
+      [module, name, list] = action.args;
+    } else {
+      if (!funs.has(action.fun) || this.funArity(action.fun) !== 0) this.raiseError(this.atom('badarg'));
+      [module, name, list] = [this.atom('erlang'), this.atom('apply'), this.cons(action.fun, this.cons(nil, nil))];
+    }
     if (!isAtom(module) || !isAtom(name)) this.raiseError(this.atom('badarg'));
     const args = [];
     while (isCons(list)) {
@@ -1826,11 +1876,17 @@ export class Runtime {
     }
     if (list !== nil) this.raiseError(this.atom('badarg'));
     const handle = this.spawnProcess(Symbol.keyFor(module), Symbol.keyFor(name), args);
-    if (args.length > 255) {
-      this.#processes.get(handle).startError = new Error(`unsupported function arity: ${args.length}`);
+    const child = this.#processes.get(handle);
+    if (args.length > 255) child.startError = new Error(`unsupported function arity: ${args.length}`);
+    handle.result.catch(error => {
+      if (!(error instanceof ErlangError && error.erlangClass === 'exit')) this.#onProcessError(handle.pid, error);
+    });
+    if (action.link) {
+      process.links.add(child.pid);
+      child.links.add(process.pid);
     }
-    handle.result.catch(error => this.#onProcessError(handle.pid, error));
-    return handle.pid;
+    if (action.monitor) return this.tuple([child.pid, this.#monitorProcess(process, this.atom('process'), child.pid)]);
+    return child.pid;
   }
 
   #enqueue(process) {
@@ -1856,14 +1912,18 @@ export class Runtime {
       this.#ready = this.#ready.slice(this.#readyHead);
       this.#readyHead = 0;
     }
+    // A process can be terminated by an exit signal while it waits in the run queue.
+    if (process.status !== 'runnable') {
+      this.#schedule();
+      return;
+    }
     process.status = 'running';
     try {
       const result = this.#runProcess(process, this.#reductionLimit);
       if (result.done) {
-        this.#finishProcess(process, 'completed');
-        this.#notifyProcessMonitors(process, this.atom('normal'));
-        this.#unlinkOnFinish(process);
-        process.resolve(result.value);
+        const cleanupError = this.#exitProcess(process, this.atom('normal'));
+        if (cleanupError) process.reject(cleanupError);
+        else process.resolve(result.value);
       } else if (result.loading) {
         process.status = 'loading';
       } else if (result.waiting) {
@@ -1874,52 +1934,78 @@ export class Runtime {
         this.#enqueue(process);
       }
     } catch (error) {
-      let failure = error;
-      const reason = error instanceof ErlangError ? error.reason : this.atom('undef');
-      try {
-        this.#finishProcess(process, 'failed');
-      } catch (cleanupError) {
-        failure = new AggregateError([error, cleanupError], 'process and timer cleanup failed');
-      }
-      this.#notifyProcessMonitors(process, reason);
-      this.#notifyLinkedProcesses(process, reason);
-      this.#unlinkOnFinish(process);
-      process.reject(failure);
+      const cleanupError = this.#exitProcess(process, this.#exitReason(error));
+      process.reject(cleanupError
+        ? new AggregateError([error, cleanupError], 'process and timer cleanup failed')
+        : error);
     }
     this.#schedule();
   }
 
-  #notifyProcessMonitors(process, reason) {
-    for (const [reference, monitorPid] of process.monitoredBy) {
-      const target = this.#pidProcesses.get(monitorPid);
-      if (target) {
-        if (!target.monitors.has(reference)) target.monitors.delete(reference);
-        target.mailbox.push(this.tuple([
-          this.atom('DOWN'), reference, this.atom('process'), process.pid, reason,
-        ]));
-        if (target.status === 'waiting') {
-          this.#waiting.delete(target);
-          target.status = 'runnable';
-          this.#enqueue(target);
-        }
+  #exitReason(error) {
+    if (error instanceof ProcessExit) return error.reason;
+    if (!(error instanceof ErlangError)) return this.atom('undef');
+    const stack = error.stack === nil || isCons(error.stack) ? error.stack : nil;
+    switch (error.erlangClass) {
+      case 'error': return this.tuple([error.reason, stack]);
+      case 'throw': return this.tuple([this.tuple([this.atom('nocatch'), error.reason]), stack]);
+      default: return error.reason;
+    }
+  }
+
+  #stacktrace(process) {
+    const frames = [];
+    const frame = (module, name, arity) => {
+      if (typeof module === 'string' && typeof name === 'string' && Number.isInteger(arity)) {
+        frames.push(this.tuple([this.atom(module), this.atom(name), BigInt(arity), nil]));
       }
+    };
+    if (process.module !== 'erlang' || !['error', 'exit', 'throw', 'raise', 'nif_error'].includes(process.name)) {
+      frame(process.module, process.name, process.fn?.arity ?? process.args?.length);
+    } else if (process.tailCaller) {
+      // A tail-called BIF raises on behalf of the function that called it.
+      frame(process.tailCaller.module, process.tailCaller.name, process.tailCaller.arity);
     }
+    for (let i = process.continuations.length - 1; i >= 0; i--) {
+      const {module, name, fn} = process.continuations[i];
+      frame(module, name, fn?.arity);
+    }
+    let stack = nil;
+    for (let i = frames.length - 1; i >= 0; i--) stack = this.cons(frames[i], stack);
+    return stack;
   }
 
-  #notifyLinkedProcesses(process, reason) {
-    if (reason === this.atom('normal')) return;
-    for (const pid of process.links) {
-      const target = this.#pidProcesses.get(pid);
-      if (target) this.#deliverExit(target, process.pid, reason);
+  // Ends a process and propagates its exit reason to monitors and links; returns any cleanup error.
+  #exitProcess(process, reason) {
+    this.#waiting.delete(process);
+    let cleanupError;
+    try {
+      this.#finishProcess(process, reason === this.atom('normal') ? 'completed' : 'failed');
+    } catch (error) {
+      cleanupError = error;
     }
-  }
-
-  #unlinkOnFinish(process) {
-    for (const pid of process.links) {
-      const target = this.#pidProcesses.get(pid);
-      target?.links.delete(process.pid);
+    for (const [reference, targetPid] of process.monitors) {
+      this.#pidProcesses.get(targetPid)?.monitoredBy.delete(reference);
     }
+    process.monitors.clear();
+    for (const [reference, monitorPid] of process.monitoredBy) {
+      const watcher = this.#pidProcesses.get(monitorPid);
+      if (!watcher) continue;
+      watcher.monitors.delete(reference);
+      const object = process.monitorNames?.get(reference) ?? process.pid;
+      this.#deliverMessage(watcher, this.tuple([this.atom('DOWN'), reference, this.atom('process'), object, reason]));
+    }
+    process.monitoredBy.clear();
+    process.monitorNames = undefined;
+    const links = [...process.links];
     process.links.clear();
+    for (const pid of links) {
+      const target = this.#pidProcesses.get(pid);
+      if (!target) continue;
+      target.links.delete(process.pid);
+      this.#deliverExit(target, process.pid, reason);
+    }
+    return cleanupError;
   }
 
   #processFlag(process, flag, value) {
@@ -1933,9 +2019,13 @@ export class Runtime {
 
   #linkProcess(process, pid) {
     if (!this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
-    if (!this.#livePids.has(pid)) this.raiseError(this.atom('noproc'));
-    const target = this.#pidProcesses.get(pid);
-    if (!target) this.raiseError(this.atom('noproc'));
+    if (pid === process.pid) return this.atom('true');
+    const target = this.#livePids.has(pid) ? this.#pidProcesses.get(pid) : undefined;
+    if (!target) {
+      if (!process.trapExit) this.raiseError(this.atom('noproc'));
+      this.#deliverMessage(process, this.tuple([this.atom('EXIT'), pid, this.atom('noproc')]));
+      return this.atom('true');
+    }
     process.links.add(pid);
     target.links.add(process.pid);
     return this.atom('true');
@@ -1949,35 +2039,75 @@ export class Runtime {
     return this.atom('true');
   }
 
-  #monitorProcess(process, kind, targetPid) {
-    if (Symbol.keyFor(kind) !== 'process' || !this.#localPids.has(targetPid)) this.raiseError(this.atom('badarg'));
+  #monitorProcess(process, kind, target) {
+    if (!isAtom(kind) || Symbol.keyFor(kind) !== 'process') this.raiseError(this.atom('badarg'));
+    let targetProcess, object = target;
+    if (isAtom(target)) {
+      targetProcess = this.#registered.get(target);
+      object = this.tuple([target, this.atom('nonode@nohost')]);
+    } else if (this.#localPids.has(target)) {
+      targetProcess = this.#pidProcesses.get(target);
+    } else {
+      this.raiseError(this.atom('badarg'));
+    }
     const reference = this.makeRef();
-    process.monitors.set(reference, targetPid);
-    const target = this.#pidProcesses.get(targetPid);
-    target?.monitoredBy.set(reference, process.pid);
+    if (!targetProcess || !this.#livePids.has(targetProcess.pid)) {
+      this.#deliverMessage(process, this.tuple([
+        this.atom('DOWN'), reference, this.atom('process'), object, this.atom('noproc'),
+      ]));
+      return reference;
+    }
+    process.monitors.set(reference, targetProcess.pid);
+    targetProcess.monitoredBy.set(reference, process.pid);
+    if (isAtom(target)) (targetProcess.monitorNames ??= new Map()).set(reference, object);
     return reference;
   }
 
-  #demonitorProcess(process, reference, options) {
-    if (!references.has(reference)) this.raiseError(this.atom('badarg'));
+  #demonitorProcess(process, reference, options = nil) {
+    let flush = false, info = false;
+    while (isCons(options)) {
+      const [option, tail] = consValue(options);
+      if (option === this.atom('flush')) flush = true;
+      else if (option === this.atom('info')) info = true;
+      else this.raiseError(this.atom('badarg'));
+      options = tail;
+    }
+    if (options !== nil || !references.has(reference)) this.raiseError(this.atom('badarg'));
     const targetPid = process.monitors.get(reference);
     if (targetPid !== undefined) {
       process.monitors.delete(reference);
-      this.#pidProcesses.get(targetPid)?.monitoredBy.delete(reference);
+      const target = this.#pidProcesses.get(targetPid);
+      target?.monitoredBy.delete(reference);
+      target?.monitorNames?.delete(reference);
     }
+    if (flush) {
+      const down = this.atom('DOWN');
+      for (let i = process.mailbox.length - 1; i >= 0; i--) {
+        const message = process.mailbox[i];
+        if (this.isType('is_tuple', message) && this.tupleSize(message) === 5 &&
+            this.tupleElement(message, 1) === down && this.tupleElement(message, 2) === reference) {
+          process.mailbox.splice(i, 1);
+          if (i < process.receiveIndex) process.receiveIndex--;
+        }
+      }
+    }
+    return this.atom(!info || targetPid !== undefined ? 'true' : 'false');
+  }
+
+  #exitSignal(process, pid, reason) {
+    if (!this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
+    const target = this.#pidProcesses.get(pid);
+    if (!target || !this.#livePids.has(pid)) return this.atom('true');
+    if (reason === this.atom('kill')) this.#terminateProcess(target, this.atom('killed'));
+    else if (target === process && reason === this.atom('normal') && !process.trapExit) this.#terminateProcess(process, reason);
+    else this.#deliverExit(target, process.pid, reason);
     return this.atom('true');
   }
 
   #deliverExit(process, fromPid, reason) {
     if (!this.#livePids.has(process.pid)) return;
     if (process.trapExit) {
-      const message = this.tuple([this.atom('EXIT'), fromPid, reason]);
-      process.mailbox.push(message);
-      if (process.status === 'waiting') {
-        this.#waiting.delete(process);
-        process.status = 'runnable';
-        this.#enqueue(process);
-      }
+      this.#deliverMessage(process, this.tuple([this.atom('EXIT'), fromPid, reason]));
     } else if (reason !== this.atom('normal')) {
       this.#terminateProcess(process, reason);
     }
@@ -1985,27 +2115,14 @@ export class Runtime {
 
   #terminateProcess(process, reason) {
     if (!this.#livePids.has(process.pid)) return;
-    if (process.status === 'waiting') {
-      process.receiveTimer && this.#clearReceiveTimer(process);
-      this.#waiting.delete(process);
+    if (process.status === 'running') {
+      // The running process notices this after its current action; see #runProcess.
+      process.pendingExit ??= reason;
+      return;
     }
-    process.status = 'failed';
-    this.#finishProcess(process, 'failed');
-    for (const pid of process.links) {
-      const target = this.#pidProcesses.get(pid);
-      if (target) this.#deliverExit(target, process.pid, reason);
-    }
-    for (const [reference, targetPid] of process.monitors) {
-      const target = this.#pidProcesses.get(targetPid);
-      target?.monitoredBy.delete(reference);
-    }
-    for (const [reference, monitorPid] of process.monitoredBy) {
-      const target = this.#pidProcesses.get(monitorPid);
-      if (target) {
-        target.monitors.delete(reference);
-        target.mailbox.push(this.tuple([this.atom('DOWN'), reference, this.atom('process'), process.pid, reason]));
-      }
-    }
+    const failure = new ProcessExit(reason);
+    const cleanupError = this.#exitProcess(process, reason);
+    process.reject?.(cleanupError ? new AggregateError([failure, cleanupError], 'process cleanup failed') : failure);
   }
 
   #finishProcess(process, status) {
@@ -2125,8 +2242,37 @@ export class Runtime {
   }
 
   #runProcess(process, limit) {
-    if ('startError' in process) throw process.startError;
     const budget = {remaining: limit};
+    while (true) {
+      try {
+        return this.#runFrames(process, budget);
+      } catch (error) {
+        if (!(error instanceof ErlangError) || error instanceof ProcessExit) throw error;
+        if (error.stack === nil) error.stack = this.#stacktrace(process);
+        const handler = process.exceptionHandlers?.pop();
+        if (!handler) throw error;
+        if (process.continuations.length > handler.depth) {
+          const frame = process.continuations[handler.depth];
+          process.fn = frame.fn;
+          process.module = frame.module;
+          process.name = frame.name;
+          process.external = frame.external;
+          process.continuations.length = handler.depth;
+        }
+        process.state = {pc: handler.pc, y: handler.y};
+        process.args = [];
+        process.resumedAction = undefined;
+        process.pendingException = [this.atom(error.erlangClass), error.reason, error.stack];
+      }
+    }
+  }
+
+  #runFrames(process, budget) {
+    if ('startError' in process) {
+      const error = process.startError;
+      delete process.startError;
+      throw error;
+    }
     while (budget.remaining > 0) {
       if (!process.fn) {
         if (!Array.isArray(process.args) || process.args.some(value => !isTerm(value))) {
@@ -2148,31 +2294,9 @@ export class Runtime {
         }
       }
       const previous = budget.remaining;
-      let action;
-      try {
-        action = process.resumedAction ?? process.fn.run(this, process.args.slice(), process.state, budget, process.pid);
-        process.resumedAction = undefined;
-        if (action.type === 'load_nif') action = {...action, name: this.#nifName(action.name)};
-      } catch (error) {
-        if (error instanceof ErlangError && process.exceptionHandlers?.length) {
-          const handler = process.exceptionHandlers.pop();
-          const continuation = process.continuations.pop();
-          process.args = [this.atom(error.erlangClass), error.reason, error.stack ?? nil];
-          process.state = continuation
-            ? {pc: handler.pc, y: continuation.state?.y ?? process.state?.y ?? null}
-            : {pc: handler.pc, y: process.state?.y ?? null};
-          process.fn = continuation?.fn ?? process.fn;
-          if (continuation) {
-            process.module = continuation.module;
-            process.name = continuation.name;
-            process.external = continuation.external;
-          }
-          process.exceptionTriplet = [this.atom(error.erlangClass), error.reason, error.stack ?? nil];
-          process.exceptionKind = handler.kind;
-          return this.#runProcess(process, budget.remaining);
-        }
-        throw error;
-      }
+      let action = process.resumedAction ?? process.fn.run(this, process.args.slice(), process.state, budget, process.pid);
+      process.resumedAction = undefined;
+      if (action.type === 'load_nif') action = {...action, name: this.#nifName(action.name)};
       if (budget.remaining === previous) budget.remaining--;
       if (action.type === 'load_nif') {
         if (!process.scheduled) throw new Error('synchronous invocation cannot load a NIF; use invokeAsync');
@@ -2181,13 +2305,17 @@ export class Runtime {
       } else if (action.type === 'dictionary') {
         action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
       } else if (action.type === 'spawn') {
-        action = {type: 'return', value: this.#spawnErlang(action.args)};
+        action = {type: 'return', value: this.#spawnErlang(process, action)};
+      } else if (action.type === 'exit_signal') {
+        action = {type: 'return', value: this.#exitSignal(process, action.pid, action.reason)};
       } else if (action.type === 'fun_call' || action.type === 'tail_fun') {
         const data = this.funValue(action.fun);
         const callArgs = this.funCallArgs(action.fun, action.args);
         if (action.type === 'fun_call') process.continuations.push({
           fn: process.fn, state: action.state, module: process.module, name: process.name, external: process.external,
         });
+        process.tailCaller = action.type === 'tail_fun'
+          ? {module: process.module, name: process.name, arity: process.fn?.arity} : undefined;
         if (process.module !== 'erlang') process.callingModule = process.module;
         process.module = data.module;
         process.name = data.name;
@@ -2212,6 +2340,7 @@ export class Runtime {
           value: this.#moduleInfo(action.module, action.arity, action.args),
         };
       }
+      if (process.pendingExit !== undefined) throw new ProcessExit(process.pendingExit);
       if (action.type === 'return') {
         if (!isTerm(action.value)) throw new TypeError('return value must be a supported Erlang term');
         if (process.continuations.length === 0) return {done: true, value: action.value};
@@ -2221,6 +2350,8 @@ export class Runtime {
         if (action.type === 'call') process.continuations.push({
           fn: process.fn, state: action.state, module: process.module, name: process.name, external: process.external,
         });
+        process.tailCaller = action.type === 'tail'
+          ? {module: process.module, name: process.name, arity: process.fn?.arity} : undefined;
         if (process.module !== 'erlang') process.callingModule = process.module;
         ({module: process.module, name: process.name, args: process.args, external: process.external} = action);
         process.fn = undefined;

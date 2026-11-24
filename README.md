@@ -172,7 +172,15 @@ const result = await process.result;
 Processes have separate registers, stacks and FIFO mailboxes. Erlang
 `receive` can suspend a scheduled process while it waits for a matching
 message. Local process names, process dictionaries, references, and supported
-relative and absolute timers are available. `schedulers` and
+relative and absolute timers are available.
+
+Erlang links and monitors follow OTP semantics: `spawn_link`, `spawn_monitor`,
+`link`, `monitor`, `demonitor` (with `flush` and `info`), `exit/2` and
+`process_flag(trap_exit, true)` are supported. Abnormal exits propagate to
+linked processes, trapping processes receive `{'EXIT', Pid, Reason}` messages,
+and monitors receive `{'DOWN', Ref, process, Pid, Reason}`. From JavaScript,
+`runtime.terminateProcess(pid, reason)` sends an exit signal and rejects the
+process's `result` promise. `schedulers` and
 `reductionLimit` are runtime options; scheduler slots cooperate on one
 JavaScript event loop and do not provide parallel execution. Synchronous host
 operations can still block that event loop.
@@ -185,10 +193,11 @@ flow and calls; integers, floats, atoms, lists, tuples, maps, binaries and
 bitstrings; selected matching and extraction instructions; and a defined set
 of Erlang BIFs and arithmetic operations. The runtime adds cooperative local
 processes, message passing, selective receive, references, timers, a local
-process registry, and JavaScript NIF replacements.
+process registry, links and monitors, Erlang `try`/`catch` exception
+handling with stack traces, and JavaScript NIF replacements.
 
 This is not a drop-in OTP runtime. Unsupported instructions or operand forms
-reject compilation. General exception handling, distributed processes,
+reject compilation. Stack traces have no line information. Distributed processes,
 serialization, worker-based parallelism, and many OTP library functions are
 not implemented. Some operations are synchronous and can block the host for
 large inputs. The compiler uses OTP's BEAM disassembler; **do not compile
@@ -212,17 +221,16 @@ the pinned Erlang/OTP, Node.js, Playwright and Chromium toolchain. Check it with
 npm run test:toolchain
 ```
 
-Build the compiler and run the main checks with:
+Build the compiler and run every suite with:
 
 ```sh
 rebar3 escriptize
-node test/integration.mjs
-npm run test:execution
-npm run test:browser
-npm run test:loader
-npm run test:sudoku
+npm test
 ```
 
-Other focused suites are available as `npm run test:bifs`,
-`npm run test:maps`, `npm run test:funs`, `npm run test:errors` and
-`npm run test:opcodes`.
+Each suite can also be run on its own: `npm run test:integration`,
+`test:execution`, `test:opcodes`, `test:bifs`, `test:maps`, `test:funs`,
+`test:errors`, `test:links`, `test:loader`, `test:sudoku` and `test:browser`.
+`test:links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
+and checks that its link, monitor, exit-signal and exception scenarios produce
+the same results in Beam2JS as in OTP.

@@ -132,22 +132,36 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
             raise_match(case_clause, Source, Context, Index);
         {'try', {y, Handler}, {f, Target}} ->
             [<<"rt.pushExceptionHandler(pid, {pc: ">>, target(Target, Labels, Context, Index),
-             <<", kind: 'try'}); rt.writeY(y, ">>, integer_to_list(Handler),
+             <<", kind: 'try', y}); rt.writeY(y, ">>, integer_to_list(Handler),
              <<", rt.atom('try')); ">>, next(Index)];
         {'catch', {y, Handler}, {f, Target}} ->
             [<<"rt.pushExceptionHandler(pid, {pc: ">>, target(Target, Labels, Context, Index),
-             <<", kind: 'catch'}); rt.writeY(y, ">>, integer_to_list(Handler),
+             <<", kind: 'catch', y}); rt.writeY(y, ">>, integer_to_list(Handler),
              <<", rt.atom('catch')); ">>, next(Index)];
         try_end ->
             [<<"rt.popExceptionHandler(pid); ">>, next(Index)];
+        {try_end, {y, _Handler}} ->
+            [<<"rt.popExceptionHandler(pid); ">>, next(Index)];
         {try_case, {y, _Handler}} ->
-            [<<"{ const exception = rt.getExceptionTriplet(pid); rt.popExceptionHandler(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; } ">>, next(Index)];
+            [<<"{ const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; } ">>, next(Index)];
         {catch_end, {y, _Handler}} ->
-            [<<"{ const exception = rt.getExceptionTriplet(pid); rt.popExceptionHandler(pid); x[0] = exception[1]; } ">>, next(Index)];
+            [<<"x[0] = rt.catchEnd(pid, x[0]); ">>, next(Index)];
+        {try_case_end, Source} ->
+            raise_match(try_clause, Source, Context, Index);
         try_case_end ->
             [<<"rt.raiseError(rt.atom('try_clause'));">>];
         build_stacktrace ->
-            [<<"x[0] = rt.nil(); ">>, next(Index)];
+            [<<"x[0] = rt.buildStacktrace(x[0]); ">>, next(Index)];
+        {recv_marker_reserve, {y, _} = Dest} ->
+            [write_register(Dest, <<"rt.nil()">>, Context, Index), next(Index)];
+        {recv_marker_reserve, {x, _} = Dest} ->
+            [write_register(Dest, <<"rt.nil()">>, Context, Index), next(Index)];
+        {recv_marker_bind, _Marker, _Reference} ->
+            next(Index);
+        {recv_marker_clear, _Reference} ->
+            next(Index);
+        {recv_marker_use, _Reference} ->
+            next(Index);
         {raise, Class, Reason} ->
             [<<"rt.raiseException(">>, operand(Class, Context, Index), <<", ">>,
              operand(Reason, Context, Index), <<");">>];
@@ -205,6 +219,13 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
           when is_integer(Size), Size >= 0, Size =< 1024, is_integer(Words), Words >= 0,
                is_integer(Live), Live >= 0, Live =< 1024 ->
             [<<"y = rt.allocate(y, ">>, integer_to_list(Size), <<"); ">>, next(Index)];
+        {allocate_heap, Size, {alloc, Needs}, Live}
+          when is_integer(Size), Size >= 0, Size =< 1024, is_list(Needs),
+               is_integer(Live), Live >= 0, Live =< 1024 ->
+            case valid_heap_needs(Needs) of
+                true -> [<<"y = rt.allocate(y, ">>, integer_to_list(Size), <<"); ">>, next(Index)];
+                false -> unsupported(Context, Index, "invalid heap allocation list")
+            end;
         {deallocate, Size} when is_integer(Size), Size >= 0, Size =< 1024 ->
             [deallocate(Size), next(Index)];
         {init_yregs, {list, Registers}} when is_list(Registers), Registers =/= [] ->
@@ -263,11 +284,23 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
         {gc_bif, Op, {f, Target}, Live, [Map], Dest}
           when Op =:= map_size, is_integer(Live), Live >= 0, Live =< 1024 ->
             guard_bif(Op, [Map], Dest, Target, Index, Labels, Context);
-        {bif, raise, {f, 0}, [Class, Reason], _Dest} ->
-            [<<"rt.raiseException(">>, operand(Class, Context, Index), <<", ">>,
-             operand(Reason, Context, Index), <<", rt.nil());">>];
-        {bif, '=:=', {f, 0}, [Left, Right], Dest} ->
-            Condition = comparison(is_eq_exact, operand(Left, Context, Index), operand(Right, Context, Index)),
+        {bif, raise, {f, 0}, [RawStack, Reason], _Dest} ->
+            [<<"rt.raiseRaw(">>, operand(RawStack, Context, Index), <<", ">>,
+             operand(Reason, Context, Index), <<");">>];
+        {bif, Op, {f, 0}, [Left, Right], Dest}
+          when Op =:= '=:='; Op =:= '=/='; Op =:= '=='; Op =:= '/=';
+               Op =:= '<'; Op =:= '>='; Op =:= '>'; Op =:= '=<' ->
+            {Test, First, Second} = case Op of
+                '=:=' -> {is_eq_exact, Left, Right};
+                '=/=' -> {is_ne_exact, Left, Right};
+                '==' -> {is_eq, Left, Right};
+                '/=' -> {is_ne, Left, Right};
+                '<' -> {is_lt, Left, Right};
+                '>=' -> {is_ge, Left, Right};
+                '>' -> {is_lt, Right, Left};
+                '=<' -> {is_ge, Right, Left}
+            end,
+            Condition = comparison(Test, operand(First, Context, Index), operand(Second, Context, Index)),
             Value = [<<"rt.atom(">>, Condition, <<" ? 'true' : 'false')">>],
             [write_register(Dest, Value, Context, Index), next(Index)];
         {bif, self, nofail, [], Dest} ->
@@ -422,6 +455,16 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
         {call_ext_only, Arity, {extfunc, ExtModule, Name, Arity}}
           when is_integer(Arity), Arity >= 0, Arity =< 255 ->
             tail_call(ExtModule, Name, Arity, true);
+        {apply, Arity} when is_integer(Arity), Arity >= 0, Arity =< 255 ->
+            [<<"if (y === null) throw new Error('call without allocated stack frame'); ">>,
+             <<"return {type: 'call', module: 'erlang', name: 'apply', args: ">>, apply_args(Arity),
+             <<", external: true, state: {pc: ">>, integer_to_list(Index + 1), <<", y}};">>];
+        {apply_last, Arity, Size}
+          when is_integer(Arity), Arity >= 0, Arity =< 255,
+               is_integer(Size), Size >= 0, Size =< 1024 ->
+            [deallocate(Size),
+             <<"return {type: 'tail', module: 'erlang', name: 'apply', args: ">>, apply_args(Arity),
+             <<", external: true};">>];
         return -> <<"if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)};">>;
         _ -> unsupported(Context, Index, io_lib:format("unsupported instruction ~tp", [Instruction]))
     end,
@@ -618,6 +661,13 @@ call(Module, Name, Arity, External, Index) ->
      <<"return {type: 'call', module: ">>, string(Module), <<", name: ">>, string(Name),
      <<", args: rt.args(x, ">>, integer_to_list(Arity), <<"), external: ">>,
      atom_to_list(External), <<", state: {pc: ">>, integer_to_list(Index + 1), <<", y}};">>].
+
+%% Dynamic Module:Function(Args) calls keep their arguments in x0..x(N-1),
+%% the module in xN and the function in x(N+1).
+apply_args(Arity) ->
+    N = integer_to_list(Arity),
+    [<<"[rt.read(x, ">>, N, <<"), rt.read(x, ">>, integer_to_list(Arity + 1),
+     <<"), rt.args(x, ">>, N, <<").reduceRight((tail, head) => rt.cons(head, tail), rt.nil())]">>].
 
 deallocate(Size) -> [<<"y = rt.deallocate(y, ">>, integer_to_list(Size), <<"); ">>].
 

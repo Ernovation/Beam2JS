@@ -99,6 +99,7 @@ category('throw error exit raise', 'exception / signal');
 category('apply make_fun fun_info', 'function / call');
 category('node nodes monitor_node setnode is_alive', 'distribution');
 category('date time localtime universaltime localtime_to_universaltime universaltime_to_localtime now monotonic_time system_time time_offset timestamp', 'clock / calendar');
+category('nif_error', 'exception');
 category('load_nif delete_module module_loaded function_exported get_module_info call_on_load_function finish_after_on_load', 'module / native loading');
 category('make_ref unique_integer', 'identity / uniqueness');
 category('system_info system_flag statistics system_profile', 'runtime system');
@@ -197,6 +198,19 @@ const details = new Map([
     exceptions: 'badarg for invalid PID or item', host: 'process runtime'}],
   ['erlang:spawn/3', {effects: 'schedules a local process',
     exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
+  ['erlang:spawn_link/3', {effects: 'schedules a linked local process',
+    exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
+  ['erlang:apply/3', {exceptions: 'badarg for invalid module/function/arguments', host: 'registered modules'}],
+  ['erlang:atom_to_list/1', {exceptions: 'badarg for non-atom input', host: 'runtime atom value'}],
+  ['erlang:get_module_info/1', {exceptions: 'badarg for unavailable module', host: 'registered modules'}],
+  ['erlang:get_module_info/2', {exceptions: 'badarg for unavailable module or key', host: 'registered modules'}],
+  ['erlang:load_nif/2', {effects: 'downloads a JavaScript NIF and atomically replaces existing caller functions',
+    exceptions: 'badarg for invalid name; error tuple on load failure',
+    host: 'trusted ES modules; scheduled processes only; not native ABI'}],
+  ['erlang:nif_error/1', {effects: 'raises the supplied reason when a NIF fallback executes',
+    exceptions: 'ErlangError with supplied reason', host: 'process runtime'}],
+  ['erlang:nif_error/2', {effects: 'raises the supplied reason; argument-list stack metadata is not modeled',
+    exceptions: 'ErlangError with supplied reason', host: 'process runtime'}],
   ['erlang:register/2', {effects: 'registers a local process name',
     exceptions: 'badarg for invalid or already registered name or process', host: 'process runtime'}],
   ['erlang:unregister/1', {effects: 'removes a local process name',
@@ -253,7 +267,8 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:read_timer/2', 'erlang:cancel_timer/2',
   'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0',
   'erlang:error/1', 'erlang:error/2', 'erlang:exit/1', 'erlang:exit/2', 'erlang:throw/1',
-  'erlang:raise/2', 'erlang:process_flag/2', 'erlang:link/1', 'erlang:unlink/1',
+  'erlang:raise/3', 'erlang:spawn_link/3', 'erlang:apply/3', 'erlang:atom_to_list/1',
+  'erlang:get_module_info/1', 'erlang:get_module_info/2', 'erlang:load_nif/2', 'erlang:nif_error/1', 'erlang:nif_error/2', 'erlang:process_flag/2', 'erlang:link/1', 'erlang:unlink/1',
   'erlang:monitor/2', 'erlang:demonitor/1', 'erlang:demonitor/2']);
 const guardInstructionOnly = new Set();
 const bodyAndGuardInstructionOnly = new Set();
@@ -353,6 +368,17 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   in zero-label and callable forms. Both operands of binary operators are
   validated. OTP, Node and Chromium tests cover truth tables, invalid values,
   aliased x/y destinations, external calls and stripped inputs.
+- \`apply/3\` requires atom module/function names and a proper argument list, then
+  invokes the named function. Beam2JS supports exported functions in registered
+  modules and its supported callable BIFs; the function transfer is a tail
+  transfer while any caller continuation remains intact. Invalid argument
+  shapes raise \`badarg\`. \`apply/2\` and function terms are not supported.
+- OTP-generated \`module_info/0,1\` are ordinary exported module functions backed
+  by \`erlang:get_module_info/1,2\`. Beam2JS supports only the \`module\` and
+  \`exports\` keys; its \`/0\` result contains those two fields, not OTP's full
+  metadata. Unknown keys raise \`badarg\`. Export lists are derived from the
+  registered module table and sorted by name and arity; metadata such as
+  attributes, compile options and MD5 is unavailable.
 - \`hd/1\` and \`tl/1\` accept nonempty cons cells, including improper lists;
   \`length/1\` requires a proper list. Invalid inputs tested here raise
   \`badarg\` in a body. Nonzero-label \`length/1\` guard instructions are
@@ -377,10 +403,18 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   callers. Conversion is synchronous and can block the event loop; OTP resource
   limits and scheduling behavior are not implemented. \`list_to_integer/1,2\`
   are ordinary preloaded Erlang functions, not runtime BIFs.
+- Callable \`atom_to_list/1\` returns the atom name as a list of UTF-8 byte
+  integers. Non-atoms raise \`badarg\`. OTP, Node and Chromium tests cover empty,
+  ASCII and Unicode names, direct and external calls, and stripped callers.
+  Conversion is synchronous; OTP atom-table limits are not reproduced.
 - Callable \`atom_to_binary/2\` supports \`utf8\`, \`unicode\` and \`latin1\`.
   Invalid inputs and names not representable in Latin-1 raise \`badarg\`.
   OTP, Node and Chromium tests cover direct and external calls, Unicode names,
   invalid inputs and stripped callers. Conversion is synchronous.
+- Callable \`binary_to_atom/2\` converts a byte-aligned binary using \`utf8\`,
+  \`unicode\` or \`latin1\`. It raises \`badarg\` for non-binaries, partial
+  bitstrings, malformed UTF-8 and invalid encodings. OTP, Node and Chromium
+  tests cover direct and generated calls, stripped callers and invalid inputs.
 - Callable \`binary_to_list/1,3\` convert a binary to a list of byte integers.
   The three-argument form uses a nonempty, one-based inclusive range. Non-binaries
   and invalid ranges raise \`badarg\`. OTP, Node and Chromium tests cover empty
@@ -522,7 +556,21 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   Tests cover direct, tail and non-tail calls in Node and Chromium, including
   stripped input. Missing or private targets and more than 255 arguments fail
   asynchronously with a host diagnostic, rather than OTP's \`undef\`. Argument
-  traversal is synchronous; monitors are unsupported.
+  traversal is synchronous. \`spawn_link/3\` additionally links the child.
+  The non-BIF \`spawn/1\`, \`spawn_link/1\` and \`spawn_monitor/1,3\` from
+  \`erlang.erl\` are also provided by the runtime.
+- \`link/1\`, \`unlink/1\`, \`monitor/2\`, \`demonitor/1,2\`, \`exit/2\`
+  and \`process_flag(trap_exit, Bool)\` implement local link and monitor
+  signals: abnormal exits propagate to linked processes, trapping processes
+  receive \`{'EXIT', Pid, Reason}\`, \`kill\` is untrappable and is seen as
+  \`killed\`, and monitors deliver \`{'DOWN', Ref, process, Object, Reason}\`,
+  including \`noproc\` for dead or unregistered targets. \`demonitor/2\`
+  supports \`flush\` and \`info\`. \`error/1,2\`, \`exit/1\`, \`throw/1\`
+  and \`raise/3\` raise exceptions that Erlang \`try\` and \`catch\`
+  handle; uncaught exceptions produce OTP exit reasons with
+  \`{Module, Function, Arity, []}\` stack traces. Forty scenarios are compared
+  with OTP in \`test/process-link-cases.mjs\`. Distributed signals are
+  unsupported.
 - \`register/2\`, \`unregister/1\`, \`whereis/1\` and \`registered/0\`
   support local process names. A process may have one name, which is removed
   when it exits. Registry behavior and invalid inputs are tested against OTP

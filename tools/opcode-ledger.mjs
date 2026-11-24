@@ -19,11 +19,11 @@ if (createHash('sha256').update(source).digest('hex') !== sourceHash) {
 // one-to-one mappings from raw opcodes.
 const partial = new Map([
   ['label', 'Label; next instruction.'],
-  ['func_info', 'Matching module/function/arity; raises an ErlangError with class error and function_clause reason. Erlang catch/try and stack traces are unsupported.'],
+  ['func_info', 'Matching module/function/arity; raises an ErlangError with class error and function_clause reason. Catchable by try/catch with a stack trace.'],
   ['line', 'Line metadata; ignored.'],
-  ['case_end', 'Supported source term; raises an ErlangError with class error and {case_clause, Value} reason. Erlang catch/try and stack traces are unsupported.'],
-  ['badmatch', 'Supported source term; raises an ErlangError with class error and {badmatch, Value} reason. Erlang catch/try and stack traces are unsupported.'],
-  ['if_end', 'Raises an ErlangError with class error and if_clause reason. Erlang catch/try and stack traces are unsupported.'],
+  ['case_end', 'Supported source term; raises an ErlangError with class error and {case_clause, Value} reason. Catchable by try/catch with a stack trace.'],
+  ['badmatch', 'Supported source term; raises an ErlangError with class error and {badmatch, Value} reason. Catchable by try/catch with a stack trace.'],
+  ['if_end', 'Raises an ErlangError with class error and if_clause reason. Catchable by try/catch with a stack trace.'],
   ['move', 'Ordinary x/y register or supported integer/float/atom/list/tuple/bitstring literal to ordinary x/y register; fallthrough.'],
   ['swap', 'Ordinary x/y registers; swaps their values.'],
   ['fconv', 'Supported term source to floating register 0..1022; non-numbers and integer-to-float overflow raise badarith.'],
@@ -35,6 +35,21 @@ const partial = new Map([
   ['fnegate', 'Normalized zero-label fnegate with floating-register operand and destination; flips the sign, including signed zero.'],
   ['allocate', 'Stack size and live count 0..1024; creates uninitialized y slots. OTP GC and resource effects are not reproduced.'],
   ['allocate_heap', 'Stack size and live count 0..1024 and nonnegative integer heap words; creates uninitialized y slots. OTP GC and resource effects are not reproduced.'],
+  ['catch', 'y register and handler label; records the handler and current frame depth so exceptions raised in this frame or deeper resume at the label.'],
+  ['catch_end', 'y register; leaves the handler normally, or converts the pending exception into the catch value: Reason for throw, {\'EXIT\', {Reason, Stack}} for error, {\'EXIT\', Reason} for exit.'],
+  ['try', 'y register and handler label; records the handler and current frame depth so exceptions raised in this frame or deeper resume at the label.'],
+  ['try_end', 'y register; removes the innermost handler on normal completion.'],
+  ['try_case', 'y register; loads the pending exception into x0 (class), x1 (reason) and x2 (raw stack).'],
+  ['try_case_end', 'Supported source term; raises error {try_clause, Value}.'],
+  ['raise', 'Raw stack and reason as produced by try_case; rethrows with the original class and stack.'],
+  ['build_stacktrace', 'Converts the raw stack in x0 to a list of {Module, Function, Arity, []} entries.'],
+  ['raw_raise', 'Class in x0, reason in x1 and raw stack in x2; raises, or writes badarg to x0 for an invalid class.'],
+  ['apply', 'Arity N with arguments in x0..x(N-1), module in xN and function in xN+1; non-tail call through erlang:apply/3, loading the module on demand.'],
+  ['apply_last', 'As apply, with frame deallocation and tail transfer.'],
+  ['recv_marker_reserve', 'Writes a placeholder marker to the destination; receive markers are an optimization only.'],
+  ['recv_marker_bind', 'No-op; receive markers are an optimization only.'],
+  ['recv_marker_clear', 'No-op; receive markers are an optimization only.'],
+  ['recv_marker_use', 'No-op; the receive scan always starts at the oldest message.'],
   ['deallocate', 'Matching stack size 0..1024; removes the allocated frame.'],
   ['init_yregs', 'Nonempty ordered distinct y-register list with indices 0..1023; clears slots to nil. Frame bounds are checked at runtime; full register validation is not implemented.'],
   ['trim', 'Nonnegative count and remaining size 0..1024; discards low-index y slots and renumbers the rest. Frame size is checked at runtime.'],
@@ -296,8 +311,9 @@ Chromium, including stripped input. Supported source operands include ordinary
 and type-tagged x and y registers (hints are ignored, not validated), as well as
 supported literals; y registers require allocated frames. Selected function, case, match and
 if failures propagate as distinct JavaScript \`ErlangError\` instances carrying
-the Erlang class and reason; Erlang catch/try and stack traces remain
-unsupported. \`line\` is ignored and its effect on executable/debug metadata
+the Erlang class and reason; Erlang catch and try handlers catch them, and
+stack traces are reported as {Module, Function, Arity, []} entries without line
+information. \`line\` is ignored and its effect on executable/debug metadata
 is not established.
 
 The operand column preserves names from available upstream specifications.

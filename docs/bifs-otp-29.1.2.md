@@ -270,7 +270,21 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   Tests cover direct, tail and non-tail calls in Node and Chromium, including
   stripped input. Missing or private targets and more than 255 arguments fail
   asynchronously with a host diagnostic, rather than OTP's `undef`. Argument
-  traversal is synchronous; monitors are unsupported.
+  traversal is synchronous. `spawn_link/3` additionally links the child.
+  The non-BIF `spawn/1`, `spawn_link/1` and `spawn_monitor/1,3` from
+  `erlang.erl` are also provided by the runtime.
+- `link/1`, `unlink/1`, `monitor/2`, `demonitor/1,2`, `exit/2`
+  and `process_flag(trap_exit, Bool)` implement local link and monitor
+  signals: abnormal exits propagate to linked processes, trapping processes
+  receive `{'EXIT', Pid, Reason}`, `kill` is untrappable and is seen as
+  `killed`, and monitors deliver `{'DOWN', Ref, process, Object, Reason}`,
+  including `noproc` for dead or unregistered targets. `demonitor/2`
+  supports `flush` and `info`. `error/1,2`, `exit/1`, `throw/1`
+  and `raise/3` raise exceptions that Erlang `try` and `catch`
+  handle; uncaught exceptions produce OTP exit reasons with
+  `{Module, Function, Arity, []}` stack traces. Forty scenarios are compared
+  with OTP in `test/process-link-cases.mjs`. Distributed signals are
+  unsupported.
 - `register/2`, `unregister/1`, `whereis/1` and `registered/0`
   support local process names. A process may have one name, which is removed
   when it exits. Registry behavior and invalid inputs are tested against OTP
@@ -444,8 +458,8 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `decode_packet/3` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `delete_element/2` | bif | yes | tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `delete_module/1` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
-| `erlang` | `demonitor/1` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
-| `erlang` | `demonitor/2` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
+| `erlang` | `demonitor/1` | bif | yes | signal / monitor | no | ? | ? | ? | callable-only |
+| `erlang` | `demonitor/2` | bif | yes | signal / monitor | no | ? | ? | ? | callable-only |
 | `erlang` | `display/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `display_string/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `dist_ctrl_get_data/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -466,11 +480,11 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `element/2` | ubif | yes | tuple | BIF | optimizer-pure | badarg for invalid index or non-tuple | ? | instruction-and-callable |
 | `erlang` | `erase/0` | bif | yes | process dictionary | no | clears the calling process dictionary | ? | process runtime | callable-only |
 | `erlang` | `erase/1` | hbif | yes | process dictionary | no | removes a key from the calling process dictionary | ? | process runtime | callable-only |
-| `erlang` | `error/1` | bif | yes | exception / signal | no | ? | always-raises | ? | not implemented |
-| `erlang` | `error/2` | bif | yes | exception / signal | no | ? | always-raises | ? | not implemented |
+| `erlang` | `error/1` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
+| `erlang` | `error/2` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
 | `erlang` | `error/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
-| `erlang` | `exit/1` | bif | yes | exception / signal | no | ? | always-raises | ? | not implemented |
-| `erlang` | `exit/2` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
+| `erlang` | `exit/1` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
+| `erlang` | `exit/2` | bif | yes | exception / signal | no | ? | ? | ? | callable-only |
 | `erlang` | `exit/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
 | `erlang` | `exit_signal/2` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
 | `erlang` | `exit_signal/3` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
@@ -530,7 +544,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `is_reference/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `is_tuple/1` | ubif | yes | type test | BIF | optimizer-pure | optimizer-safe | ? | instruction-and-callable |
 | `erlang` | `length/1` | ubif | yes | list / tuple | BIF | optimizer-pure | badarg for improper or non-list input | ? | instruction-and-callable |
-| `erlang` | `link/1` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
+| `erlang` | `link/1` | bif | yes | signal / monitor | no | ? | ? | ? | callable-only |
 | `erlang` | `link/2` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
 | `erlang` | `list_to_atom/1` | ubif | yes | conversion / encoding | no | optimizer-pure; may add a permanent atom to the global atom table | ? | ? | not implemented |
 | `erlang` | `list_to_binary/1` | bif | yes | binary / bitstring | no | optimizer-pure | ? | ? | not implemented |
@@ -559,7 +573,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `md5_update/2` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `min/2` | ubif | yes | ? | BIF | optimizer-pure | optimizer-safe | ? | not implemented |
 | `erlang` | `module_loaded/1` | bif | yes | module / native loading | no | ? | ? | ? | not implemented |
-| `erlang` | `monitor/2` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
+| `erlang` | `monitor/2` | bif | yes | signal / monitor | no | ? | ? | ? | callable-only |
 | `erlang` | `monitor/3` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
 | `erlang` | `monitor_node/2` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
 | `erlang` | `monitor_node/3` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
@@ -585,12 +599,12 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `ports/0` | bif | yes | ? | no | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `posixtime_to_universaltime/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
 | `erlang` | `pre_loaded/0` | bif | yes | ? | no | ? | optimizer-safe | ? | not implemented |
-| `erlang` | `process_flag/2` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
+| `erlang` | `process_flag/2` | bif | yes | process / scheduling | no | ? | ? | ? | callable-only |
 | `erlang` | `process_info/1` | hbif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `process_info/2` | hbif | yes | process / scheduling | no | reads selected local process state | badarg for invalid PID or item | process runtime | callable-only |
 | `erlang` | `processes/0` | bif | yes | process / scheduling | no | ? | optimizer-safe | ? | not implemented |
 | `erlang` | `put/2` | hbif | yes | process dictionary | no | updates the calling process dictionary | ? | process runtime | callable-only |
-| `erlang` | `raise/3` | bif | yes | exception / signal | no | ? | ? | ? | not implemented |
+| `erlang` | `raise/3` | bif | yes | exception / signal | no | ? | ? | ? | callable-only |
 | `erlang` | `read_timer/1` | bif | yes | message / timer | no | reads remaining timer time | badarg for non-reference | clock / scheduler | callable-only |
 | `erlang` | `read_timer/2` | bif | yes | message / timer | no | reads remaining timer time, optionally asynchronously | badarg for non-reference or invalid options | clock / scheduler | callable-only |
 | `erlang` | `ref_to_list/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
@@ -612,7 +626,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `setnode/2` | bif | yes | distribution | no | ? | ? | native / distribution | not implemented |
 | `erlang` | `size/1` | ubif | yes | ? | BIF | optimizer-pure | ? | ? | not implemented |
 | `erlang` | `spawn/3` | bif | yes | process / scheduling | no | schedules a local process | badarg for non-atom module/function or improper argument list | process runtime | callable-only |
-| `erlang` | `spawn_link/3` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
+| `erlang` | `spawn_link/3` | bif | yes | process / scheduling | no | schedules a linked local process | badarg for non-atom module/function or improper argument list | process runtime | callable-only |
 | `erlang` | `spawn_opt/4` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `spawn_request_abandon/1` | bif | yes | process / scheduling | no | ? | ? | ? | not implemented |
 | `erlang` | `split_binary/2` | bif | yes | binary / bitstring | no | optimizer-pure | ? | ? | not implemented |
@@ -630,7 +644,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `term_to_binary/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `term_to_iovec/1` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
 | `erlang` | `term_to_iovec/2` | bif | yes | conversion / encoding | no | ? | ? | ? | not implemented |
-| `erlang` | `throw/1` | bif | yes | exception / signal | no | ? | always-raises | ? | not implemented |
+| `erlang` | `throw/1` | bif | yes | exception / signal | no | ? | always-raises | ? | callable-only |
 | `erlang` | `time/0` | bif | yes | clock / calendar | no | ? | optimizer-safe | clock / scheduler | not implemented |
 | `erlang` | `time_offset/0` | bif | yes | clock / calendar | no | ? | ? | clock / scheduler | not implemented |
 | `erlang` | `time_offset/1` | bif | yes | clock / calendar | no | ? | ? | clock / scheduler | not implemented |
@@ -647,7 +661,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `universaltime/0` | bif | yes | clock / calendar | no | ? | ? | clock / scheduler | not implemented |
 | `erlang` | `universaltime_to_localtime/1` | bif | yes | clock / calendar | no | ? | ? | ? | not implemented |
 | `erlang` | `universaltime_to_posixtime/1` | bif | yes | ? | no | ? | ? | ? | not implemented |
-| `erlang` | `unlink/1` | bif | yes | signal / monitor | no | ? | ? | ? | not implemented |
+| `erlang` | `unlink/1` | bif | yes | signal / monitor | no | ? | ? | ? | callable-only |
 | `erlang` | `unregister/1` | bif | yes | process registry | no | removes a local process name | badarg for unregistered or non-atom name | process runtime | callable-only |
 | `erlang` | `whereis/1` | bif | yes | process registry | no | looks up a local process name | badarg for non-atom name | process runtime | callable-only |
 | `erlang` | `xor/2` | ubif | yes | boolean | operator | optimizer-pure | badarg for non-boolean input | ? | instruction-and-callable |
