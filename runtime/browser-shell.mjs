@@ -7,6 +7,7 @@ export class BrowserTerminal {
   #element;
   #output;
   #input;
+  #cursor;
   #listeners = new Set();
   #closeListeners = new Set();
   #resizeListeners = new Set();
@@ -23,6 +24,10 @@ export class BrowserTerminal {
     this.#output = document.createElement('pre');
     this.#output.setAttribute('aria-label', 'Erlang shell output');
     this.#output.style.cssText = 'margin:0;white-space:pre;min-height:100%;font:inherit;';
+    this.#cursor = document.createElement('span');
+    this.#cursor.setAttribute('aria-hidden', 'true');
+    this.#cursor.dataset.beam2jsCursor = '';
+    this.#cursor.style.cssText = 'display:inline-block;width:1ch;height:1em;margin-right:-1ch;vertical-align:-0.15em;background:currentColor;opacity:0.65;pointer-events:none;';
     this.#input = document.createElement('textarea');
     this.#input.setAttribute('aria-label', 'Erlang shell input');
     this.#input.setAttribute('autocapitalize', 'off');
@@ -31,6 +36,7 @@ export class BrowserTerminal {
     this.#input.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;bottom:0;left:0;padding:0;border:0;';
     element.style.position ||= 'relative';
     element.append(this.#output, this.#input);
+    this.#render();
     this.#resizeObserver = new ResizeObserver(() => {
       for (const callback of this.#resizeListeners) callback();
     });
@@ -111,8 +117,22 @@ export class BrowserTerminal {
       const trim = this.#lines.length - 10000;
       this.#lines.splice(0, trim); this.#row = Math.max(0, this.#row - trim);
     }
-    this.#output.textContent = this.#lines.map(line => Array.from(line, char => char ?? ' ').join('')).join('\n');
+    this.#render();
     this.#element.scrollTop = this.#element.scrollHeight;
+  }
+  #render() {
+    const line = this.#line();
+    let column = this.#column;
+    let offset = Math.max(0, column - line.length);
+    if (line[column] === '') { column--; offset = 1; }
+    this.#cursor.style.transform = `translateX(${offset}ch)`;
+    const text = cells => Array.from(cells, char => char ?? ' ').join('');
+    const before = this.#lines.slice(0, this.#row).map(text);
+    const after = this.#lines.slice(this.#row + 1).map(text);
+    this.#output.replaceChildren(
+      (before.length ? before.join('\n') + '\n' : '') + text(line.slice(0, column)),
+      this.#cursor,
+      text(line.slice(column)) + (after.length ? '\n' + after.join('\n') : ''));
   }
   #line() {
     while (this.#lines.length <= this.#row) this.#lines.push([]);
@@ -127,7 +147,7 @@ export class BrowserTerminal {
     else if (command === 'G') this.#column = n - 1;
     else if (command === 'H' || command === 'f') { this.#row = n - 1; this.#column = (b || 1) - 1; }
     else if (command === 'K') {
-      if (a === 2) this.#lines[this.#row] = [];
+      if (a === 2) this.#line().length = 0;
       else if (a === 1) this.#line().fill(' ', 0, this.#column + 1);
       else this.#line().length = this.#column;
     } else if (command === 'J') {
@@ -142,6 +162,7 @@ export class BrowserTerminal {
     this.#resizeObserver.disconnect();
     this.#listeners.clear(); this.#closeListeners.clear();
     this.#resizeListeners.clear();
+    this.#cursor.remove();
     this.#input.remove();
   }
 }

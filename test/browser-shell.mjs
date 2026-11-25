@@ -73,6 +73,52 @@ try {
   const output = page.locator('#terminal pre');
   await output.getByText('1>', {exact: false}).waitFor({timeout: 60000});
   const input = page.getByRole('textbox', {name: 'Erlang shell input'});
+  const cursorChecks = await page.evaluate(async () => {
+    const {BrowserTerminal} = await import('/runtime/browser-shell.mjs');
+    const host = document.createElement('div');
+    host.style.cssText = 'position:absolute;left:-10000px;top:0;width:800px;height:200px;font:20px/1.3 monospace;';
+    document.body.append(host);
+    const terminal = new BrowserTerminal(host);
+    const pre = host.querySelector('pre');
+    const cursor = host.querySelector('[data-beam2js-cursor]');
+    const origin = cursor.getBoundingClientRect();
+    const width = origin.width;
+    terminal.write('abc');
+    const end = cursor.getBoundingClientRect();
+    terminal.write('\x1b[2D');
+    const middle = cursor.getBoundingClientRect();
+    terminal.write('\x1b[5C');
+    const gap = cursor.getBoundingClientRect();
+    const gapText = pre.textContent;
+    terminal.write('\r\n中x\x1b[2D');
+    const wide = cursor.getBoundingClientRect();
+    const text = pre.textContent;
+    const displayedText = pre.innerText;
+    const columns = terminal.size().columns;
+    terminal.write('\x1b[2J' + 'a'.repeat(columns) + 'b');
+    const wrapped = cursor.getBoundingClientRect();
+    const wrappedText = pre.textContent;
+    terminal.dispose();
+    const removed = !host.querySelector('[data-beam2js-cursor]');
+    const preserved = pre.textContent;
+    host.remove();
+    return {width, end: end.x - origin.x, middle: middle.x - origin.x, gap: gap.x - origin.x,
+      wide: wide.x - origin.x, nextLine: wide.y > origin.y, gapText, text, displayedText,
+      wrapped: wrapped.x - origin.x, wrappedNextLine: wrapped.y > origin.y, columns, wrappedText, removed, preserved};
+  });
+  assert.ok(cursorChecks.width > 0, 'cursor must be visible');
+  for (const [position, cells] of [['end', 3], ['middle', 1], ['gap', 6], ['wide', 1], ['wrapped', 1]]) {
+    assert.ok(Math.abs(cursorChecks[position] - cells * cursorChecks.width) < 1, `incorrect cursor position: ${position}`);
+  }
+  assert.equal(cursorChecks.nextLine, true);
+  assert.equal(cursorChecks.gapText, 'abc');
+  assert.equal(cursorChecks.text, 'abc\n中x');
+  assert.equal(cursorChecks.displayedText, cursorChecks.text);
+  assert.equal(cursorChecks.wrappedNextLine, true);
+  assert.equal(cursorChecks.wrappedText, 'a'.repeat(cursorChecks.columns) + '\nb');
+  assert.equal(cursorChecks.removed, true);
+  assert.equal(cursorChecks.preserved, cursorChecks.wrappedText);
+  assert.ok(await output.locator('[data-beam2js-cursor]').isVisible());
   let prompt = 1;
   const waitPrompt = () => page.waitForFunction(({prompt}) =>
     document.querySelector('#terminal pre').textContent.trimEnd().endsWith(`${prompt}>`), {prompt},
@@ -97,7 +143,11 @@ try {
   await expression('X.', '\n21\n');
   // OTP's edlin, not the DOM element, edits and recalls the command.
   await input.pressSequentially('10+3.');
+  await page.waitForFunction(() => document.querySelector('#terminal pre').textContent.endsWith('10+3.'));
+  const cursorBefore = await output.locator('[data-beam2js-cursor]').boundingBox();
   await input.press('ArrowLeft');
+  await page.waitForFunction(x => document.querySelector('[data-beam2js-cursor]').getBoundingClientRect().x < x,
+    cursorBefore.x);
   await input.press('ArrowLeft');
   await input.press('Delete');
   await input.pressSequentially('4');

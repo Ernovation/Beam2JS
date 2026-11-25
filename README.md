@@ -127,9 +127,9 @@ policy and a monospace font:
 
 The returned object contains `runtime`, `terminal` and `stop()`. It owns a
 dedicated runtime; stopping it terminates every process in that runtime.
-The supplied terminal renders plain text and cursor/erase controls, not ANSI
-colors or a complete graphical terminal emulator. Command history lives in
-the browser session, not on the server's disk.
+The supplied terminal renders plain text with a visible cursor and cursor/erase
+controls, not ANSI colors or a complete graphical terminal emulator. Command
+history lives in the browser session, not on the server's disk.
 
 Files are fetched on demand relative to `fileBaseURL`, which defaults to
 `moduleBaseURL`. `file:read_file`, sequential and positional reads, file IO
