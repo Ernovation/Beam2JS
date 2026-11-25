@@ -181,18 +181,39 @@ metadata_request(Uri) ->
 
 file_metadata(_, _, #{document_root := undefined}) ->
     not_found();
-file_metadata(Operation, "/" ++ Encoded, #{document_root := Root}) ->
+file_metadata(Operation, Path, #{document_root := Root}) ->
+    case static_file(Path, Root) of
+        {ok, File} -> metadata_result(Operation, File);
+        error -> not_found()
+    end.
+
+static_file("/" ++ Encoded, Root) ->
     try
         Decoded = unicode:characters_to_list(uri_string:percent_decode(unicode:characters_to_binary(Encoded))),
         false = lists:any(fun(C) -> C =:= 0 orelse C =:= $\\ end, Decoded),
         Relative = filelib:safe_relative_path(Decoded, Root),
         true = Relative =/= unsafe,
-        File = filename:join(Root, Relative),
-        metadata_result(Operation, File)
+        {ok, filename:join(Root, Relative)}
     catch
-        error:badarg -> not_found();
-        error:{badmatch, _} -> not_found()
-    end.
+        error:badarg -> error;
+        error:{badmatch, _} -> error
+    end;
+static_file(_, _) ->
+    error.
+
+%% inets sends an HTML body with its own HEAD error responses, which corrupts
+%% keep-alive connections; answer HEAD for missing static files here instead.
+static(Method = "HEAD", Path, #{document_root := Root}, Data) ->
+    case static_file(Path, Root) of
+        {ok, File} ->
+            case filelib:is_file(File) of
+                true -> {proceed, Data};
+                false -> {break, [{response, response(Method, not_found())} | Data]}
+            end;
+        error -> {break, [{response, response(Method, not_found())} | Data]}
+    end;
+static(_Method, _Path, _State, Data) ->
+    {proceed, Data}.
 
 metadata_result(stat, File) ->
     case file:read_file_info(File, [{time, posix}]) of
@@ -227,7 +248,7 @@ route(Method, Path, #{module_root := Root, document_root := DocRoot} = State, Da
             case Response of
                 %% Other files under the module root, such as precompiled
                 %% modules or page assets, may come from the document root.
-                {404, _, _} when DocRoot =/= undefined -> {proceed, Data};
+                {404, _, _} when DocRoot =/= undefined -> static(Method, Path, State, Data);
                 _ -> {break, [{response, response(Method, Response)} | Data]}
             end;
         false when Path =:= "/" ->
@@ -239,7 +260,7 @@ route(Method, Path, #{module_root := Root, document_root := DocRoot} = State, Da
         false when DocRoot =:= undefined ->
             Response = not_found(),
             {break, [{response, response(Method, Response)} | Data]};
-        false -> {proceed, Data}
+        false -> static(Method, Path, State, Data)
     end.
 
 %% Shown at "/" when the document root has no index.html of its own, so
@@ -281,7 +302,11 @@ serve(Name, State) ->
         false ->
             case lists:suffix(".mjs", Name) of
                 true -> serve_module(lists:sublist(Name, length(Name) - 4), State);
-                false -> not_found()
+                false ->
+                    case lists:suffix(".beam", Name) of
+                        true -> serve_beam(lists:sublist(Name, length(Name) - 5), State);
+                        false -> not_found()
+                    end
             end
     end.
 
@@ -299,7 +324,7 @@ serve_nif(Name, #{nif_dirs := NifDirs} = State) ->
 serve_module(Module, #{cache := Cache} = State) when length(Module) =< ?MAX_NAME ->
     case find(Module ++ ".beam", [], State) of
         {ok, File} ->
-            case compile(File, Cache) of
+            case compile(File, Module, Cache) of
                 {ok, Source} -> {200, ?JS, Source};
                 {error, Reason} ->
                     logger:warning("beam2js: cannot compile ~ts: ~ts", [File, Reason]),
@@ -309,6 +334,19 @@ serve_module(Module, #{cache := Cache} = State) when length(Module) =< ?MAX_NAME
         error -> not_found()
     end;
 serve_module(_, _) -> not_found().
+
+%% The object file itself, for tools that inspect object code (beam_lib,
+%% beam_disasm). Modules are never loaded from it; the browser loads .mjs.
+serve_beam(Module, State) when Module =/= [], length(Module) =< ?MAX_NAME ->
+    case find(Module ++ ".beam", [], State) of
+        {ok, File} ->
+            case file:read_file(File) of
+                {ok, Beam} -> {200, "application/octet-stream", Beam};
+                {error, _} -> not_found()
+            end;
+        error -> not_found()
+    end;
+serve_beam(_, _) -> not_found().
 
 not_found() -> {404, "text/plain; charset=utf-8", <<"Not found\n">>}.
 
@@ -333,6 +371,42 @@ find_in(File, [Dir | Dirs]) ->
 
 %% Compiled output is cached per BEAM file and reused while its size and
 %% modification time are unchanged.
+compile(File, Module, Cache) ->
+    case compile(File, Cache) of
+        {ok, _} = Result -> Result;
+        %% Modules of this escript (such as beam2js itself) live in its archive.
+        {error, _} = Error ->
+            case compile_escript_module(Module, Cache) of
+                {ok, _} = Result -> Result;
+                error -> Error
+            end
+    end.
+
+compile_escript_module(Module, Cache) ->
+    case escript_beam(Module ++ ".beam") of
+        {ok, Binary} ->
+            Key = erlang:md5(Binary),
+            case ets:lookup(Cache, {escript, Module}) of
+                [{_, Key, Result}] -> Result;
+                _ ->
+                    Result = beam2js:compile_binary(Binary),
+                    ets:insert(Cache, {{escript, Module}, Key, Result}),
+                    Result
+            end;
+        error -> error
+    end.
+
+escript_beam(File) ->
+    try
+        {ok, Sections} = escript:extract(escript:script_name(), []),
+        {archive, Archive} = lists:keyfind(archive, 1, Sections),
+        {ok, [{_, Binary}]} = zip:extract(Archive, [memory, {file_filter,
+            fun(Entry) -> filename:basename(element(2, Entry)) =:= File end}]),
+        {ok, Binary}
+    catch
+        _:_ -> error
+    end.
+
 compile(File, Cache) ->
     case file:read_file_info(File, [{time, posix}]) of
         {ok, #file_info{size = Size, mtime = Mtime}} ->

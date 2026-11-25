@@ -162,6 +162,7 @@ const details = new Map([
   ['erlang:float/1', {exceptions: 'badarg for non-number input or integer-to-float overflow'}],
   ['erlang:div/2', {exceptions: 'badarith for zero divisor or non-integer input'}],
   ['erlang:rem/2', {exceptions: 'badarith for zero divisor or non-integer input'}],
+  ['erlang:+/1', {exceptions: 'badarith for non-number input'}],
   ['erlang:+/2', {exceptions: 'badarith for non-number input or float overflow'}],
   ['erlang:-/1', {exceptions: 'badarith for non-number input'}],
   ['erlang:-/2', {exceptions: 'badarith for non-number input or float overflow'}],
@@ -211,6 +212,8 @@ const details = new Map([
     exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
   ['erlang:spawn_link/3', {effects: 'schedules a linked local process',
     exceptions: 'badarg for non-atom module/function or improper argument list', host: 'process runtime'}],
+  ['erlang:apply/2', {exceptions: 'badarg for invalid argument list; {badfun,Fun} for non-fun; {badarity,{Fun,Args}} for wrong arity',
+    host: 'registered modules'}],
   ['erlang:apply/3', {exceptions: 'badarg for invalid module/function/arguments', host: 'registered modules'}],
   ['erlang:atom_to_list/1', {exceptions: 'badarg for non-atom input', host: 'runtime atom value'}],
   ['erlang:get_module_info/1', {exceptions: 'badarg for unavailable module', host: 'registered modules'}],
@@ -259,7 +262,7 @@ const instructionAndCallable = new Set([
   'erlang:hd/1', 'erlang:tl/1', 'erlang:length/1', 'erlang:tuple_size/1', 'erlang:element/2',
   'erlang:bit_size/1', 'erlang:byte_size/1', 'erlang:binary_part/2', 'erlang:binary_part/3',
   'erlang:abs/1', 'erlang:trunc/1', 'erlang:round/1', 'erlang:floor/1', 'erlang:ceil/1', 'erlang:float/1',
-  'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2', 'erlang:=:=/2',
+  'erlang:+/1', 'erlang:+/2', 'erlang:-/1', 'erlang:-/2', 'erlang:*/2', 'erlang://2', 'erlang:=:=/2',
   'erlang:==/2', 'erlang:/=/2', 'erlang:=/=/2', 'erlang:</2', 'erlang:=</2',
   'erlang:>/2', 'erlang:>=/2',
   'erlang:band/2', 'erlang:bor/2', 'erlang:bxor/2', 'erlang:bnot/1', 'erlang:div/2', 'erlang:rem/2',
@@ -278,7 +281,7 @@ const callableOnly = new Set(['erlang:is_process_alive/1', 'erlang:process_info/
   'erlang:read_timer/2', 'erlang:cancel_timer/2',
   'erlang:register/2', 'erlang:unregister/1', 'erlang:whereis/1', 'erlang:registered/0',
   'erlang:error/1', 'erlang:error/2', 'erlang:exit/1', 'erlang:exit/2', 'erlang:throw/1',
-  'erlang:raise/3', 'erlang:spawn_link/3', 'erlang:apply/3', 'erlang:atom_to_list/1',
+  'erlang:raise/3', 'erlang:spawn_link/3', 'erlang:apply/2', 'erlang:apply/3', 'erlang:atom_to_list/1',
   'erlang:get_module_info/1', 'erlang:get_module_info/2', 'erlang:load_nif/2', 'erlang:nif_error/1', 'erlang:nif_error/2', 'erlang:process_flag/2', 'erlang:link/1', 'erlang:unlink/1',
   'erlang:monitor/2', 'erlang:demonitor/1', 'erlang:demonitor/2',
   'erlang:setelement/3', 'erlang:float_to_list/1', 'erlang:++/2', 'erlang:--/2', 'erlang:error/3',
@@ -385,7 +388,9 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   invokes the named function. Beam2JS supports exported functions in registered
   modules and its supported callable BIFs; the function transfer is a tail
   transfer while any caller continuation remains intact. Invalid argument
-  shapes raise \`badarg\`. \`apply/2\` and function terms are not supported.
+  shapes raise \`badarg\`. \`apply/2\` invokes a function term with a proper
+  argument list. It raises \`badarg\` for an invalid list, \`{badfun,Fun}\`
+  for a non-function and \`{badarity,{Fun,Args}}\` for an arity mismatch.
 - OTP-generated \`module_info/0,1\` are ordinary exported module functions backed
   by \`erlang:get_module_info/1,2\`. Beam2JS supports only the \`module\` and
   \`exports\` keys; its \`/0\` result contains those two fields, not OTP's full
@@ -460,7 +465,7 @@ guard and exception paths and their raw encodings via \`npm run test:opcodes\`.
   returns its default for a missing key and raises \`{badmap,Map}\` for a
   non-map. The [map guard fixture](../fixtures/bif_map_guards.erl) checks
   successful and failing \`erlang\` guard calls, including stripped input.
-- Unary \`-/1\` and binary \`+/2\`, \`-/2\` and \`*/2\` accept numbers;
+- Unary \`+/1\` and \`-/1\` and binary \`+/2\`, \`-/2\` and \`*/2\` accept numbers;
   non-numbers and floating-point overflow raise \`badarith\` in a body. Integer
   results can exceed machine word size and mixed integer/float arithmetic
   yields a float. Nonzero-label guard forms are tested against OTP in Node

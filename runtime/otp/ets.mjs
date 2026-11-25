@@ -186,14 +186,17 @@ export function runMatchSpec(rt, clauses, term, pid) {
     const context = {object: term, bindings, pid};
     try {
       if (!clause.guards.every(guard => evaluate(rt, guard, context) === rt.atom('true'))) continue;
+    } catch (error) {
+      // A guard that raises fails the clause.
+      if (error instanceof MatchFailure) continue;
+      throw error;
+    }
+    try {
       let value = term;
       for (const expression of clause.body) value = evaluate(rt, expression, context);
       return {value};
     } catch (error) {
-      if (error instanceof MatchFailure) {
-        if (clause.body.length === 0) continue;
-        return {value: rt.atom('EXIT')};
-      }
+      if (error instanceof MatchFailure) return {value: rt.atom('EXIT')};
       throw error;
     }
   }

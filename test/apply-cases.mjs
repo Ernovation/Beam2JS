@@ -57,9 +57,9 @@ export function applyChecks(Runtime, registerModule, expected) {
     exports.every((entry, index) => entry === expected.exports[index]),
   'module_info(exports) disagreed with OTP');
   const info = readList(runtime, runtime.invoke('dynamic_apply', 'module_info_all', []));
-  check(info.length === 2 && runtime.tupleElement(info[0], 1) === atom('module') &&
-    runtime.tupleElement(info[0], 2) === module && runtime.tupleElement(info[1], 1) === atom('exports'),
-  'module_info/0 did not return the implemented metadata');
+  check(info.map(entry => Symbol.keyFor(runtime.tupleElement(entry, 1))).join() ===
+    'module,exports,attributes,compile,md5' && runtime.tupleElement(info[0], 2) === module,
+  'module_info/0 did not return the OTP metadata keys');
   const allExports = readList(runtime, runtime.tupleElement(info[1], 2))
     .map(entry => `${Symbol.keyFor(runtime.tupleElement(entry, 1))}/${runtime.tupleElement(entry, 2)}`)
     .sort();

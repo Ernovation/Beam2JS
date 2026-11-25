@@ -1,5 +1,7 @@
-// Read-only HTTP filesystem. Descriptors and buffers belong to one runtime;
-// ordinary file data is never evaluated as JavaScript.
+// HTTP filesystem with an in-memory writable overlay: server files are
+// read-only, while files and directories created by Erlang code live in the
+// runtime's memory and shadow server paths. Descriptors and buffers belong to
+// one runtime; ordinary file data is never evaluated as JavaScript.
 import {BITSTRING, TUPLE, is, isAtom, listToArray, arrayToList, charlist, charlistText, binary} from './term.mjs';
 
 const states = new WeakMap();
@@ -8,7 +10,10 @@ const error = (rt, reason) => rt.tuple([rt.atom('error'), rt.atom(reason)]);
 const ok = (rt, value) => rt.tuple([rt.atom('ok'), value]);
 const asyncIO = run => ({type: 'async', run});
 function state(rt) {
-  if (!states.has(rt)) states.set(rt, {cwd: rt.fileBaseURL, handles: new WeakMap(), buffers: new WeakMap(), paths: [rt.moduleBaseURL]});
+  if (!states.has(rt)) {
+    states.set(rt, {cwd: rt.fileBaseURL, handles: new WeakMap(), buffers: new WeakMap(), paths: [rt.moduleBaseURL],
+      overlay: new Map()});
+  }
   return states.get(rt);
 }
 function integer(rt, value) {
@@ -55,6 +60,8 @@ async function json(response) {
   }
 }
 async function readFile(rt, path) {
+  const entry = overlayEntry(rt, path);
+  if (entry) return entry.type === 'regular' ? ok(rt, binary(rt, entry.bytes.slice())) : error(rt, 'eisdir');
   const result = await request(rt, path);
   if (result.reason) return error(rt, result.reason);
   try {
@@ -62,6 +69,21 @@ async function readFile(rt, path) {
   } catch (cause) {
     if (!(cause instanceof TypeError)) throw cause;
     return error(rt, 'eio');
+  }
+}
+// Reads a whole file (overlay or server) for runtime natives such as
+// code:load_abs; resolves to bytes or an error reason name.
+export async function readFileBytes(rt, name) {
+  const path = url(rt, name);
+  const entry = overlayEntry(rt, path);
+  if (entry) return entry.type === 'regular' ? entry.bytes.slice() : 'eisdir';
+  const result = await request(rt, path);
+  if (result.reason) return result.reason;
+  try {
+    return new Uint8Array(await result.response.arrayBuffer());
+  } catch (cause) {
+    if (!(cause instanceof TypeError)) throw cause;
+    return 'eio';
   }
 }
 function handle(rt, ref) {
@@ -90,7 +112,7 @@ function read(rt, ref, offset, size, advance) {
   return ok(rt, binary(rt, value.bytes.slice(pos, end)));
 }
 function info(rt, size, timestamp = 0, metadata = {}) {
-  return rt.tuple([rt.atom('file_info'), BigInt(size), rt.atom(metadata.type ?? 'regular'), rt.atom('read'),
+  return rt.tuple([rt.atom('file_info'), BigInt(size), rt.atom(metadata.type ?? 'regular'), rt.atom(metadata.access ?? 'read'),
     BigInt(metadata.atime ?? timestamp), BigInt(metadata.mtime ?? timestamp), BigInt(metadata.ctime ?? timestamp),
     BigInt(metadata.mode ?? 0o100444), 1n, 0n, 0n, 0n, 0n, 0n]);
 }
@@ -106,6 +128,8 @@ async function metadata(rt, path, operation) {
   return value === null || typeof value !== 'object' ? {reason: 'eio'} : {value};
 }
 async function stat(rt, path) {
+  const entry = overlayEntry(rt, path);
+  if (entry) return overlayInfo(rt, entry);
   const result = await metadata(rt, path, 'stat');
   if (result.value) {
     const data = result.value;
@@ -129,6 +153,84 @@ async function stat(rt, path) {
   const date = Date.parse(head.response.headers.get('last-modified'));
   return info(rt, size, Number.isFinite(date) ? Math.floor(date / 1000) : 0);
 }
+const overlayKey = path => path.length > 1 && path.endsWith('/') && !path.endsWith('//') ? path.slice(0, -1) : path;
+function parentKey(key) {
+  const index = key.lastIndexOf('/');
+  return index <= key.indexOf('//') + 1 ? null : key.slice(0, index);
+}
+function overlayEntry(rt, path) {
+  return state(rt).overlay.get(overlayKey(path));
+}
+const now = () => Math.floor(Date.now() / 1000);
+function overlayInfo(rt, entry) {
+  return info(rt, entry.type === 'regular' ? entry.bytes.length : 0, entry.mtime,
+    {type: entry.type, access: 'read_write', mode: entry.type === 'regular' ? 0o100644 : 0o40755});
+}
+// The type of an overlay or server path, or null when it does not exist.
+async function pathType(rt, path) {
+  const entry = overlayEntry(rt, path);
+  if (entry) return entry.type;
+  const result = await stat(rt, path);
+  return rt.tupleElement(result, 1) === rt.atom('error') ? null : Symbol.keyFor(rt.tupleElement(result, 3));
+}
+async function parentIsDirectory(rt, path) {
+  const parent = parentKey(overlayKey(path));
+  return parent === null || await pathType(rt, parent + '/') === 'directory';
+}
+function overlayChildren(rt, path) {
+  const key = overlayKey(path);
+  return [...state(rt).overlay.keys()].filter(child => parentKey(child) === key);
+}
+async function openWritable(rt, path, flags) {
+  const has = name => flags.includes(rt.atom(name));
+  let entry = overlayEntry(rt, path);
+  if (!entry) {
+    const type = await pathType(rt, path);
+    if (type === 'directory') return error(rt, 'eisdir');
+    if (type === null && !await parentIsDirectory(rt, path)) return error(rt, 'enoent');
+    let bytes = new Uint8Array();
+    if (type !== null && !has('exclusive')) {
+      const result = await readFile(rt, path);
+      if (rt.tupleElement(result, 1) === rt.atom('error')) return result;
+      bytes = rt.bitstringBytes(rt.tupleElement(result, 2)).slice();
+    } else if (type !== null) {
+      return error(rt, 'eexist');
+    }
+    entry = {type: 'regular', bytes, mtime: now()};
+    state(rt).overlay.set(overlayKey(path), entry);
+  } else if (entry.type === 'directory') {
+    return error(rt, 'eisdir');
+  } else if (has('exclusive')) {
+    return error(rt, 'eexist');
+  }
+  if (has('write') && !has('read') && !has('append')) entry.bytes = new Uint8Array();
+  const ref = rt.makeRef();
+  state(rt).handles.set(ref, {
+    get bytes() { return entry.bytes; },
+    position: 0, entry, writable: true, readable: has('read'), append: has('append'),
+  });
+  return ok(rt, ref);
+}
+function writeAt(rt, value, offset, data) {
+  if (!value.writable) return error(rt, 'ebadf');
+  const chunks = (listToArray(data) ?? badarg(rt)).map(chunk => rt.bitstringBytes(chunk));
+  const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const start = value.append ? value.entry.bytes.length : offset;
+  const end = start + length;
+  let bytes = value.entry.bytes;
+  if (end > bytes.length) {
+    bytes = new Uint8Array(end);
+    bytes.set(value.entry.bytes);
+  }
+  let position = start;
+  for (const chunk of chunks) {
+    bytes.set(chunk, position);
+    position += chunk.length;
+  }
+  value.entry.bytes = bytes;
+  value.entry.mtime = now();
+  return end;
+}
 function modulePath(rt, name) {
   const path = text(rt, name);
   // erl_prim_loader's object requests refer to BEAM names, but this runtime's
@@ -149,6 +251,16 @@ async function loaderRead(rt, file, paths = state(rt).paths) {
     if (rt.tupleElement(result, 2) !== rt.atom('enoent')) break;
   }
   return {result};
+}
+
+// Creates a writable in-memory directory and its missing ancestors.
+export function makeMemoryDirectory(rt, path) {
+  let key = overlayKey(new URL(path, state(rt).cwd).href);
+  const overlay = state(rt).overlay;
+  while (key !== null && !overlay.has(key)) {
+    overlay.set(key, {type: 'directory', mtime: now()});
+    key = parentKey(key);
+  }
 }
 
 export function fileBifs() {
@@ -184,7 +296,13 @@ export function fileBifs() {
     const path = url(rt, name), flags = listToArray(modes);
     if (!flags) badarg(rt);
     if (flags.some(flag => [rt.atom('write'), rt.atom('append'), rt.atom('exclusive')].includes(flag))) {
-      return error(rt, 'erofs');
+      return asyncIO(() => openWritable(rt, path, flags));
+    }
+    const entry = overlayEntry(rt, path);
+    if (entry?.type === 'regular') {
+      const ref = rt.makeRef();
+      state(rt).handles.set(ref, {get bytes() { return entry.bytes; }, position: 0, entry, readable: true});
+      return ok(rt, ref);
     }
     return asyncIO(async () => {
       const result = await readFile(rt, path);
@@ -216,17 +334,84 @@ export function fileBifs() {
     return asyncIO(() => stat(rt, path));
   });
   prim('read_handle_info_nif', 1, (rt, [ref]) => info(rt, handle(rt, ref).bytes.length));
-  for (const [name, arity] of [['write_nif', 2], ['pwrite_nif', 3], ['truncate_nif', 1],
-    ['allocate_nif', 3], ['make_hard_link_nif', 2], ['make_soft_link_nif', 2], ['rename_nif', 2],
-    ['set_permissions_nif', 2], ['set_owner_nif', 3], ['set_time_nif', 4], ['make_dir_nif', 1],
-    ['del_file_nif', 1], ['del_dir_nif', 1]]) prim(name, arity, rt => error(rt, 'erofs'));
+  prim('write_nif', 2, (rt, [ref, data]) => {
+    const value = handle(rt, ref);
+    const end = writeAt(rt, value, value.position, data);
+    if (typeof end !== 'number') return end;
+    value.position = end;
+    return rt.atom('ok');
+  });
+  prim('pwrite_nif', 3, (rt, [ref, offset, data]) => {
+    const end = writeAt(rt, handle(rt, ref), integer(rt, offset), data);
+    return typeof end === 'number' ? rt.atom('ok') : end;
+  });
+  prim('truncate_nif', 1, (rt, [ref]) => {
+    const value = handle(rt, ref);
+    if (!value.writable) return error(rt, 'ebadf');
+    value.entry.bytes = value.entry.bytes.slice(0, value.position);
+    return rt.atom('ok');
+  });
+  prim('allocate_nif', 3, rt => error(rt, 'enotsup'));
+  prim('make_dir_nif', 1, (rt, [name]) => {
+    const path = url(rt, name);
+    return asyncIO(async () => {
+      if (await pathType(rt, path) !== null) return error(rt, 'eexist');
+      if (!await parentIsDirectory(rt, path)) return error(rt, 'enoent');
+      state(rt).overlay.set(overlayKey(path), {type: 'directory', mtime: now()});
+      return rt.atom('ok');
+    });
+  });
+  for (const [name, type] of [['del_file_nif', 'regular'], ['del_dir_nif', 'directory']]) {
+    prim(name, 1, (rt, [file]) => {
+      const path = url(rt, file);
+      return asyncIO(async () => {
+        const entry = overlayEntry(rt, path);
+        if (!entry) return error(rt, await pathType(rt, path) === null ? 'enoent' : 'erofs');
+        if (entry.type !== type) return error(rt, type === 'regular' ? 'eperm' : 'enotdir');
+        if (type === 'directory' && overlayChildren(rt, path).length) return error(rt, 'eexist');
+        state(rt).overlay.delete(overlayKey(path));
+        return rt.atom('ok');
+      });
+    });
+  }
+  prim('rename_nif', 2, (rt, [source, destination]) => {
+    const from = overlayKey(url(rt, source)), to = overlayKey(url(rt, destination));
+    return asyncIO(async () => {
+      const overlay = state(rt).overlay;
+      if (!overlay.has(from)) return error(rt, await pathType(rt, from) === null ? 'enoent' : 'erofs');
+      if (!await parentIsDirectory(rt, to)) return error(rt, 'enoent');
+      const target = overlay.get(to);
+      if (target?.type === 'directory' && overlayChildren(rt, to).length) return error(rt, 'eexist');
+      for (const key of [...overlay.keys()]) {
+        if (key === from || key.startsWith(from + '/')) {
+          const entry = overlay.get(key);
+          overlay.delete(key);
+          overlay.set(to + key.slice(from.length), entry);
+        }
+      }
+      return rt.atom('ok');
+    });
+  });
+  for (const [name, arity] of [['set_permissions_nif', 2], ['set_owner_nif', 3], ['set_time_nif', 4]]) {
+    prim(name, arity, (rt, [file]) => {
+      const path = url(rt, file);
+      return overlayEntry(rt, path) ? rt.atom('ok') : error(rt, 'erofs');
+    });
+  }
+  for (const [name, arity] of [['make_hard_link_nif', 2], ['make_soft_link_nif', 2]]) {
+    prim(name, arity, rt => error(rt, 'enotsup'));
+  }
   prim('list_dir_nif', 1, (rt, [name]) => {
     const path = url(rt, name);
     return asyncIO(async () => {
-      const result = await metadata(rt, path, 'list');
+      const entry = overlayEntry(rt, path);
+      if (entry?.type === 'regular') return error(rt, 'enotdir');
+      const children = overlayChildren(rt, path).map(child => decodeURIComponent(child.slice(child.lastIndexOf('/') + 1)));
+      const result = entry ? {value: []} : await metadata(rt, path, 'list');
       if (result.reason) return error(rt, result.reason);
       if (!Array.isArray(result.value) || result.value.some(name => typeof name !== 'string')) return error(rt, 'eio');
-      return ok(rt, arrayToList(rt, result.value.map(name => binary(rt, new TextEncoder().encode(name)))));
+      const names = [...new Set([...result.value, ...children])];
+      return ok(rt, arrayToList(rt, names.map(name => binary(rt, new TextEncoder().encode(name)))));
     });
   });
   for (const [name, arity] of [['read_link_nif', 1], ['get_handle_nif', 1],
@@ -295,7 +480,7 @@ export function fileBifs() {
       return {type: 'tail', module: 'prim_file', name, args, external: true};
     });
   }
-  def('file', 'delete', 2, rt => error(rt, 'erofs'));
+  def('file', 'delete', 2, (rt, [name]) => ({type: 'tail', module: 'prim_file', name: 'delete', args: [name], external: true}));
   def('file', 'open', 2, (rt, [name, modes], pid) => {
     const flags = listToArray(modes);
     if (!flags) return error(rt, 'badarg');

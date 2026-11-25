@@ -3,9 +3,10 @@ export function register(runtime) {
   const literalBuilders = [
     rt => {const s=[];s.push(rt.nil());s.push(rt.atom("signed"));s.push(rt.atom("true"));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));return s.pop();},
     rt => {const s=[];s.push(rt.nil());s.push(rt.atom("error_info"));s.push(rt.atom("cause"));s.push(rt.atom("badopt"));s.push(rt.atom("module"));s.push(rt.atom("erl_erts_errors"));s.push(rt.map((()=>{const entries=[];for(let i=0;i<2;i++){const value=s.pop(),key=s.pop();entries.unshift([key,value]);}return entries;})()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));return s.pop();},
-    rt => {const s=[];s.push(rt.nil());s.push(rt.atom("error_info"));s.push(rt.atom("module"));s.push(rt.atom("erl_erts_errors"));s.push(rt.map((()=>{const entries=[];for(let i=0;i<1;i++){const value=s.pop(),key=s.pop();entries.unshift([key,value]);}return entries;})()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));return s.pop();}
+    rt => {const s=[];s.push(rt.nil());s.push(rt.atom("error_info"));s.push(rt.atom("module"));s.push(rt.atom("erl_erts_errors"));s.push(rt.map((()=>{const entries=[];for(let i=0;i<1;i++){const value=s.pop(),key=s.pop();entries.unshift([key,value]);}return entries;})()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));return s.pop();},
+    rt => {const s=[];s.push(rt.nil());s.push(rt.atom("functions"));s.push(rt.nil());s.push(rt.atom("module_info"));s.push(1n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("module_info"));s.push(0n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("info"));s.push(1n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("put"));s.push(3n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("sub"));s.push(3n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("add"));s.push(3n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("get"));s.push(2n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("new"));s.push(2n);s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("md5"));s.push(rt.bitstring([195,239,228,153,35,221,57,0,131,191,183,68,219,84,51,206],128));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("compile"));s.push(rt.nil());s.push(rt.atom("source"));s.push(rt.nil());s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(46n);s.push(rt.cons(s.pop(),s.pop()));s.push(115n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(110n);s.push(rt.cons(s.pop(),s.pop()));s.push(117n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(99n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(99n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(115n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(100n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(100n);s.push(rt.cons(s.pop(),s.pop()));s.push(97n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(112n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(115n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(112n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(100n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(105n);s.push(rt.cons(s.pop(),s.pop()));s.push(117n);s.push(rt.cons(s.pop(),s.pop()));s.push(98n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("options"));s.push(rt.nil());s.push(rt.atom("nowarn_deprecated_catch"));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("warn_missing_spec_documented"));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("warn_missing_doc_callback"));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("warn_missing_doc_function"));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("i"));s.push(rt.nil());s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(100n);s.push(rt.cons(s.pop(),s.pop()));s.push(117n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(99n);s.push(rt.cons(s.pop(),s.pop()));s.push(110n);s.push(rt.cons(s.pop(),s.pop()));s.push(105n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(110n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(107n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(98n);s.push(rt.cons(s.pop(),s.pop()));s.push(105n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(112n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(100n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(105n);s.push(rt.cons(s.pop(),s.pop()));s.push(117n);s.push(rt.cons(s.pop(),s.pop()));s.push(98n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("i"));s.push(rt.nil());s.push(99n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(115n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(110n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(101n);s.push(rt.cons(s.pop(),s.pop()));s.push(107n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(98n);s.push(rt.cons(s.pop(),s.pop()));s.push(105n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(112n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(116n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(111n);s.push(rt.cons(s.pop(),s.pop()));s.push(114n);s.push(rt.cons(s.pop(),s.pop()));s.push(100n);s.push(rt.cons(s.pop(),s.pop()));s.push(108n);s.push(rt.cons(s.pop(),s.pop()));s.push(105n);s.push(rt.cons(s.pop(),s.pop()));s.push(117n);s.push(rt.cons(s.pop(),s.pop()));s.push(98n);s.push(rt.cons(s.pop(),s.pop()));s.push(47n);s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("debug_info"));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("version"));s.push(rt.nil());s.push(52n);s.push(rt.cons(s.pop(),s.pop()));s.push(46n);s.push(rt.cons(s.pop(),s.pop()));s.push(48n);s.push(rt.cons(s.pop(),s.pop()));s.push(46n);s.push(rt.cons(s.pop(),s.pop()));s.push(48n);s.push(rt.cons(s.pop(),s.pop()));s.push(49n);s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.atom("attributes"));s.push(rt.nil());s.push(rt.atom("vsn"));s.push(rt.nil());s.push(260445054649646333417026419231508673486n);s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));s.push(rt.tuple(s.splice(s.length-2,2)));s.push(rt.cons(s.pop(),s.pop()));return s.pop();}
   ];
-  const literals = new Array(3);
+  const literals = new Array(4);
   const literal = (rt, i) => literals[i] ??= literalBuilders[i](rt);
   runtime.registerModule(26, "counters", [
     {name: "new", arity: 2, exported: true, run: (rt, x, state, budget, pid) => {
@@ -20,7 +21,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 0;  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 1;  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 2)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -28,6 +31,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 6;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 1;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 3);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 0, rt.read(x, 1));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); rt.writeY(y, 1, rt.read(x, 0));  }
@@ -40,7 +44,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); { const list = rt.read(x, 1); x[0] = rt.listHead(list); x[1] = rt.listTail(list); }  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 1; { const list = rt.read(x, 1); x[0] = rt.listHead(list); x[1] = rt.listTail(list); }  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const value = rt.read(x, 0); if (rt.equalExact(value, rt.atom("atomics"))) { pc = 19; break; } if (rt.equalExact(value, rt.atom("write_concurrency"))) { pc = 11; break; } pc = 39; break; } }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 9, offset: end, y, f}, registers: x};
@@ -49,6 +53,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 1;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_nil", rt.read(x, 1)) ? 13 : 39; break; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 11, offset: end, y, f}, registers: x};
@@ -57,7 +62,8 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.readY(y, 1);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 1; x[0] = rt.readY(y, 1);  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 2;  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erts_internal", name: "counters_new", args: rt.args(x, 1), external: true, state: {pc: 16, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 13, offset: end, y, f}, registers: x};
@@ -66,6 +72,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 2;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.tuple([rt.atom("write_concurrency"), rt.read(x, 0)]);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = 35; break; }
             budget.remaining = 0;
@@ -75,6 +82,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 2;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_nil", rt.read(x, 1)) ? 21 : 39; break; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 19, offset: end, y, f}, registers: x};
@@ -83,8 +91,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[1] = literal(rt, 0);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 2; x[1] = literal(rt, 0);  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.readY(y, 1);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 3;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "new", args: rt.args(x, 2), external: true, state: {pc: 25, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 21, offset: end, y, f}, registers: x};
@@ -93,6 +102,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 3;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.tuple([rt.atom("atomics"), rt.read(x, 0)]);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = 35; break; }
             budget.remaining = 0;
@@ -102,6 +112,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 3;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_nil", rt.read(x, 1)) ? 30 : 39; break; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 28, offset: end, y, f}, registers: x};
@@ -110,7 +121,8 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[1] = literal(rt, 0);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 3; x[1] = literal(rt, 0);  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 4;  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "new", args: rt.args(x, 2), external: true, state: {pc: 33, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 30, offset: end, y, f}, registers: x};
@@ -119,6 +131,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 4;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.tuple([rt.atom("atomics"), rt.read(x, 0)]); pc = 35; break; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 33, offset: end, y, f}, registers: x};
@@ -127,6 +140,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 4;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.popExceptionHandler(pid);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 3);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
@@ -137,7 +151,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 4;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("badopt");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 5;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "error", args: rt.args(x, 1), external: true, state: {pc: 43, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 39, offset: end, y, f}, registers: x};
@@ -146,20 +162,23 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 5;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; }  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = rt.equalExact(rt.read(x, 0), rt.atom("error")) ? 46 : 62; break; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 43, offset: end, y, f}, registers: x};
           }
-          case 46: budget.remaining--; pc = rt.equalExact(rt.read(x, 1), rt.atom("badopt")) ? 47 : 54; break;
+          case 46: budget.remaining--; budget.line = 5; pc = rt.equalExact(rt.read(x, 1), rt.atom("badopt")) ? 47 : 54; break;
           case 47: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 7;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 5;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[2] = literal(rt, 1);  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[0] = rt.atom("badarg");  }
+            if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); budget.line = 6;  }
             if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); y = rt.deallocate(y, 3); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 47, offset: end, y, f}, registers: x};
@@ -168,10 +187,12 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 8;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 6;  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[2] = literal(rt, 2);  }
             if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); { const left = rt.read(x, 0); const right = rt.read(x, 1); x[0] = right; x[1] = left; }  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); budget.line = 7;  }
             if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); y = rt.deallocate(y, 3); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 54, offset: end, y, f}, registers: x};
@@ -180,6 +201,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 7;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.raiseRaw(rt.read(x, 2), rt.read(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 62, offset: end, y, f}, registers: x};
@@ -200,7 +222,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 0;  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 8;  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 2)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -208,6 +232,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 6;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 8;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 3);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 0, rt.read(x, 1));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); rt.writeY(y, 1, rt.read(x, 0));  }
@@ -216,12 +241,12 @@ export function register(runtime) {
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
           }
-          case 9: budget.remaining--; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 10 : 28; break;
+          case 9: budget.remaining--; budget.line = 8; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 10 : 28; break;
           case 10: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 8; x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.tupleElement(rt.readY(y, 1), 2);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const value = rt.read(x, 0); if (rt.equalExact(value, rt.atom("atomics"))) { pc = 19; break; } if (rt.equalExact(value, rt.atom("write_concurrency"))) { pc = 13; break; } pc = 28; break; } }
             budget.remaining = 0;
@@ -231,19 +256,23 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 8;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.readY(y, 0);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 9;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erts_internal", name: "counters_get", args: rt.args(x, 2), external: true, state: {pc: 18, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 13, offset: end, y, f}, registers: x};
           }
-          case 18: budget.remaining--; pc = 24; break;
+          case 18: budget.remaining--; budget.line = 9; pc = 24; break;
           case 19: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 9;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.readY(y, 0);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 10;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "get", args: rt.args(x, 2), external: true, state: {pc: 24, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 19, offset: end, y, f}, registers: x};
@@ -252,6 +281,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 10;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.popExceptionHandler(pid);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 3);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
@@ -262,7 +292,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 10;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("badarg");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 11;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "error", args: rt.args(x, 1), external: true, state: {pc: 32, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 28, offset: end, y, f}, registers: x};
@@ -271,6 +303,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 11;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; }  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = rt.equalExact(rt.read(x, 0), rt.atom("error")) ? 35 : 42; break; }
             budget.remaining = 0;
@@ -280,10 +313,12 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 7;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 11;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[2] = literal(rt, 2);  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); { const left = rt.read(x, 0); const right = rt.read(x, 1); x[0] = right; x[1] = left; }  }
+            if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); budget.line = 7;  }
             if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); y = rt.deallocate(y, 3); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 35, offset: end, y, f}, registers: x};
@@ -292,6 +327,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 7;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.raiseRaw(rt.read(x, 2), rt.read(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 42, offset: end, y, f}, registers: x};
@@ -312,7 +348,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 0;  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 12;  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 3)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -320,6 +358,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 7;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 12;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 4);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 0, rt.read(x, 2));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); rt.writeY(y, 1, rt.read(x, 1));  }
@@ -329,12 +368,12 @@ export function register(runtime) {
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
           }
-          case 10: budget.remaining--; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 11 : 29; break;
+          case 10: budget.remaining--; budget.line = 12; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 11 : 29; break;
           case 11: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 12; x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.tupleElement(rt.readY(y, 2), 2);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const value = rt.read(x, 0); if (rt.equalExact(value, rt.atom("atomics"))) { pc = 20; break; } if (rt.equalExact(value, rt.atom("write_concurrency"))) { pc = 14; break; } pc = 29; break; } }
             budget.remaining = 0;
@@ -344,19 +383,23 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 12;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.readY(y, 1);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 13;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erts_internal", name: "counters_add", args: rt.args(x, 3), external: true, state: {pc: 19, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 14, offset: end, y, f}, registers: x};
           }
-          case 19: budget.remaining--; pc = 25; break;
+          case 19: budget.remaining--; budget.line = 13; pc = 25; break;
           case 20: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 13;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.readY(y, 1);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 14;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "add", args: rt.args(x, 3), external: true, state: {pc: 25, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 20, offset: end, y, f}, registers: x};
@@ -365,6 +408,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 14;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.popExceptionHandler(pid);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 4);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
@@ -375,7 +419,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 14;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("badarg");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 15;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "error", args: rt.args(x, 1), external: true, state: {pc: 33, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 29, offset: end, y, f}, registers: x};
@@ -384,6 +430,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 15;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; }  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = rt.equalExact(rt.read(x, 0), rt.atom("error")) ? 36 : 44; break; }
             budget.remaining = 0;
@@ -393,11 +440,13 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 8;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 15;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[0] = rt.cons(rt.readY(y, 2), rt.read(x, 0));  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[2] = literal(rt, 2);  }
             if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); { const left = rt.read(x, 0); const right = rt.read(x, 1); x[0] = right; x[1] = left; }  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); budget.line = 7;  }
             if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); y = rt.deallocate(y, 4); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 36, offset: end, y, f}, registers: x};
@@ -406,6 +455,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 7;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.raiseRaw(rt.read(x, 2), rt.read(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 44, offset: end, y, f}, registers: x};
@@ -426,7 +476,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 0;  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 16;  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 3)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -434,22 +486,24 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 8;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 16;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 4);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 0, rt.read(x, 2));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); rt.writeY(y, 1, rt.read(x, 1));  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); rt.writeY(y, 2, rt.read(x, 0));  }
             if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); rt.pushExceptionHandler(pid, {pc: 35, kind: 'try', y}); rt.writeY(y, 3, rt.atom('try'));  }
-            if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); { const result = rt.guardArithmetic('neg', rt.read(x, 2)); if (result !== null) { x[0] = result; pc = 11; } else { rt.raiseError(rt.atom('badarith')); } break; } }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); budget.line = 17;  }
+            if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); { const result = rt.guardArithmetic('neg', rt.read(x, 2)); if (result !== null) { x[0] = result; pc = 11; } else { rt.callBif("-", [rt.read(x, 2)], pid); } break; } }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
           }
-          case 11: budget.remaining--; pc = rt.isType("is_tuple", rt.readY(y, 2)) ? 12 : 31; break;
-          case 12: budget.remaining--; pc = rt.tupleSize(rt.readY(y, 2)) === 2 ? 13 : 31; break;
+          case 11: budget.remaining--; budget.line = 17; pc = rt.isType("is_tuple", rt.readY(y, 2)) ? 12 : 31; break;
+          case 12: budget.remaining--; budget.line = 17; pc = rt.tupleSize(rt.readY(y, 2)) === 2 ? 13 : 31; break;
           case 13: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[1] = rt.tupleElement(rt.readY(y, 2), 1);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 17; x[1] = rt.tupleElement(rt.readY(y, 2), 1);  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[2] = rt.tupleElement(rt.readY(y, 2), 2);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const value = rt.read(x, 1); if (rt.equalExact(value, rt.atom("atomics"))) { pc = 22; break; } if (rt.equalExact(value, rt.atom("write_concurrency"))) { pc = 16; break; } pc = 31; break; } }
             budget.remaining = 0;
@@ -459,19 +513,23 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 17;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.readY(y, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const left = rt.read(x, 0); const right = rt.read(x, 2); x[0] = right; x[2] = left; }  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 18;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erts_internal", name: "counters_add", args: rt.args(x, 3), external: true, state: {pc: 21, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 16, offset: end, y, f}, registers: x};
           }
-          case 21: budget.remaining--; pc = 27; break;
+          case 21: budget.remaining--; budget.line = 18; pc = 27; break;
           case 22: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 18;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.readY(y, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const left = rt.read(x, 0); const right = rt.read(x, 2); x[0] = right; x[2] = left; }  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 19;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "add", args: rt.args(x, 3), external: true, state: {pc: 27, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 22, offset: end, y, f}, registers: x};
@@ -480,6 +538,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 19;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.popExceptionHandler(pid);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 4);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
@@ -490,7 +549,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 19;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("badarg");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 20;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "error", args: rt.args(x, 1), external: true, state: {pc: 35, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 31, offset: end, y, f}, registers: x};
@@ -499,6 +560,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 20;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; }  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = rt.equalExact(rt.read(x, 0), rt.atom("error")) ? 38 : 46; break; }
             budget.remaining = 0;
@@ -508,11 +570,13 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 8;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 20;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[0] = rt.cons(rt.readY(y, 2), rt.read(x, 0));  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[2] = literal(rt, 2);  }
             if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); { const left = rt.read(x, 0); const right = rt.read(x, 1); x[0] = right; x[1] = left; }  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); budget.line = 7;  }
             if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); y = rt.deallocate(y, 4); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 38, offset: end, y, f}, registers: x};
@@ -521,6 +585,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 7;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.raiseRaw(rt.read(x, 2), rt.read(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 46, offset: end, y, f}, registers: x};
@@ -541,7 +606,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 0;  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 21;  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 3)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -549,6 +616,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 7;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 21;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 4);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 0, rt.read(x, 2));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); rt.writeY(y, 1, rt.read(x, 1));  }
@@ -558,12 +626,12 @@ export function register(runtime) {
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
           }
-          case 10: budget.remaining--; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 11 : 29; break;
+          case 10: budget.remaining--; budget.line = 21; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 11 : 29; break;
           case 11: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 21; x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.tupleElement(rt.readY(y, 2), 2);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const value = rt.read(x, 0); if (rt.equalExact(value, rt.atom("atomics"))) { pc = 20; break; } if (rt.equalExact(value, rt.atom("write_concurrency"))) { pc = 14; break; } pc = 29; break; } }
             budget.remaining = 0;
@@ -573,19 +641,23 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 21;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.readY(y, 1);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 22;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erts_internal", name: "counters_put", args: rt.args(x, 3), external: true, state: {pc: 19, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 14, offset: end, y, f}, registers: x};
           }
-          case 19: budget.remaining--; pc = 25; break;
+          case 19: budget.remaining--; budget.line = 22; pc = 25; break;
           case 20: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 22;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[1] = rt.readY(y, 1);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); budget.line = 23;  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "put", args: rt.args(x, 3), external: true, state: {pc: 25, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 20, offset: end, y, f}, registers: x};
@@ -594,6 +666,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 23;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.popExceptionHandler(pid);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 4);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
@@ -604,7 +677,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 23;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("badarg");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 24;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "error", args: rt.args(x, 1), external: true, state: {pc: 33, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 29, offset: end, y, f}, registers: x};
@@ -613,6 +688,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 24;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; }  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = rt.equalExact(rt.read(x, 0), rt.atom("error")) ? 36 : 44; break; }
             budget.remaining = 0;
@@ -622,11 +698,13 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 8;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 24;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[0] = rt.cons(rt.readY(y, 2), rt.read(x, 0));  }
             if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[2] = literal(rt, 2);  }
             if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); { const left = rt.read(x, 0); const right = rt.read(x, 1); x[0] = right; x[1] = left; }  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); budget.line = 7;  }
             if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); y = rt.deallocate(y, 4); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 36, offset: end, y, f}, registers: x};
@@ -635,6 +713,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 7;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.raiseRaw(rt.read(x, 2), rt.read(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 44, offset: end, y, f}, registers: x};
@@ -655,7 +734,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 0;  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); budget.line = 25;  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -663,6 +744,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 25;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 2);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 0, rt.read(x, 0));  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); rt.pushExceptionHandler(pid, {pc: 29, kind: 'try', y}); rt.writeY(y, 1, rt.atom('try'));  }
@@ -670,12 +752,12 @@ export function register(runtime) {
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
           }
-          case 8: budget.remaining--; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 9 : 25; break;
+          case 8: budget.remaining--; budget.line = 25; pc = rt.tupleSize(rt.read(x, 0)) === 2 ? 9 : 25; break;
           case 9: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 25; x[0] = rt.tupleElement(rt.read(x, 0), 1);  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.tupleElement(rt.readY(y, 0), 2);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); { const value = rt.read(x, 0); if (rt.equalExact(value, rt.atom("atomics"))) { pc = 17; break; } if (rt.equalExact(value, rt.atom("write_concurrency"))) { pc = 12; break; } pc = 25; break; } }
             budget.remaining = 0;
@@ -685,17 +767,21 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 25;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 26;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erts_internal", name: "counters_info", args: rt.args(x, 1), external: true, state: {pc: 16, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 12, offset: end, y, f}, registers: x};
           }
-          case 16: budget.remaining--; pc = 21; break;
+          case 16: budget.remaining--; budget.line = 26; pc = 21; break;
           case 17: {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 26;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.read(x, 1);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 27;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "atomics", name: "info", args: rt.args(x, 1), external: true, state: {pc: 21, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 17, offset: end, y, f}, registers: x};
@@ -704,6 +790,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 27;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.popExceptionHandler(pid);  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 2);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
@@ -714,7 +801,9 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 4;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 27;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("badarg");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); budget.line = 28;  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "error", args: rt.args(x, 1), external: true, state: {pc: 29, y}}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 25, offset: end, y, f}, registers: x};
@@ -723,6 +812,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 28;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); { const exception = rt.takeException(pid); x[0] = exception[0]; x[1] = exception[1]; x[2] = exception[2]; }  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); pc = rt.equalExact(rt.read(x, 0), rt.atom("error")) ? 32 : 38; break; }
             budget.remaining = 0;
@@ -732,9 +822,11 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 6;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 28;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.cons(rt.readY(y, 0), rt.nil());  }
             if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[2] = literal(rt, 2);  }
             if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); { const left = rt.read(x, 0); const right = rt.read(x, 1); x[0] = right; x[1] = left; }  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); budget.line = 7;  }
             if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); y = rt.deallocate(y, 2); return {type: 'tail', module: "erlang", name: "error", args: rt.args(x, 3), external: true}; }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 32, offset: end, y, f}, registers: x};
@@ -743,6 +835,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); budget.line = 7;  }
             if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.raiseRaw(rt.read(x, 2), rt.read(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 38, offset: end, y, f}, registers: x};
@@ -763,7 +856,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 0)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -792,7 +885,7 @@ export function register(runtime) {
             const start = offset, remaining = budget.remaining, end = start + remaining;
             offset = 0;
             const full = start === 0 && end >= 3;
-            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseFunctionClause(rt.args(x, 1)); }
             budget.remaining = 0;
             return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
           }
@@ -810,5 +903,5 @@ export function register(runtime) {
         }
       }
     }}
-  ], {atoms: ["-","add","atomics","badarg","badopt","cause","counters","counters_add","counters_get","counters_info","counters_new","counters_put","erl_erts_errors","erlang","error","error_info","erts_internal","get","get_module_info","info","module","module_info","new","put","signed","sub","true","write_concurrency"]});
+  ], {locations: [["counters.erl",100],["counters.erl",106],["counters.erl",104],["counters.erl",108],["counters.erl",110],["counters.erl",116],["counters.erl",250],["counters.erl",127],["counters.erl",133],["counters.erl",131],["counters.erl",135],["counters.erl",149],["counters.erl",155],["counters.erl",153],["counters.erl",157],["counters.erl",171],["counters.erl",173],["counters.erl",178],["counters.erl",176],["counters.erl",180],["counters.erl",204],["counters.erl",210],["counters.erl",208],["counters.erl",212],["counters.erl",234],["counters.erl",240],["counters.erl",238],["counters.erl",242]], moduleInfo: rt => literal(rt, 3), atoms: ["-","add","atomics","attributes","badarg","badopt","cause","compile","counters","counters_add","counters_get","counters_info","counters_new","counters_put","debug_info","erl_erts_errors","erlang","error","error_info","erts_internal","functions","get","get_module_info","i","info","md5","module","module_info","new","nowarn_deprecated_catch","options","put","signed","source","sub","true","version","vsn","warn_missing_doc_callback","warn_missing_doc_function","warn_missing_spec_documented","write_concurrency"]});
 }

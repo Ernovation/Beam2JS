@@ -86,7 +86,9 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   invokes the named function. Beam2JS supports exported functions in registered
   modules and its supported callable BIFs; the function transfer is a tail
   transfer while any caller continuation remains intact. Invalid argument
-  shapes raise `badarg`. `apply/2` and function terms are not supported.
+  shapes raise `badarg`. `apply/2` invokes a function term with a proper
+  argument list. It raises `badarg` for an invalid list, `{badfun,Fun}`
+  for a non-function and `{badarity,{Fun,Args}}` for an arity mismatch.
 - OTP-generated `module_info/0,1` are ordinary exported module functions backed
   by `erlang:get_module_info/1,2`. Beam2JS supports only the `module` and
   `exports` keys; its `/0` result contains those two fields, not OTP's full
@@ -161,7 +163,7 @@ guard and exception paths and their raw encodings via `npm run test:opcodes`.
   returns its default for a missing key and raises `{badmap,Map}` for a
   non-map. The [map guard fixture](../fixtures/bif_map_guards.erl) checks
   successful and failing `erlang` guard calls, including stripped input.
-- Unary `-/1` and binary `+/2`, `-/2` and `*/2` accept numbers;
+- Unary `+/1` and `-/1` and binary `+/2`, `-/2` and `*/2` accept numbers;
   non-numbers and floating-point overflow raise `badarith` in a body. Integer
   results can exceed machine word size and mixed integer/float arithmetic
   yields a float. Nonzero-label guard forms are tested against OTP in Node
@@ -410,7 +412,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `!/2` | bif | yes | message / timer | no | sends a message to a local PID or registered name | badarg for invalid destination | process runtime | instruction-and-callable |
 | `erlang` | `*/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
 | `erlang` | `++/2` | bif | yes | list / tuple | no | optimizer-pure | badarg for improper or non-list left operand | ? | callable-only |
-| `erlang` | `+/1` | ubif | yes | arithmetic | operator | optimizer-pure | ? | ? | not implemented |
+| `erlang` | `+/1` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input | ? | instruction-and-callable |
 | `erlang` | `+/2` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input or float overflow | ? | instruction-and-callable |
 | `erlang` | `--/2` | bif | yes | list / tuple | no | optimizer-pure | badarg for improper or non-list operands | ? | callable-only |
 | `erlang` | `-/1` | ubif | yes | arithmetic | operator | optimizer-pure | badarith for non-number input | ? | instruction-and-callable |
@@ -432,7 +434,7 @@ node tools/bif-inventory.mjs --check /path/to/otp/erts/emulator/beam/bif.tab
 | `erlang` | `and/2` | ubif | yes | boolean | operator | optimizer-pure | badarg for non-boolean input | ? | instruction-and-callable |
 | `erlang` | `append/2` | bif | yes | list / tuple | no | ? | ? | ? | not implemented |
 | `erlang` | `append_element/2` | bif | yes | tuple | no | ? | ? | ? | not implemented |
-| `erlang` | `apply/2` | runtime | yes | function / call | no | ? | ? | ? | not implemented |
+| `erlang` | `apply/2` | runtime | yes | function / call | no | ? | badarg for invalid argument list; {badfun,Fun} for non-fun; {badarity,{Fun,Args}} for wrong arity | registered modules | callable-only |
 | `erlang` | `apply/3` | runtime | yes | function / call | no | ? | badarg for invalid module/function/arguments | registered modules | callable-only |
 | `erlang` | `atom_to_binary/2` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-atom input, invalid encoding or unrepresentable Latin-1 | ? | callable-only |
 | `erlang` | `atom_to_list/1` | bif | yes | conversion / encoding | no | optimizer-pure | badarg for non-atom input | runtime atom value | callable-only |

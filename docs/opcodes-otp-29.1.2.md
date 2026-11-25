@@ -37,7 +37,8 @@ supported literals; y registers require allocated frames. Selected function, cas
 if failures propagate as distinct JavaScript `ErlangError` instances carrying
 the Erlang class and reason; Erlang catch and try handlers catch them, and
 stack traces are reported as {Module, Function, Arity, []} entries without line
-information. `line` is ignored and its effect on executable/debug metadata
+information. Function-clause and BIF failures use the failing argument list
+instead of the arity in their first frame. `line` is ignored and its effect on executable/debug metadata
 is not established.
 
 The operand column preserves names from available upstream specifications.

@@ -414,7 +414,7 @@ export function arithmeticResults(runtime) {
   for (const [name, args, expected] of [
     ['+', [2n, 3n], 5n], ['-', [2n], -2n], ['-', [2n, 3n], -1n],
     ['*', [2n, 3n], 6n], ['/', [6n, 3n], shadow.float(2)],
-    ['+', [2n], shadow.atom('shadow')],
+    ['+', [2n], 2n],
     ['band', [-7n, 3n], 1n], ['bor', [-7n, 3n], -5n], ['bxor', [-7n, 3n], -6n],
     ['bnot', [0n], -1n], ['div', [-7n, 3n], -2n], ['rem', [-7n, 3n], -1n],
     ['band', [2n], shadow.atom('shadow')],

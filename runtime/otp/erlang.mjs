@@ -6,7 +6,7 @@ import {
   is, isAtom, listToArray, arrayToList, bool, charlist, charlistText, bytesToList,
   binary, utf8, decodeUtf8, latin1Text, iolistBytes, bitlistBits, termKey,
   phash2, phash, crc32, adler32, md5, md5Init, md5Update, md5Final,
-  floatToText, parseIntegerPrefix,
+  floatToText, parseIntegerPrefix, MAX_INTEGER, MAX_INTEGER_BITS,
 } from './term.mjs';
 import {encodeTerm, decodeTerm} from './etf.mjs';
 import {matchSpecTest} from './ets.mjs';
@@ -121,6 +121,8 @@ function funInfo(rt, fun, item) {
     case 'uniq':
     case 'new_uniq':
       return data.external ? pair(rt.atom('undefined')) : pair(BigInt(phash2(rt.atom(data.name))));
+    // Fun objects are garbage collected by JavaScript; report a single owner.
+    case 'refc': return pair(data.external ? rt.atom('undefined') : 1n);
     default: return badarg(rt);
   }
 }
@@ -216,6 +218,8 @@ function dateFromTuple(rt, term, utc) {
 
 let uniqueCounter = 0n;
 
+const HEAP_SIZES = [12,38,51,90,142,233,376,610,987,1598,2586,4185,6772,10958,17731,28690,46422,75113,121536,196650,318187,514838,833026,999631,1199557,1439468,1727361,2072833,2487399,2984878,3581853,4298223,5157867,6189440,7427328,8912793,10695351,12834421,15401305,18481566,22177879,26613454,31936144,38323372,45988046,55185655,66222786,79467343,95360811,114432973,137319567,164783480,197740176,237288211,284745853,341695023,410034027,492040832,590448998,708538797,850246556,1020295867,1224355040,1469226048,1763071257,2115685508,2538822609,3046587130,3655904556,4387085467,5264502560,6317403072,7580883686,9097060423,10916472507,13099767008,15719720409,18863664490,22636397388,27163676865,32596412238,39115694685,46938833622,56326600346,67591920415,81110304498,97332365397,116798838476,140158606171,168190327405,201828392886,242194071463,290632885755,348759462906,418511355487,502213626584,602656351900,723187622280,867825146736,1041390176083,1249668211299,1499601853558,1799522224269,2159426669122,2591312002946,3109574403535,3731489284242,4477787141090,5373344569308,6448013483169,7737616179802,9285139415762,11142167298914,13370600758696,16044720910435,19253665092522,23104398111026,27725277733231,33270333279877,39924399935852,47909279923022,57491135907626,68989363089151,82787235706981,99344682848377,119213619418052,143056343301662,171667611961994,206001134354392,247201361225270,296641633470324,355969960164388,427163952197265,512596742636718,615116091164061,738139309396873,885767171276247];
+
 const systemInfo = {
   otp_release: rt => charlist(rt, '29'),
   version: rt => charlist(rt, '17.1.1'),
@@ -229,6 +233,11 @@ const systemInfo = {
   nif_version: rt => charlist(rt, '2.18'),
   driver_version: rt => charlist(rt, '3.3'),
   wordsize: () => 8n,
+  endian: rt => rt.atom('little'),
+  max_integer: () => MAX_INTEGER,
+  context_reductions: () => 4000n,
+  backtrace_depth: rt => BigInt(rt.backtraceDepth),
+  heap_sizes: rt => arrayToList(rt, HEAP_SIZES.map(n => BigInt(n))),
   schedulers: () => 1n,
   schedulers_online: () => 1n,
   dirty_cpu_schedulers: () => 0n,
@@ -373,7 +382,7 @@ export function erlangBifs() {
     }
     for (const atomTerm of collectAtoms(result.term)) existingAtoms.add(Symbol.keyFor(atomTerm));
     if (used) return rt.tuple([result.term, BigInt(result.used)]);
-    if (result.used !== bytes.length) badarg(rt);
+    // Like BEAM, bytes after the first encoded term are ignored.
     return result.term;
   };
   def('binary_to_term', 1, (rt, [value]) => decode(rt, value, rt.nil()));
@@ -418,6 +427,21 @@ export function erlangBifs() {
     if (!is(fun, FUN) || !isAtom(item)) badarg(rt);
     return funInfo(rt, fun, item);
   });
+  def('append', 2, (rt, [list, tail]) => {
+    const items = listToArray(list);
+    if (items === null) badarg(rt);
+    return arrayToList(rt, items, tail);
+  });
+  // Beam2JS is never distributed: only the local node can be monitored.
+  const monitorNode = (rt, [node, flag, options = rt.nil()]) => {
+    if (!isAtom(node) || (flag !== rt.atom('true') && flag !== rt.atom('false')) || listToArray(options) === null) {
+      badarg(rt);
+    }
+    if (node !== rt.atom('nonode@nohost')) rt.raiseError(rt.atom('notalive'));
+    return rt.atom('true');
+  };
+  def('monitor_node', 2, monitorNode);
+  def('monitor_node', 3, monitorNode);
   def('fun_info_mfa', 1, (rt, [fun]) => {
     if (!is(fun, FUN)) badarg(rt);
     const data = fun[1];
@@ -477,8 +501,14 @@ export function erlangBifs() {
   for (const [name, op] of [['bsl', (a, b) => a << b], ['bsr', (a, b) => a >> b]]) {
     def(name, 2, (rt, [a, b]) => {
       if (typeof a !== 'bigint' || typeof b !== 'bigint') rt.raiseError(rt.atom('badarith'));
-      if (b > 1n << 26n && a !== 0n && name === 'bsl') rt.raiseError(rt.atom('system_limit'));
-      return op(a, b);
+      if (a === 0n) return 0n;
+      rt.chargeBigArithmetic(name, a);
+      const shift = name === 'bsl' ? b : -b;
+      if (shift > MAX_INTEGER_BITS) rt.raiseError(rt.atom('system_limit'));
+      if (shift < -MAX_INTEGER_BITS) return a < 0n ? -1n : 0n;
+      const result = op(a, b);
+      if (rt.checkInteger(result) === null) rt.raiseError(rt.atom('system_limit'));
+      return result;
     });
   }
 
@@ -515,7 +545,10 @@ export function erlangBifs() {
   });
 
   def('node', 0, rt => rt.atom('nonode@nohost'));
-  def('node', 1, rt => rt.atom('nonode@nohost'));
+  def('node', 1, (rt, [value]) => {
+    if (!is(value, PID) && !is(value, REFERENCE)) badarg(rt);
+    return rt.atom('nonode@nohost');
+  });
   def('nodes', 0, rt => rt.nil());
   def('nodes', 1, rt => rt.nil());
   def('nodes', 2, rt => rt.nil());
@@ -548,6 +581,13 @@ export function erlangBifs() {
   def('delete_module', 1, rt => rt.atom('undefined'));
   def('purge_module', 1, rt => rt.atom('false'));
   def('has_prepared_code_on_load', 1, rt => badarg(rt));
+  def('load_module', 2, (rt, [module, beam]) => {
+    if (!isAtom(module) || !is(beam, BITSTRING) || beam[1][1] % 8 !== 0) badarg(rt);
+    return {type: 'async', run: async () => {
+      const reason = await rt.loadBinary(Symbol.keyFor(module), beam);
+      return reason === null ? rt.tuple([rt.atom('module'), module]) : rt.tuple([rt.atom('error'), rt.atom(reason)]);
+    }};
+  });
   def('prepare_loading', 2, rt => rt.tuple([rt.atom('error'), rt.atom('badfile')]));
   def('finish_loading', 1, rt => rt.atom('ok'));
   def('call_on_load_function', 1, rt => badarg(rt));
@@ -557,7 +597,11 @@ export function erlangBifs() {
   def('garbage_collect', 0, rt => rt.atom('true'));
   def('garbage_collect', 1, rt => rt.atom('true'));
   def('garbage_collect', 2, rt => rt.atom('true'));
-  def('bump_reductions', 1, rt => rt.atom('true'));
+  def('bump_reductions', 1, (rt, [count]) => {
+    if (typeof count !== 'bigint' || count < 0n) badarg(rt);
+    rt.chargeReductions(Number(count < 1n << 30n ? count : 1n << 30n));
+    return rt.atom('true');
+  });
   def('yield', 0, rt => rt.atom('true'));
   def('hibernate', 0, rt => rt.atom('ok'));
   def('display', 1, (rt, [term]) => {
@@ -594,6 +638,12 @@ export function erlangBifs() {
   });
   def('system_flag', 2, (rt, [flag, value]) => {
     if (!isAtom(flag)) badarg(rt);
+    if (flag === rt.atom('backtrace_depth')) {
+      if (typeof value !== 'bigint' || value < 0n) badarg(rt);
+      const old = BigInt(rt.backtraceDepth);
+      rt.backtraceDepth = Number(value > 10000n ? 10000n : value);
+      return old;
+    }
     return value;
   });
 

@@ -138,7 +138,9 @@ try {
   await expression('browser_shell:loader().', '\nok\n');
   await expression('browser_shell:tty().', '\nok\n');
   await expression('file:read_file("no-such-shell-file").', '{error,enoent}');
-  await expression('file:write_file("forbidden", <<"no">>).', '{error,erofs}');
+  // Writes go to the in-memory overlay and are visible to later reads.
+  await expression('file:write_file("scratch", <<"yes">>).', '\nok\n');
+  await expression('file:read_file("scratch").', '{ok,<<"yes">>}');
   await expression('erlang:error(shell_test).', '** exception error: shell_test');
   await expression('X.', '\n21\n');
   // OTP's edlin, not the DOM element, edits and recalls the command.

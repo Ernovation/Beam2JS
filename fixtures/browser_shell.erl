@@ -26,7 +26,7 @@ files(Name) ->
     {ok, All} = file:read_file("browser_shell.terms"),
     ok = file:set_cwd(".."),
     {error, erofs} = file:rename(Name, "not-written"),
-    {error, erofs} = file:make_symlink(Name, "not-linked"),
+    {error, enotsup} = file:make_symlink(Name, "not-linked"),
     {byte_size(All), Terms}.
 
 loader() ->

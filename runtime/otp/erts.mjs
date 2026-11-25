@@ -2,12 +2,56 @@
 // persistent_term, atomics) and of maps. The compiled OTP modules supply
 // everything else; counters is plain Erlang over erts_internal:counters_*.
 import {
-  FLOAT, TUPLE, BITSTRING, MAP, NIL,
+  CONS, FLOAT, TUPLE, BITSTRING, MAP, NIL, FUN, REFERENCE,
   is, isAtom, isMap, listToArray, arrayToList, charlistText, termKey, compareExact, parseIntegerPrefix,
-  latin1Text, binary, md5,
+  latin1Text, binary, md5, formatShort, charlist,
 } from './term.mjs';
 
 const badarg = rt => rt.raiseError(rt.atom('badarg'));
+
+const reservedWords = new Set(['after', 'and', 'andalso', 'band', 'begin', 'bnot', 'bor', 'bsl', 'bsr', 'bxor',
+  'case', 'catch', 'cond', 'div', 'else', 'end', 'fun', 'if', 'let', 'maybe', 'not', 'of', 'or', 'orelse',
+  'receive', 'rem', 'try', 'when', 'xor']);
+function atomText(name) {
+  if (/^[a-z][A-Za-z0-9_@]*$/.test(name) && !reservedWords.has(name)) return name;
+  return `'${name.replace(/[\\']/g, '\\$&').replace(/[\x00-\x1f\x7f]/g,
+    c => `\\x{${c.charCodeAt(0).toString(16)}}`)}'`;
+}
+
+// Writes a term in ~w syntax, as the emulator's term printer does.
+function writeTerm(rt, term) {
+  if (typeof term === 'bigint') return String(term);
+  if (isAtom(term)) return atomText(Symbol.keyFor(term));
+  if (is(term, FLOAT)) return formatShort(rt.floatValue(term));
+  if (is(term, TUPLE)) {
+    const items = [];
+    for (let i = 1; i <= rt.tupleSize(term); i++) items.push(writeTerm(rt, rt.tupleElement(term, i)));
+    return `{${items.join(',')}}`;
+  }
+  if (term === rt.nil() || is(term, CONS)) {
+    const items = [];
+    while (is(term, CONS)) {
+      items.push(writeTerm(rt, rt.listHead(term)));
+      term = rt.listTail(term);
+    }
+    return term === rt.nil() ? `[${items.join(',')}]` : `[${items.join(',')}|${writeTerm(rt, term)}]`;
+  }
+  if (is(term, BITSTRING)) {
+    const [bytes, bits] = term[1];
+    const items = [];
+    for (let i = 0; i < bits >> 3; i++) items.push(String(bytes[i]));
+    if (bits & 7) items.push(`${bytes[bits >> 3] >> (8 - (bits & 7))}:${bits & 7}`);
+    return `<<${items.join(',')}>>`;
+  }
+  if (isMap(term)) {
+    return `#{${orderedEntries(rt, term).map(([k, v]) => `${writeTerm(rt, k)} => ${writeTerm(rt, v)}`).join(',')}}`;
+  }
+  for (const [test, bif] of [['is_pid', 'pid_to_list'], ['is_reference', 'ref_to_list'],
+    ['is_function', 'fun_to_list'], ['is_port', 'port_to_list']]) {
+    if (rt.isType(test, term)) return charlistText(rt.callBif(bif, [term]));
+  }
+  return String(term);
+}
 
 // Map entries in map-key order, cached per (immutable) map term.
 const sortedEntries = new WeakMap();
@@ -182,6 +226,16 @@ export function ertsBifs() {
   const atom = (rt, name) => rt.atom(name);
 
   // --- erts_internal -------------------------------------------------------------
+  const termToString = (rt, term, limit) => {
+    let text = writeTerm(rt, term);
+    if (limit !== rt.atom('undefined')) {
+      if (typeof limit !== 'bigint' || limit < 0n) badarg(rt);
+      if (BigInt(text.length) > limit) text = text.slice(0, Number(limit));
+    }
+    return charlist(rt, text);
+  };
+  def('erts_internal', 'term_to_string', 1, (rt, [term]) => termToString(rt, term, rt.atom('undefined')));
+  def('erts_internal', 'term_to_string', 2, (rt, [term, limit]) => termToString(rt, term, limit));
   def('erts_internal', 'cmp_term', 2, (rt, [a, b]) => BigInt(compareExact(rt, a, b)));
   def('erts_internal', 'map_next', 3, (rt, [path, map, accumulator]) => mapNext(rt, path, map, accumulator));
   def('erts_internal', 'map_to_tuple_keys', 1, (rt, [map]) => {
@@ -377,6 +431,114 @@ export function ertsBifs() {
     requireMap(rt, map);
     const found = rt.mapGet(map, key);
     return found === null ? atom(rt, 'error') : rt.tuple([found, rt.mapRemove(map, [key])]);
+  });
+
+  // --- erts_debug -----------------------------------------------------------------
+  // Sizes follow the 64-bit BEAM heap layout; sharing is JavaScript object identity.
+  const MIN_SMALL = -(1n << 59n), MAX_SMALL = (1n << 59n) - 1n;
+  const termWords = (rt, root, seen) => {
+    let words = 0;
+    const stack = [root];
+    while (stack.length) {
+      const term = stack.pop();
+      if (typeof term === 'bigint') {
+        if (term < MIN_SMALL || term > MAX_SMALL) {
+          const magnitude = term < 0n ? -term : term;
+          words += 1 + Math.ceil(magnitude.toString(2).length / 64);
+        }
+        continue;
+      }
+      if (!Array.isArray(term)) continue;
+      if (seen) {
+        if (seen.has(term)) continue;
+        seen.add(term);
+      }
+      switch (term[0]) {
+        case CONS: words += 2; stack.push(term[1][0], term[1][1]); break;
+        case FLOAT: words += 2; break;
+        case TUPLE: {
+          const size = rt.tupleSize(term);
+          words += 1 + size;
+          for (let i = 1; i <= size; i++) stack.push(rt.tupleElement(term, i));
+          break;
+        }
+        case BITSTRING: {
+          const bytes = Math.ceil(term[1][1] / 8);
+          words += bytes <= 64 ? 2 + Math.ceil(bytes / 8) : 8;
+          break;
+        }
+        case MAP: {
+          const entries = rt.mapEntries(term);
+          words += entries.length <= 32 ? 4 + 2 * entries.length : 3 * entries.length + Math.ceil(entries.length / 4);
+          for (const [key, value] of entries) stack.push(key, value);
+          break;
+        }
+        case FUN: {
+          const data = rt.funValue(term);
+          if (data.external) break;
+          words += 3 + data.environment.length;
+          stack.push(...data.environment);
+          break;
+        }
+        case REFERENCE: words += 3; break;
+        default: break;
+      }
+    }
+    return words;
+  };
+  const internalState = new WeakSet();
+  def('erts_debug', 'flat_size', 1, (rt, [term]) => BigInt(termWords(rt, term)));
+  def('erts_debug', 'size', 1, (rt, [term]) => BigInt(termWords(rt, term, new Set())));
+  def('erts_debug', 'same', 2, (rt, [a, b]) => atom(rt, a === b ? 'true' : 'false'));
+  def('erts_debug', 'copy_shared', 1, (rt, [term]) => term);
+  def('erts_debug', 'copy_shared', 2, (rt, [term]) => term);
+  // Bitstrings carry no bit offset here, so an "unaligned" copy is an equal fresh bitstring.
+  def('erts_debug', 'unaligned_bitstring', 2, (rt, [bits, offset]) => {
+    if (!is(bits, BITSTRING) || typeof offset !== 'bigint' || offset < 0n || offset > 7n) badarg(rt);
+    return rt.bitstring(Uint8Array.from(bits[1][0].subarray(0, Math.ceil(bits[1][1] / 8))), bits[1][1]);
+  });
+  def('erts_debug', 'set_internal_state', 2, (rt, [key, value]) => {
+    if (key === rt.atom('available_internal_state')) {
+      if (value !== rt.atom('true') && value !== rt.atom('false')) badarg(rt);
+      const previous = internalState.has(rt);
+      if (value === rt.atom('true')) internalState.add(rt);
+      else internalState.delete(rt);
+      return atom(rt, previous ? 'true' : 'false');
+    }
+    if (!internalState.has(rt)) rt.raiseError(rt.atom('undef'));
+    switch (isAtom(key) ? Symbol.keyFor(key) : '') {
+      case 'sleep': {
+        // Blocks the whole emulator, like a scheduler thread sleeping in BEAM.
+        if (typeof value !== 'bigint' || value < 0n) badarg(rt);
+        const ms = Number(value < 60000n ? value : 60000n);
+        try {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+        } catch {
+          for (const end = Date.now() + ms; Date.now() < end;);
+        }
+        return atom(rt, 'true');
+      }
+      case 'reds_left':
+      case 'process_uniq_counter':
+        if (typeof value !== 'bigint' || value < 0n) badarg(rt);
+        return atom(rt, 'true');
+      case 'force_gc':
+        return atom(rt, 'true');
+      default:
+        return badarg(rt);
+    }
+  });
+  def('erts_debug', 'get_internal_state', 1, (rt, [key]) => {
+    if (key === rt.atom('available_internal_state')) return atom(rt, internalState.has(rt) ? 'true' : 'false');
+    if (!internalState.has(rt)) rt.raiseError(rt.atom('undef'));
+    if (key === rt.atom('reds_left')) return 4000n;
+    if (is(key, TUPLE) && rt.tupleSize(key) === 2 && rt.tupleElement(key, 1) === rt.atom('binary_info')) {
+      const bits = rt.tupleElement(key, 2);
+      if (!is(bits, BITSTRING)) badarg(rt);
+      const size = BigInt(Math.ceil(bits[1][1] / 8));
+      return rt.tuple([atom(rt, 'refc_binary'), size, rt.tuple([atom(rt, 'binary'), BigInt(rt.binaryCapacity(bits))]), 0n]);
+    }
+    return badarg(rt);
   });
   return modules;
 }

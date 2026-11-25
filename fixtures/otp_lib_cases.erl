@@ -21,7 +21,49 @@ strip(Reason) -> Reason.
 id(X) -> X.
 
 cases() ->
-    [{ets_set, fun() ->
+    [{unary_plus, fun() ->
+          {[apply(erlang, '+', [V]) || V <- id([1 bsl 4096, -1, 0, 1.25, -0.0])],
+           ?E(apply(erlang, '+', [id(not_a_number)]))}
+      end},
+     {node_arguments, fun() ->
+          {node(self()), node(make_ref()), ?E(node(id(not_a_pid))),
+           ?E(node(id({pid, 0}))), ?E(node(id([])))}
+      end},
+     {apply_error_reasons, fun() ->
+          Fun = id(42),
+          {?E(apply(Fun, [])), ?E(apply(Fun, [0])),
+           ?E(apply(Fun, id(not_a_list))), ?E(apply(Fun, id([1 | bad_tail])))}
+      end},
+     {map_error_reasons, fun() ->
+          Map = id(#{}),
+          Bad = id(not_a_map),
+          Key = id(missing),
+          {?E(Map#{Key := 1}), ?E(Bad#{key => 1}), ?E(map_get(Key, Bad)),
+           ?E(is_map_key(Key, Bad)), ?E(map_size(Bad))}
+      end},
+     {map_guard_failures, fun() ->
+          [{guard_exact(M), guard_assoc(M), guard_get(M)} ||
+              M <- id([#{key => old}, #{}, not_a_map])]
+      end},
+     {bif_stack_arguments, fun() ->
+          Key = id(missing),
+          Map = id(not_a_map),
+          try map_get(Key, Map)
+          catch error:Reason:Stack ->
+              [{erlang, map_get, Args, _} | _] = Stack,
+              {Reason, Args}
+          end
+      end},
+     {map_key_comparison, fun() ->
+          Compare = fun(A, B) -> {A < B, A == B, A > B} end,
+          I = id(1),
+          F = id(1.0),
+          {Compare(#{I => a}, #{F => a}),
+           Compare(#{[I] => a}, #{[F] => a}),
+           Compare(#{key => I}, #{key => F}),
+           Compare(#{id(-0.0) => a}, #{id(0.0) => a})}
+      end},
+     {ets_set, fun() ->
           T = ets:new(t, [set]),
           true = ets:insert(T, [{a, 1}, {b, 2}, {c, 3}]),
           true = ets:insert(T, {a, 10}),
@@ -246,3 +288,12 @@ cases() ->
 
 timer_sleep() ->
     receive after 20 -> ok end.
+
+guard_exact(Map) when map_size(Map#{key := value}) =:= 1 -> true;
+guard_exact(_) -> false.
+
+guard_assoc(Map) when map_size(Map#{key => value}) =:= 1 -> true;
+guard_assoc(_) -> false.
+
+guard_get(Map) when map_get(key, Map) =:= old -> true;
+guard_get(_) -> false.

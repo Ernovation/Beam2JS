@@ -23,6 +23,8 @@ export async function mapChecks() {
   assert.equal(rt.mapGet(nestedValue, rt.atom('missing')), null);
   assert.equal(rt.mapSize(rt.map([[1n, rt.atom('integer')], [rt.float(1), rt.atom('float')]])), 2n);
   assert.equal(rt.mapGet(rt.map([[rt.float(1), rt.atom('float')]]), rt.float(1)) === rt.atom('float'), true);
+  assert.equal(rt.invoke('erts_internal', 'cmp_term', [rt.float(-0), rt.float(0)]), -1n);
+  assert.equal(rt.invoke('erts_internal', 'cmp_term', [rt.float(0), rt.float(-0)]), 1n);
 
   const fromList = rt.invoke('maps', 'from_list', [rt.cons(
     rt.tuple([rt.atom('b'), 2n]), rt.cons(rt.tuple([rt.atom('a'), 1n]), rt.nil()))]);

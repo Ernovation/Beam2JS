@@ -26,6 +26,8 @@ export function callResults(runtime) {
       return false;
     } catch (error) {
       return error.erlangClass === 'error' && error.reason === runtime.atom('function_clause') &&
+        runtime.equalExact(runtime.tupleElement(runtime.listHead(error.stack), 3),
+          runtime.cons(value, runtime.nil())) &&
         runtime.invoke('raw_stack', 'element_y', [value]) === runtime.atom('not_pair');
     }
   });

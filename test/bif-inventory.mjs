@@ -24,7 +24,7 @@ for (const name of ['is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_floa
 for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
   'bit_size/1', 'byte_size/1', 'binary_part/2', 'binary_part/3',
   'abs/1', 'trunc/1', 'round/1', 'floor/1', 'ceil/1', 'float/1', 'self/0',
-  '+/2', '-/1', '-/2', '*/2', '//2', '=:=/2',
+  '+/1', '+/2', '-/1', '-/2', '*/2', '//2', '=:=/2',
   '==/2', '/=/2', '=/=/2', '</2', '=</2', '>/2', '>=/2',
   'band/2', 'bor/2', 'bxor/2', 'bnot/1', 'div/2', 'rem/2',
   'not/1', 'and/2', 'or/2', 'xor/2']) {
@@ -33,7 +33,7 @@ for (const name of ['hd/1', 'tl/1', 'length/1', 'tuple_size/1', 'element/2',
 assert.equal(row('erlang:!/2')[11], 'instruction-and-callable');
 assert.equal(row('erlang:get/1')[11], 'instruction-and-callable');
 assert.equal(row('erlang:is_function/2')[11], 'instruction-and-callable');
-assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 58);
+assert.equal(rows.filter(entry => entry[11] === 'instruction-and-callable').length, 59);
 for (const key of ['erlang:++/2', 'erlang:--/2', 'erlang:setelement/3', 'erlang:float_to_list/1',
   'erlang:error/3', 'lists:reverse/2', 'lists:member/2', 'lists:keyfind/3', 'lists:keymember/3',
   'lists:keysearch/3']) {

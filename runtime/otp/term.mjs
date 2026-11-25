@@ -204,9 +204,12 @@ export function termKey(term) {
     }
     case TUPLE: return `{${data.map(termKey).join(',')}}`;
     case BITSTRING: {
+      const [bytes, bits] = data;
       let hex = '';
-      for (const byte of data[0]) hex += byte.toString(16).padStart(2, '0');
-      return `b${data[1]}:${hex}`;
+      const whole = bits >> 3;
+      for (let i = 0; i < whole; i++) hex += bytes[i].toString(16).padStart(2, '0');
+      if (bits & 7) hex += (bytes[whole] >> (8 - (bits & 7))).toString(16);
+      return `b${bits}:${hex}`;
     }
     case MAP: return `#{${data.map(([k, v]) => [termKey(k), termKey(v)]).sort((a, b) => a[0] < b[0] ? -1 : 1)
       .map(([k, v]) => `${k}=>${v}`).join(',')}}`;
@@ -222,6 +225,13 @@ export function termKey(term) {
 // erts_internal:cmp_term/2 order (map-key order): the standard term order,
 // except that every integer sorts before every float, at any depth.
 export function compareExact(rt, left, right) {
+  if (left === right) return 0;
+  if (typeof left === 'bigint' && typeof right === 'bigint') return left < right ? -1 : 1;
+  if (typeof left === 'symbol' && typeof right === 'symbol') return rt.compare(left, right);
+  if (is(left, FLOAT) && is(right, FLOAT) && left[1] === 0 && right[1] === 0) {
+    if (Object.is(left[1], right[1])) return 0;
+    return Object.is(left[1], -0) ? -1 : 1;
+  }
   const leftInt = typeof left === 'bigint';
   const rightInt = typeof right === 'bigint';
   if (leftInt && is(right, FLOAT)) return -1;
@@ -262,7 +272,8 @@ export function compareExact(rt, left, right) {
 
 // Map entries in the order OTP iterates small (flat) maps: by key, exactly.
 export function sortedMapEntries(rt, map) {
-  return map[1].map(([key, value]) => [key, value]).sort((a, b) => compareExact(rt, a[0], b[0]));
+  // The runtime keeps map entries in this order already.
+  return map[1];
 }
 
 // --- Hashing (erl_term_hashing.c, 64-bit emulator) ---------------------------
@@ -874,3 +885,9 @@ export function parseIntegerPrefix(text, base) {
   if (i === start) return null;
   return {value: negative ? -value : value, length: i};
 }
+
+// BEAM allows 4194240-bit integers, but SpiderMonkey caps BigInts at 2^20 bits and
+// reserves an extra 64-bit digit for arithmetic results. Use one portable limit for
+// every engine; larger results raise system_limit.
+export const MAX_INTEGER_BITS = 1048512n;
+export const MAX_INTEGER = (1n << MAX_INTEGER_BITS) - 1n;

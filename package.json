@@ -17,6 +17,7 @@
     "test:loader": "node test/loader.mjs",
     "test:maps": "node --input-type=module -e \"import('./test/map-cases.mjs').then(({mapChecks}) => mapChecks())\"",
     "test:opcodes": "node test/opcode-ledger.mjs && node test/raw-opcodes.mjs && node test/obsolete-opcodes.mjs",
+    "test:otp-opcodes": "node test/otp-opcode-suites.mjs",
     "test:otplib": "node test/otp-lib-cases.mjs",
     "test:server": "node test/server.mjs",
     "test:shell": "node test/shell-cases.mjs",

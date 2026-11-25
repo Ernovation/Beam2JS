@@ -351,7 +351,9 @@ export function decodeTerm(rt, bytes, {safe = false, existingAtom = () => true} 
           const key = decode();
           entries.push([key, decode()]);
         }
-        return rt.map(entries);
+        const map = rt.map(entries);
+        if (rt.mapSize(map) !== BigInt(count)) throw new DecodeError('duplicate map key');
+        return map;
       }
       case 88:
       case 103: {

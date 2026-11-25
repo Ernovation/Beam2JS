@@ -73,7 +73,11 @@ try {
   const unsupported = await get(base, '/modules/unsupported_demo.mjs');
   assert.equal(unsupported.status, 500);
   assert.match(unsupported.body, /^beam2js: unsupported_demo: .*unsupported instruction/);
-  for (const path of ['/modules/no_such_module.mjs', '/modules/ordsets.beam', '/modules/..%2Fpackage.mjs',
+  // Object files are served too, for code:which/1 and tools such as beam_disasm.
+  const beam = await get(base, '/modules/ordsets.beam');
+  assert.equal(beam.status, 200);
+  assert.ok(beam.body.startsWith('FOR1'));
+  for (const path of ['/modules/no_such_module.mjs', '/modules/no_such_module.beam', '/modules/..%2Fpackage.mjs',
     '/modules/%2E%2E.mjs', '/modules/.hidden.mjs', '/modules/a%00b.mjs', '/modules/.nif.mjs',
     '/modules/..%2F..%2F..%2Fetc%2Fpasswd', '/modules/no_such.nif.mjs']) {
     assert.equal((await get(base, path)).status, 404, path);

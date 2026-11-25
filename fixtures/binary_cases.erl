@@ -59,6 +59,14 @@ cases() ->
           {H, T, Bits, Tail, <<H/binary, 0, T/binary>>, <<B:3/binary>>}
       end},
      {binary_too_short, fun() -> <<(id(<<1>>)):2/binary>> end},
+     {zipped_binary_append, fun() ->
+          Xs = id([1, 2, 3]),
+          Ys = id([2, 2, 2]),
+          Long = lists:seq(1, 130),
+          {<< <<(X+Y)>> || X <- Xs && Y <- Ys, X rem 2 == 1, X+Y > 4 >>,
+           << <<(X+Y):3>> || X <- Xs && Y <- Ys >>,
+           << <<((X+Y) rem 256)>> || X <- Long && Y <- Long >>}
+      end},
      {unit_check, fun() ->
           case id(<<1, 2, 3>>) of
               <<X:2/binary-unit:8, _/binary-unit:16>> -> {first, X};
@@ -141,6 +149,8 @@ cases() ->
           F(id(<<1, 2, 3, 4, 5>>), 0)
       end},
      {match_context_args, fun() -> count_bytes(id(<<1, 0, 2, 0, 3>>), 0) end},
+     {shared_match_tails, fun() -> shared_tails(id(<<1, 2, 3, 4, 5>>), [], 0) end},
+     {match_context_type, fun() -> {context_type(id(<<>>)), context_type(id(<<42>>))} end},
      {skip_and_tail, fun() ->
           <<_:2/binary, _:4, R:4, Tail/binary>> = id(<<9, 9, 16#AB, 7, 8>>),
           {R, Tail}
@@ -183,3 +193,13 @@ update(R) -> R#rec{b = new, c = also}.
 count_bytes(<<0, Rest/binary>>, N) -> count_bytes(Rest, N);
 count_bytes(<<_, Rest/binary>>, N) -> count_bytes(Rest, N + 1);
 count_bytes(<<>>, N) -> N.
+
+shared_tails(<<Byte, Tail/binary>>, Tails, Sum) ->
+    shared_tails(Tail, [Tail | Tails], Sum + Byte);
+shared_tails(<<>>, Tails, Sum) -> {Sum, Tails}.
+
+context_type(<<_:8>>) -> ok;
+context_type(Binary) ->
+    try <<ok || <<_:ok>> <= Binary>>
+    after ok
+    end.

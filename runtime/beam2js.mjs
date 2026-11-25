@@ -6,6 +6,7 @@ import {kernelBifs, nativeModules} from './otp/kernel.mjs';
 import {reBifs} from './otp/re.mjs';
 import {fileBifs} from './otp/file.mjs';
 import {ttyBifs} from './otp/tty.mjs';
+import {compareExact, MAX_INTEGER_BITS} from './otp/term.mjs';
 
 const CONS = 1;
 const FLOAT = 2;
@@ -68,21 +69,21 @@ for (const arity of [1, 2]) {
 callableBifs.set(JSON.stringify(['map_size', 1]), {
   exported: true,
   run: (rt, [value]) => {
-    if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    if (!rt.isType('is_map', value)) rt.raiseError(rt.tuple([rt.atom('badmap'), value]));
     return {type: 'return', value: rt.mapSize(value)};
   },
 });
 callableBifs.set(JSON.stringify(['is_map_key', 2]), {
   exported: true,
   run: (rt, [key, value]) => {
-    if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    if (!rt.isType('is_map', value)) rt.raiseError(rt.tuple([rt.atom('badmap'), value]));
     return {type: 'return', value: rt.atom(rt.mapGet(value, key) !== null ? 'true' : 'false')};
   },
 });
 callableBifs.set(JSON.stringify(['map_get', 2]), {
   exported: true,
   run: (rt, [key, value]) => {
-    if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
+    if (!rt.isType('is_map', value)) rt.raiseError(rt.tuple([rt.atom('badmap'), value]));
     const found = rt.mapGet(value, key);
     if (found === null) rt.raiseError(rt.tuple([rt.atom('badkey'), key]));
     return {type: 'return', value: found};
@@ -174,7 +175,7 @@ for (const [name, arity, operation] of [
 for (const arity of [1, 2, 3]) {
   callableBifs.set(JSON.stringify(['error', arity]), {
     exported: true,
-    run: (rt, args) => rt.raiseException('error', args[0]),
+    run: (rt, args) => rt.raiseErrorWithArgs(...args),
   });
 }
 callableBifs.set(JSON.stringify(['exit', 1]), {
@@ -192,12 +193,43 @@ callableBifs.set(JSON.stringify(['raise', 2]), {
     rt.raiseException(erlangClass, reason);
   },
 });
+function normalizeStacktrace(rt, stack) {
+  const frames = [];
+  let rest = stack;
+  while (Array.isArray(rest) && rest[0] === CONS) {
+    const [frame, tail] = rest[1];
+    const elements = tuples.get(frame);
+    if (!elements) return null;
+    let location = nil;
+    let entry = frame;
+    if (elements.length === 2 && termType(elements[0]) === 'fun') {
+      entry = rt.tuple([...elements, nil]);
+    } else if (elements.length === 3 && termType(elements[0]) === 'fun') {
+      location = elements[2];
+    } else if (elements.length === 3 && isAtom(elements[0]) && isAtom(elements[1])) {
+      entry = rt.tuple([...elements, nil]);
+    } else if (elements.length === 4 && isAtom(elements[0]) && isAtom(elements[1])) {
+      location = elements[3];
+    } else {
+      return null;
+    }
+    if (location !== nil && !(Array.isArray(location) && location[0] === CONS)) return null;
+    frames.push(entry);
+    rest = tail;
+  }
+  if (rest !== nil) return null;
+  let result = nil;
+  for (let i = frames.length - 1; i >= 0; i--) result = rt.cons(frames[i], result);
+  return result;
+}
 callableBifs.set(JSON.stringify(['raise', 3]), {
   exported: true,
+  // Like BEAM, an invalid class or stacktrace makes raise/3 return badarg.
   run: (rt, [erlangClass, reason, stack]) => {
-    if (!['error', 'exit', 'throw'].includes(isAtom(erlangClass) ? Symbol.keyFor(erlangClass) : undefined) ||
-        !rt.isType('is_list', stack)) rt.raiseError(rt.atom('badarg'));
-    rt.raiseException(erlangClass, reason, stack);
+    const normalized = ['error', 'exit', 'throw'].includes(isAtom(erlangClass) ? Symbol.keyFor(erlangClass) : undefined)
+      ? normalizeStacktrace(rt, stack) : null;
+    if (normalized === null) return {type: 'return', value: rt.atom('badarg')};
+    rt.raiseException(erlangClass, reason, rt.truncateStacktrace(normalized));
   },
 });
 callableBifs.set(JSON.stringify(['throw', 1]), {
@@ -267,7 +299,7 @@ for (const [name, options] of [
 callableBifs.set(JSON.stringify(['apply', 2]), {
   exported: true,
   run: (rt, [fun, list]) => {
-    if (!funs.has(fun) || !isCons(list) && list !== nil) rt.raiseError(rt.atom('badarg'));
+    if (!isCons(list) && list !== nil) rt.raiseError(rt.atom('badarg'));
     const args = [];
     let cursor = list;
     while (isCons(cursor)) {
@@ -276,6 +308,7 @@ callableBifs.set(JSON.stringify(['apply', 2]), {
       cursor = tail;
     }
     if (cursor !== nil) rt.raiseError(rt.atom('badarg'));
+    if (!funs.has(fun)) rt.raiseError(rt.tuple([rt.atom('badfun'), fun]));
     rt.funCallArgs(fun, args);
     return {type: 'tail_fun', fun, args, module: rt.funValue(fun).module, name: rt.funValue(fun).name};
   },
@@ -380,13 +413,154 @@ for (const name of ['read_timer', 'cancel_timer']) {
     }),
   });
 }
+let integerOverflow = false;
+const SMALL_LIMIT = 1n << 1024n;
+// The process slice being run, for reduction accounting.
+let activeSlice = null;
+
+function chargeProcessReductions(count) {
+  const process = activeSlice?.process;
+  if (process && count > 0) process.reductions = (process.reductions ?? 0) + Math.min(count, 4000);
+}
+
+function bigintWords(value) {
+  return Math.ceil((value < 0n ? -value : value).toString(16).length / 16);
+}
+
+// Charges bignum arithmetic like BEAM: one reduction per 16 words, with
+// multiplication and division assumed quadratic.
+function chargeBigArithmetic(op, left, right) {
+  if (activeSlice === null) return;
+  const a = bigintWords(left);
+  const b = typeof right === 'bigint' ? bigintWords(right) : 0;
+  let words;
+  if (op === '*') words = a * b;
+  else if (op === 'div' || op === 'rem') words = Math.max(a - b + 1, 1) * b;
+  else words = Math.max(a, b);
+  chargeProcessReductions(Math.floor(words / 16) + 1);
+}
+
+function isSmallInteger(value) {
+  return value < SMALL_LIMIT && value > -SMALL_LIMIT;
+}
+
+// A message queue as a ring buffer. Inserting or removing at position i moves
+// min(i, length - i) entries, so both the priority area at the front and the
+// newest messages at the back stay cheap even with huge queues.
+// Host handles take the place of ports in the term order.
+const COMPARE_RANK = {integer: 0, float: 0, atom: 1, reference: 2, fun: 3, host_handle: 4, pid: 5,
+  tuple: 6, map: 7, nil: 8, cons: 9, bitstring: 10};
+
+// Orders two different strings by code point (JavaScript's < uses UTF-16 units).
+function compareCodePoints(x, y) {
+  const length = Math.min(x.length, y.length);
+  for (let i = 0; i < length; i++) {
+    const a = x.charCodeAt(i);
+    const b = y.charCodeAt(i);
+    if (a === b) continue;
+    if ((a >= 0xd800 && a <= 0xdfff) || (b >= 0xd800 && b <= 0xdfff)) {
+      return x.codePointAt(i) < y.codePointAt(i) ? -1 : 1;
+    }
+    return a < b ? -1 : 1;
+  }
+  return x.length === y.length ? 0 : x.length < y.length ? -1 : 1;
+}
+
+const callableBifCache = new Map();
+function callableBif(name, arity) {
+  let byArity = callableBifCache.get(name);
+  if (byArity === undefined) callableBifCache.set(name, byArity = []);
+  let fn = byArity[arity];
+  if (fn === undefined) fn = byArity[arity] = callableBifs.get(JSON.stringify([name, arity])) ?? null;
+  return fn ?? undefined;
+}
+
+class Mailbox {
+  #buffer = new Array(16);
+  #head = 0;
+  length = 0;
+
+  get(index) {
+    return index < this.length ? this.#buffer[(this.#head + index) & (this.#buffer.length - 1)] : undefined;
+  }
+
+  #set(index, value) {
+    this.#buffer[(this.#head + index) & (this.#buffer.length - 1)] = value;
+  }
+
+  #grow() {
+    const buffer = new Array(this.#buffer.length * 2);
+    for (let i = 0; i < this.length; i++) buffer[i] = this.get(i);
+    this.#buffer = buffer;
+    this.#head = 0;
+  }
+
+  push(value) {
+    if (this.length === this.#buffer.length) this.#grow();
+    this.length++;
+    this.#set(this.length - 1, value);
+  }
+
+  insertAt(index, value) {
+    if (this.length === this.#buffer.length) this.#grow();
+    this.length++;
+    if (index < (this.length >> 1)) {
+      this.#head = (this.#head - 1) & (this.#buffer.length - 1);
+      for (let i = 0; i < index; i++) this.#set(i, this.get(i + 1));
+    } else {
+      for (let i = this.length - 1; i > index; i--) this.#set(i, this.get(i - 1));
+    }
+    this.#set(index, value);
+  }
+
+  removeAt(index) {
+    if (index < (this.length >> 1)) {
+      for (let i = index; i > 0; i--) this.#set(i, this.get(i - 1));
+      this.#set(0, undefined);
+      this.#head = (this.#head + 1) & (this.#buffer.length - 1);
+    } else {
+      for (let i = index; i < this.length - 1; i++) this.#set(i, this.get(i + 1));
+      this.#set(this.length - 1, undefined);
+    }
+    this.length--;
+  }
+
+  toArray() {
+    const values = new Array(this.length);
+    for (let i = 0; i < this.length; i++) values[i] = this.get(i);
+    return values;
+  }
+}
+
+const SCHEDULER_SLICE_MS = 10;
+const scheduleMacrotask = (() => {
+  if (typeof globalThis.setImmediate === 'function') return callback => globalThis.setImmediate(callback);
+  if (typeof globalThis.MessageChannel === 'function') {
+    const channel = new MessageChannel();
+    const callbacks = [];
+    channel.port1.onmessage = () => callbacks.shift()();
+    return callback => { callbacks.push(callback); channel.port2.postMessage(null); };
+  }
+  return callback => setTimeout(callback, 0);
+})();
+
+function checkInteger(value) {
+  if (value < SMALL_LIMIT && value > -SMALL_LIMIT) return value;
+  if ((value < 0n ? -value : value) >> MAX_INTEGER_BITS !== 0n) {
+    integerOverflow = true;
+    return null;
+  }
+  return value;
+}
+
 function addGuardedBifs(entries, guard, errorReason = 'badarg') {
   for (const [name, arity] of entries) {
     callableBifs.set(JSON.stringify([name, arity]), {
       exported: true,
       run: (rt, args) => {
+        integerOverflow = false;
         const value = guard(rt, name, args);
-        if (value === null) rt.raiseError(rt.atom(errorReason));
+        if (value === null) rt.raiseError(rt.atom(integerOverflow ? 'system_limit' : errorReason));
         return {type: 'return', value};
       },
     });
@@ -416,8 +590,8 @@ addGuardedBifs([['binary_to_list', 1], ['binary_to_list', 3]], (rt, name, args) 
 });
 addGuardedBifs([['abs', 1], ['trunc', 1], ['round', 1], ['floor', 1], ['ceil', 1], ['float', 1]],
   (rt, name, args) => rt.guardArithmetic(name, ...args));
-addGuardedBifs([['+', 2], ['-', 1], ['-', 2], ['*', 2], ['/', 2]],
-  (rt, name, args) => rt.guardArithmetic(name === '-' && args.length === 1 ? 'neg' : name, ...args),
+addGuardedBifs([['+', 1], ['+', 2], ['-', 1], ['-', 2], ['*', 2], ['/', 2]],
+  (rt, name, args) => rt.guardArithmetic(args.length === 1 ? name === '-' ? 'neg' : 'pos' : name, ...args),
   'badarith');
 addGuardedBifs([['band', 2], ['bor', 2], ['bxor', 2], ['bnot', 1], ['div', 2], ['rem', 2]],
   (rt, name, args) => rt.guardArithmetic(name, ...args), 'badarith');
@@ -539,6 +713,8 @@ const MATCH_CONTEXT = 11;
 // ArrayBuffer -> number of bytes in use. A binary whose bytes end at the used
 // mark can be extended in place, as BEAM does for writable binaries.
 const writableBuffers = new WeakMap();
+// Buffers reserved by bs_init_writable keep their capacity; grown ones are exact.
+const reservedBuffers = new WeakSet();
 
 function makeBitstring(bytes, bitLength) {
   return Object.freeze([BITSTRING, [bytes, bitLength]]);
@@ -787,10 +963,20 @@ function roundEven(value) {
   return floor;
 }
 
+// Set when a segment size is valid but too large, which BEAM reports as
+// system_limit rather than badarg.
+let segmentSystemLimit = false;
+// [segment, type, error, value] describing the last bs_create_bin failure.
+let segmentFailure = null;
+
 function segmentBits(size, unit) {
   if (typeof size !== 'bigint' || size < 0n) return null;
   const bits = size * BigInt(unit);
-  return bits > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(bits);
+  if (bits > BigInt(Number.MAX_SAFE_INTEGER)) {
+    segmentSystemLimit = true;
+    return null;
+  }
+  return Number(bits);
 }
 
 function isAtom(value) {
@@ -869,6 +1055,7 @@ class ProcessExit extends ErlangError {
 }
 
 export class Runtime {
+  smallLimit = SMALL_LIMIT;
   #hostObjects = new WeakMap();
   #processes = new WeakMap();
   #pidHandles = new WeakMap();
@@ -884,8 +1071,10 @@ export class Runtime {
   #ready = [];
   #waiting = new Set(); // Keep blocked processes alive even without an external PID reference.
   #readyHead = 0;
-  #scheduled = 0;
-  #schedulerCount;
+  #tickPending = false;
+  #functionCache = new Map();
+  backtraceDepth = 8;
+  #inTick = false;
   #reductionLimit;
   #onProcessError;
   #clock;
@@ -897,6 +1086,8 @@ export class Runtime {
   #moduleLoads = new Map();
   #moduleWaits = new Map();
   #onLoads = new Map();
+  #locations = new Map();
+  #moduleInfoData = new Map();
   #nifLoads = new Map();
 
   constructor({schedulers = 1, reductionLimit = 1000,
@@ -918,7 +1109,6 @@ export class Runtime {
     if (typeof onProcessError !== 'function') throw new TypeError('onProcessError must be a function');
     if (!clock || typeof clock.now !== 'function' || typeof clock.setTimeout !== 'function' ||
         typeof clock.clearTimeout !== 'function') throw new TypeError('clock requires now, setTimeout and clearTimeout');
-    this.#schedulerCount = schedulers;
     this.#reductionLimit = reductionLimit;
     this.#onProcessError = onProcessError;
     if (typeof onHalt !== 'function') throw new TypeError('onHalt must be a function');
@@ -1084,18 +1274,55 @@ export class Runtime {
     return Object.freeze([REFERENCE, nextReferenceId++]);
   }
 
+  // Map entries are kept sorted by key in exact term order, like BEAM's flatmaps:
+  // lookups are binary searches and equality and ordering are linear.
   map(entries = []) {
     if (!Array.isArray(entries)) throw new TypeError('map entries must be an array');
-    const result = [];
-    for (const entry of entries) {
+    let sorted = true;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
       if (!Array.isArray(entry) || entry.length !== 2) throw new TypeError('invalid map entry');
-      const [key, value] = entry;
-      if (!isTerm(key) || !isTerm(value)) throw new TypeError('map requires Erlang terms');
-      const existing = result.findIndex(([oldKey]) => this.equalExact(oldKey, key));
-      if (existing >= 0) result[existing] = [key, value];
-      else result.push([key, value]);
+      if (!isTerm(entry[0]) || !isTerm(entry[1])) throw new TypeError('map requires Erlang terms');
+      if (sorted && i > 0 && compareExact(this, entries[i - 1][0], entry[0]) >= 0) sorted = false;
     }
-    return Object.freeze([MAP, Object.freeze(result.map(entry => Object.freeze(entry)))]);
+    let ordered = entries;
+    if (!sorted) {
+      // A stable sort keeps duplicate keys in input order; the last one wins.
+      ordered = entries.slice().sort((a, b) => compareExact(this, a[0], b[0]));
+      const unique = [];
+      for (const entry of ordered) {
+        if (unique.length && compareExact(this, unique[unique.length - 1][0], entry[0]) === 0) {
+          unique[unique.length - 1] = entry;
+        } else unique.push(entry);
+      }
+      ordered = unique;
+    }
+    const result = new Array(ordered.length);
+    for (let i = 0; i < ordered.length; i++) {
+      const entry = ordered[i];
+      result[i] = Object.isFrozen(entry) ? entry : Object.freeze([entry[0], entry[1]]);
+    }
+    return Object.freeze([MAP, Object.freeze(result)]);
+  }
+
+  // Index of key in sorted map entries, or -(insertion point) - 1.
+  #mapSearch(entries, key) {
+    let low = 0;
+    let high = entries.length - 1;
+    while (low <= high) {
+      const mid = (low + high) >>> 1;
+      const order = compareExact(this, entries[mid][0], key);
+      if (order < 0) low = mid + 1;
+      else if (order > 0) high = mid - 1;
+      else return mid;
+    }
+    return -low - 1;
+  }
+
+  // The entry of a map's entry array with the given key, or undefined.
+  #mapEntry(entries, key) {
+    const position = this.#mapSearch(entries, key);
+    return position >= 0 ? entries[position] : undefined;
   }
 
   mapSize(value) {
@@ -1104,34 +1331,39 @@ export class Runtime {
   }
 
   mapGet(value, key) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
-    for (const [candidate, result] of maps.get(value)) {
-      if (this.equalExact(candidate, key)) return result;
-    }
-    return null;
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
+    const entry = this.#mapEntry(maps.get(value), key);
+    return entry === undefined ? null : entry[1];
   }
 
   mapPut(value, entries) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
-    const combined = maps.get(value).map(entry => [entry[0], entry[1]]);
-    for (const [key, result] of entries) {
-      const existing = combined.findIndex(([oldKey]) => this.equalExact(oldKey, key));
-      if (existing >= 0) combined[existing] = [key, result];
-      else combined.push([key, result]);
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
+    const current = maps.get(value);
+    if (entries.length === 1) {
+      const [key, item] = entries[0];
+      if (!isTerm(key) || !isTerm(item)) throw new TypeError('map requires Erlang terms');
+      const position = this.#mapSearch(current, key);
+      const result = current.slice();
+      if (position >= 0) result[position] = Object.freeze([key, item]);
+      else result.splice(-position - 1, 0, Object.freeze([key, item]));
+      return Object.freeze([MAP, Object.freeze(result)]);
     }
-    return this.map(combined);
+    return this.map([...current, ...entries]);
   }
 
   mapPutExact(value, entries) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
+    let missing;
     for (const [key] of entries) {
-      if (this.mapGet(value, key) === null) this.raiseError(this.atom('badkey'));
+      if (this.mapGet(value, key) === null &&
+          (missing === undefined || compareExact(this, key, missing) < 0)) missing = key;
     }
+    if (missing !== undefined) this.raiseError(this.tuple([this.atom('badkey'), missing]));
     return this.mapPut(value, entries);
   }
 
   mapRemove(value, keys) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
     const result = maps.get(value)
       .filter(([key]) => !keys.some(candidate => this.equalExact(key, candidate)))
       .map(entry => [entry[0], entry[1]]);
@@ -1139,24 +1371,52 @@ export class Runtime {
   }
 
   mapUpdate(value, key, replacement) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
     if (this.mapGet(value, key) === null) this.raiseError(this.tuple([this.atom('badkey'), key]));
     return this.mapPut(value, [[key, replacement]]);
   }
 
   mapEntries(value) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
     return maps.get(value).map(entry => [entry[0], entry[1]]);
   }
 
   mapOrderedEntries(value) {
-    if (!maps.has(value)) this.raiseError(this.atom('badmap'));
+    if (!maps.has(value)) this.raiseError(this.tuple([this.atom('badmap'), value]));
     return maps.get(value).slice().sort((left, right) => this.compare(left[0], right[0]))
       .map(entry => [entry[0], entry[1]]);
   }
 
   raiseError(reason) {
     throw new ErlangError(reason, 'error');
+  }
+
+  // erlang:error/2,3: the arguments (unless `none`) replace the caller frame's
+  // arity, and an error_info option is added to that frame's location.
+  raiseErrorWithArgs(reason, args, options) {
+    const error = new ErlangError(reason, 'error');
+    if (args !== undefined && args !== this.atom('none')) {
+      if (!this.isType('is_list', args)) this.raiseError(this.atom('badarg'));
+      error.callerArgs = args;
+    }
+    if (options !== undefined) {
+      if (!this.isType('is_list', options)) this.raiseError(this.atom('badarg'));
+      for (let item = options; isCons(item); item = this.listTail(item)) {
+        const option = this.listHead(item);
+        if (this.isType('is_tuple', option) && this.tupleSize(option) === 2 &&
+            this.tupleElement(option, 1) === this.atom('error_info') &&
+            this.isType('is_map', this.tupleElement(option, 2))) {
+          error.callerInfo = option;
+        }
+      }
+    }
+    throw error;
+  }
+
+  raiseFunctionClause(args) {
+    const error = new ErlangError(this.atom('function_clause'), 'error');
+    error.callArguments = args;
+    throw error;
   }
 
   raiseException(erlangClass, reason, stack = nil) {
@@ -1201,8 +1461,11 @@ export class Runtime {
     this.raiseException(erlangClass, reason, this.buildStacktrace(raw));
   }
 
+  // raw_raise: with an invalid class BEAM falls through to the next instruction.
   raiseExceptionFromRegisters(registers) {
-    this.raiseException(registers[0], registers[1], this.buildStacktrace(registers[2] ?? nil));
+    const erlangClass = registers[0];
+    if (!isAtom(erlangClass) || !['error', 'exit', 'throw'].includes(Symbol.keyFor(erlangClass))) return;
+    this.raiseException(erlangClass, registers[1], this.buildStacktrace(registers[2] ?? nil));
   }
 
   pushExceptionHandler(pid, handler) {
@@ -1425,7 +1688,8 @@ export class Runtime {
   bsGetTail(context) {
     const state = context[1];
     if (state.position === 0) return state.source;
-    return this.bsReadBinary(context, state.size - state.position);
+    const remaining = state.size - state.position;
+    return makeBitstring(copyBits(state.bytes, state.position, remaining), remaining);
   }
 
   bsGetPosition(context) {
@@ -1502,56 +1766,114 @@ export class Runtime {
     return true;
   }
 
+  // bs_init_writable: an empty binary whose buffer reserves the size hint (in
+  // bytes) so private appends fill it in place, as BEAM's writable binaries do.
+  bsInitWritable(hint) {
+    const capacity = typeof hint === 'bigint' && hint >= 0n ? Number(hint < 1n << 24n ? hint : 1n << 24n) : 256;
+    const buffer = new ArrayBuffer(capacity);
+    writableBuffers.set(buffer, 0);
+    reservedBuffers.add(buffer);
+    return makeBitstring(new Uint8Array(buffer, 0, 0), 0);
+  }
+
+  bsCreateFailed() {
+    const reason = segmentSystemLimit ? 'system_limit' : 'badarg';
+    const failure = segmentFailure;
+    segmentSystemLimit = false;
+    segmentFailure = null;
+    const error = new ErlangError(this.atom(reason), 'error');
+    if (failure) {
+      const [segment, type, kind, value] = failure;
+      error.callerInfo = this.tuple([this.atom('error_info'), this.map([
+        [this.atom('cause'), this.tuple([BigInt(segment), this.atom(type), this.atom(kind), value])],
+        [this.atom('module'), this.atom('erl_erts_errors')],
+        [this.atom('function'), this.atom('format_bs_fail')]])]);
+    }
+    throw error;
+  }
+
+  // The allocated size reported by erts_debug binary_info.
+  binaryCapacity(value) {
+    const bits = bitstrings.get(value);
+    if (!bits) return null;
+    return reservedBuffers.has(bits[0].buffer) ? bits[0].buffer.byteLength : Math.ceil(bits[1] / 8);
+  }
+
   // Segments are [type, unit, flags, value, size]; size is a bigint,
   // 'all' or null. Returns null when construction fails.
   bsCreate(segments) {
+    segmentSystemLimit = false;
+    segmentFailure = null;
     let writer;
     let writable = false;
     let first = 0;
     let used;
+    let partial;
     const head = segments[0];
     if (head && (head[0] === 'append' || head[0] === 'private_append')) {
       const bits = bitstrings.get(head[3]);
-      if (!bits || bits[1] % head[1] !== 0) return null;
+      if (!bits || bits[1] % head[1] !== 0) {
+        segmentFailure = [head[5], 'binary', bits ? 'unit' : 'type', head[3]];
+        return null;
+      }
       const [bytes, length] = bits;
       writable = true;
       used = writableBuffers.get(bytes.buffer);
-      if (length % 8 === 0 && used === bytes.byteOffset + bytes.length) {
+      if (used === bytes.byteOffset + bytes.length) {
+        // A partial last byte is shared with the source; restore it on failure.
+        if (length % 8 !== 0) partial = [used - 1, bytes[bytes.length - 1]];
         writer = new BitWriter(0, bytes.buffer, bytes.byteOffset, length);
       } else {
         used = undefined;
         writer = new BitWriter(Math.max(64, bytes.length * 2));
         writer.copyBits(bytes, 0, length);
+        if (length >= 8192) this.chargeReductions(length >>> 13);
       }
       first = 1;
     } else {
       writer = new BitWriter(16);
     }
     const original = writer.buffer;
-    const fail = () => {
+    const fail = (segment, error, value) => {
+      segmentFailure = [segment[5], segment[0] === 'string' ? 'binary' : segment[0], error, value];
       if (used !== undefined) {
         new Uint8Array(original).fill(0, used, Math.min(original.byteLength,
           writer.start + Math.ceil(writer.bits / 8)));
+        if (partial) new Uint8Array(original)[partial[0]] = partial[1];
       }
       return null;
     };
     for (let i = first; i < segments.length; i++) {
-      const [type, unit, flags, value, size] = segments[i];
+      const segment = segments[i];
+      const [type, unit, flags, value, size] = segment;
       if (type === 'integer') {
         const bits = segmentBits(size, unit);
-        if (bits === null || typeof value !== 'bigint') return fail();
+        if (bits === null) return fail(segment, 'size', size);
+        if (typeof value !== 'bigint') return fail(segment, 'type', value);
         writer.writeInteger(value, bits, flags);
       } else if (type === 'binary' || type === 'string') {
+        let bits = null;
+        if (size !== 'all') {
+          bits = segmentBits(size, unit);
+          if (bits === null) return fail(segment, 'size', size);
+        }
         const source = bitstrings.get(value);
-        if (!source) return fail();
-        const bits = size === 'all' ? source[1] : segmentBits(size, unit);
-        if (bits === null || bits > source[1] || (size === 'all' && source[1] % unit !== 0)) return fail();
+        if (!source) return fail(segment, 'type', value);
+        if (size === 'all') {
+          if (source[1] % unit !== 0) return fail(segment, 'unit', value);
+          bits = source[1];
+        } else if (bits > source[1]) {
+          return fail(segment, 'short', value);
+        }
         writer.copyBits(source[0], 0, bits);
+        if (bits >= 8192) this.chargeReductions(bits >>> 13);
       } else if (type === 'float') {
         const bits = segmentBits(size, unit);
+        if (bits === null) return fail(segment, 'size', size);
         const number = typeof value === 'bigint' ? Number(value) : floats.get(value);
-        if (number === undefined || !Number.isFinite(number) ||
-            (bits !== 16 && bits !== 32 && bits !== 64)) return fail();
+        if (number === undefined) return fail(segment, 'type', value);
+        if (bits !== 16 && bits !== 32 && bits !== 64) return fail(segment, 'invalid', size);
+        if (!Number.isFinite(number)) return fail(segment, 'no_float', value);
         const view = new DataView(new ArrayBuffer(8));
         if (bits === 64) view.setFloat64(0, number);
         else if (bits === 32) view.setFloat32(0, number);
@@ -1560,22 +1882,39 @@ export class Runtime {
         writer.writeBytes(flags & BS_LITTLE ? bytes.reverse() : bytes);
       } else if (type === 'utf8' || type === 'utf16' || type === 'utf32') {
         const bytes = encodeUtf(value, type, flags);
-        if (bytes === null) return fail();
+        if (bytes === null) return fail(segment, 'type', value);
         writer.writeBytes(bytes);
       } else {
         throw new Error(`unsupported binary segment type: ${type}`);
       }
     }
-    return writer.finish(writable);
+    const result = writer.finish(writable);
+    if (head && head[0] === 'private_append') {
+      // BEAM private append updates the uniquely owned accumulator in place.
+      const source = bitstrings.get(head[3]);
+      source[0] = result[1][0];
+      source[1] = result[1][1];
+      return head[3];
+    }
+    return result;
   }
 
   // Runs a BIF from compiled guard or body code; only BIFs that return a value directly are allowed.
   callBif(name, args, pid) {
     const bif = callableBifs.get(JSON.stringify([name, args.length]));
     if (!bif) throw new Error(`undefined or unsupported function: erlang:${name}/${args.length}`);
-    const action = bif.run(this, args, undefined, {remaining: 1}, pid);
-    if (action.type !== 'return') throw new Error(`BIF erlang:${name}/${args.length} cannot run inline`);
-    return action.value;
+    try {
+      const action = bif.run(this, args, undefined, {remaining: 1}, pid);
+      if (action.type !== 'return') throw new Error(`BIF erlang:${name}/${args.length} cannot run inline`);
+      return action.value;
+    } catch (error) {
+      if (error instanceof ErlangError && error.stack === nil && error.bifFrame === undefined &&
+          !['error', 'exit', 'throw', 'raise', 'nif_error'].includes(name)) {
+        error.bifFrame = this.tuple([this.atom('erlang'), this.atom(name), listFromArray(args),
+          this.#errorInfoLocation('erlang')]);
+      }
+      throw error;
+    }
   }
 
   guardBif(name, args, pid) {
@@ -1610,7 +1949,12 @@ export class Runtime {
   }
 
   args(registers, arity) {
-    return Array.from({length: arity}, (_, index) => this.read(registers, index));
+    const args = new Array(arity);
+    for (let index = 0; index < arity; index++) {
+      if (!(index in registers)) throw new Error(`uninitialized x register ${index}`);
+      args[index] = registers[index];
+    }
+    return args;
   }
 
   readY(stack, index) {
@@ -1653,27 +1997,37 @@ export class Runtime {
     return stack.slice(count);
   }
 
+  checkInteger(value) {
+    return checkInteger(value);
+  }
+
   guardArithmetic(op, left, right) {
-    const unary = ['neg', 'abs', 'trunc', 'round', 'floor', 'ceil', 'float', 'bnot'].includes(op);
+    const unary = ['pos', 'neg', 'abs', 'trunc', 'round', 'floor', 'ceil', 'float', 'bnot'].includes(op);
     if ((!unary && !['+', '-', '*', '/', 'band', 'bor', 'bxor', 'div', 'rem'].includes(op)) ||
         unary !== (right === undefined)) {
       throw new Error(`invalid guard arithmetic operation: ${op}`);
     }
     const leftType = termType(left);
     const rightType = unary ? undefined : termType(right);
+    if (activeSlice !== null && ((leftType === 'integer' && !isSmallInteger(left)) ||
+        (rightType === 'integer' && !isSmallInteger(right)))) {
+      chargeBigArithmetic(op, left, rightType === 'integer' ? right : undefined);
+    }
     if (['band', 'bor', 'bxor', 'bnot', 'div', 'rem'].includes(op)) {
       if (leftType !== 'integer' || (!unary && rightType !== 'integer')) return null;
       switch (op) {
         case 'band': return left & right;
         case 'bor': return left | right;
-        case 'bxor': return left ^ right;
-        case 'bnot': return ~left;
+        case 'bxor': return checkInteger(left ^ right);
+        case 'bnot': return checkInteger(~left);
         case 'div': return right === 0n ? null : left / right;
         case 'rem': return right === 0n ? null : left % right;
       }
     }
     if ((leftType !== 'integer' && leftType !== 'float') ||
         (rightType !== undefined && rightType !== 'integer' && rightType !== 'float')) return null;
+
+    if (op === 'pos') return leftType === 'float' ? this.float(0 + floats.get(left)) : left;
 
     if (op === 'float') {
       if (leftType === 'float') return left;
@@ -1689,9 +2043,9 @@ export class Runtime {
         case 'round':
         case 'floor':
         case 'ceil': return left;
-        case '+': return left + right;
-        case '-': return left - right;
-        case '*': return left * right;
+        case '+': return checkInteger(left + right);
+        case '-': return checkInteger(left - right);
+        case '*': return checkInteger(left * right);
       }
     }
 
@@ -1736,9 +2090,8 @@ export class Runtime {
         const mapEntries = maps.get(a);
         const otherEntries = maps.get(b);
         if (mapEntries.length !== otherEntries.length) return false;
-        for (const [key, value] of mapEntries) {
-          const found = otherEntries.find(([candidate]) => this.equalExact(key, candidate));
-          if (!found || !this.equalExact(value, found[1])) return false;
+        for (let i = mapEntries.length - 1; i >= 0; i--) {
+          pending.push([mapEntries[i][1], otherEntries[i][1]], [mapEntries[i][0], otherEntries[i][0]]);
         }
       } else if (type === 'tuple') {
         const elements = tuples.get(a);
@@ -1770,9 +2123,9 @@ export class Runtime {
   }
 
   compare(left, right) {
-    // Host handles take the place of ports in the term order.
-    const rank = {integer: 0, float: 0, atom: 1, reference: 2, fun: 3, host_handle: 4, pid: 5,
-      tuple: 6, map: 7, nil: 8, cons: 9, bitstring: 10};
+    if (left === right) return 0;
+    if (typeof left === 'bigint' && typeof right === 'bigint') return left < right ? -1 : 1;
+    const rank = COMPARE_RANK;
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -1808,18 +2161,7 @@ export class Runtime {
         if (order !== 0) return order < 0 ? -1 : 1;
         for (let i = x.environment.length - 1; i >= 0; i--) pending.push([x.environment[i], y.environment[i]]);
       } else if (aType === 'atom') {
-        const leftChars = Symbol.keyFor(a)[Symbol.iterator]();
-        const rightChars = Symbol.keyFor(b)[Symbol.iterator]();
-        while (true) {
-          const x = leftChars.next();
-          const y = rightChars.next();
-          if (x.done || y.done) {
-            if (x.done !== y.done) return x.done ? -1 : 1;
-            break;
-          }
-          const difference = x.value.codePointAt(0) - y.value.codePointAt(0);
-          if (difference !== 0) return difference < 0 ? -1 : 1;
-        }
+        if (a !== b) return compareCodePoints(Symbol.keyFor(a), Symbol.keyFor(b));
       } else if (aType === 'cons' && a !== b) {
         const [ah, at] = consValue(a);
         const [bh, bt] = consValue(b);
@@ -1828,16 +2170,14 @@ export class Runtime {
         const x = maps.get(a);
         const y = maps.get(b);
         if (x.length !== y.length) return x.length < y.length ? -1 : 1;
-        const xKeys = x.map(([key]) => key).sort((left, right) => this.compare(left, right));
-        const yKeys = y.map(([key]) => key).sort((left, right) => this.compare(left, right));
-        for (let i = 0; i < xKeys.length; i++) {
-          const keyOrder = this.compare(xKeys[i], yKeys[i]);
+        const xs = x;
+        const ys = y;
+        for (let i = 0; i < xs.length; i++) {
+          const keyOrder = compareExact(this, xs[i][0], ys[i][0]);
           if (keyOrder !== 0) return keyOrder;
         }
-        for (let i = 0; i < xKeys.length; i++) {
-          const left = x.find(([key]) => this.equalExact(key, xKeys[i]))[1];
-          const right = y.find(([key]) => this.equalExact(key, yKeys[i]))[1];
-          const valueOrder = this.compare(left, right);
+        for (let i = 0; i < xs.length; i++) {
+          const valueOrder = this.compare(xs[i][1], ys[i][1]);
           if (valueOrder !== 0) return valueOrder;
         }
       } else if (aType === 'tuple' && a !== b) {
@@ -1854,7 +2194,8 @@ export class Runtime {
   }
 
   isType(type, value) {
-    const actual = termType(value);
+    const context = Array.isArray(value) && value[0] === MATCH_CONTEXT;
+    const actual = context ? 'bitstring' : termType(value);
     switch (type) {
       case 'is_integer':
         return actual === 'integer';
@@ -1874,14 +2215,15 @@ export class Runtime {
       case 'is_fun': return actual === 'fun';
       case 'is_map': return actual === 'map';
       case 'is_binary':
-        return actual === 'bitstring' && bitstrings.get(value)[1] % 8 === 0;
+        return actual === 'bitstring' &&
+          (context ? value[1].size - value[1].position : bitstrings.get(value)[1]) % 8 === 0;
       case 'is_bitstr':
       case 'is_bitstring': return actual === 'bitstring';
       default: throw new Error(`unsupported type test: ${type}`);
     }
   }
 
-  registerModule(version, name, functions, {onLoad, atoms = []} = {}) {
+  registerModule(version, name, functions, {onLoad, atoms = [], locations, moduleInfo} = {}) {
     if (version !== 26) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
@@ -1911,6 +2253,10 @@ export class Runtime {
       throw new TypeError('onLoad must name a zero-arity function in the module');
     }
     this.modules.set(name, table);
+    if (Array.isArray(locations)) this.#locations.set(name, locations);
+    else this.#locations.delete(name);
+    if (typeof moduleInfo === 'function') this.#moduleInfoData.set(name, moduleInfo);
+    else this.#moduleInfoData.delete(name);
     if (onLoad !== undefined) this.#onLoads.set(name, onLoad);
   }
 
@@ -1935,10 +2281,57 @@ export class Runtime {
     if (typeof name !== 'string' || !name) throw new TypeError('module name must be a nonempty string');
     if (this.#moduleLoads.has(name)) return this.#moduleLoads.get(name);
     if (this.modules.has(name) && !this.#onLoads.has(name)) return Promise.resolve();
+    return this.#load(name, () => this.#importModule(name));
+  }
+
+  // Removes the current code of a module, as code:delete/1 does. Running
+  // processes keep the functions they already reference.
+  deleteModule(name) {
+    if (!this.modules.has(name) || nativeModules.has(name) || name === 'erlang') return false;
+    this.modules.delete(name);
+    this.#locations.delete(name);
+    this.#moduleInfoData.delete(name);
+    this.#onLoads.delete(name);
+    for (const key of this.#nifLoads.keys()) {
+      if (JSON.parse(key)[0] === name) this.#nifLoads.delete(key);
+    }
+    return true;
+  }
+
+  // Loads a module from BEAM code by running the Beam2JS compiler (Erlang code
+  // served like any other module) inside this runtime. Resolves to null or an
+  // error reason atom name.
+  async loadBinary(name, beam) {
+    if (this.#moduleLoads.has(name)) await this.#moduleLoads.get(name).catch(() => {});
+    const result = await this.invokeAsync('beam2js', 'compile_binary', [beam]);
+    const [tag, value] = tuples.get(result) ?? [];
+    if (tag !== this.atom('ok') || !bitstrings.has(value)) return 'badfile';
+    const source = this.bitstringBytes(value);
+    const text = new TextDecoder().decode(source);
+    const declared = text.match(/runtime\.registerModule\(26, ("(?:[^"\\]|\\.)*")/);
+    if (!declared || JSON.parse(declared[1]) !== name) return 'badfile';
+    let binaryText = '';
+    for (let i = 0; i < source.length; i += 0x8000) {
+      binaryText += String.fromCharCode(...source.subarray(i, i + 0x8000));
+    }
+    const url = `data:text/javascript;base64,${btoa(binaryText)}`;
+    const previous = this.modules.get(name);
+    this.deleteModule(name);
+    try {
+      await this.#load(name, () => import(url));
+    } catch (error) {
+      if (previous && !this.modules.has(name)) this.modules.set(name, previous);
+      if (error.cause?.erlangClass) throw error.cause;
+      return 'on_load_failure';
+    }
+    return null;
+  }
+
+  #load(name, importer) {
     const loading = Promise.resolve().then(async () => {
       try {
         if (!this.modules.has(name)) {
-          const source = await this.#importModule(name);
+          const source = await importer();
           if (typeof source.register !== 'function') throw new TypeError(`module ${name} has no register function`);
           await source.register(this);
           if (!this.modules.has(name)) throw new Error(`module ${name} did not register itself`);
@@ -2029,6 +2422,7 @@ export class Runtime {
         replacements.set(fnKey, {...original, run: fn.run});
       }
       for (const [fnKey, fn] of replacements) table.set(fnKey, fn);
+      this.#functionCache.delete(module);
       return this.atom('ok');
     }).catch(error => {
       this.#nifLoads.delete(key);
@@ -2046,7 +2440,8 @@ export class Runtime {
   #undefError(process, message, cause) {
     const call = this.tuple([this.atom(process.module), this.atom(process.name),
       listFromArray(process.args), this.nil()]);
-    const error = new ErlangError(this.atom('undef'), 'error', this.cons(call, this.nil()));
+    const error = new ErlangError(this.atom('undef'), 'error',
+      this.cons(call, this.#callerStacktrace(process)));
     error.message = message;
     if (cause) error.cause = cause;
     return error;
@@ -2078,17 +2473,39 @@ export class Runtime {
       .map(fn => this.tuple([this.atom(fn.name), BigInt(fn.arity)]));
     let result = this.nil();
     for (let i = exports.length - 1; i >= 0; i--) result = this.cons(exports[i], result);
+    const data = new Map();
+    const builder = this.#moduleInfoData.get(moduleName);
+    for (const entry of builder ? listToArrayLocal(builder(this)) : []) {
+      const [key, value] = tuples.get(entry);
+      data.set(Symbol.keyFor(key), value);
+    }
+    const item = key => {
+      switch (key) {
+        case 'module': return this.atom(moduleName);
+        case 'exports': return result;
+        case 'attributes': return data.get('attributes') ?? this.nil();
+        case 'compile': return data.get('compile') ?? this.nil();
+        case 'md5': return data.get('md5') ?? this.bitstring(new Array(16).fill(0), 128);
+        case 'native': return this.atom('false');
+        case 'nifs': return this.nil();
+        case 'functions': {
+          const functions = data.get('functions');
+          return functions ?? this.nil();
+        }
+      }
+      return undefined;
+    };
     if (arity === 1) {
       const key = args[0];
-      if (!isAtom(key)) this.raiseError(this.atom('badarg'));
-      if (key === this.atom('module')) return this.atom(moduleName);
-      if (key === this.atom('exports')) return result;
-      this.raiseError(this.atom('badarg'));
+      const value = isAtom(key) ? item(Symbol.keyFor(key)) : undefined;
+      if (value === undefined) this.raiseError(this.atom('badarg'));
+      return value;
     }
-    return this.cons(
-      this.tuple([this.atom('module'), this.atom(moduleName)]),
-      this.cons(this.tuple([this.atom('exports'), result]), this.nil()),
-    );
+    let all = this.nil();
+    for (const key of ['md5', 'compile', 'attributes', 'exports', 'module'].filter(k => k === 'module' || k === 'exports' || data.size)) {
+      all = this.cons(this.tuple([this.atom(key), item(key)]), all);
+    }
+    return all;
   }
 
   invoke(module, name, args) {
@@ -2158,19 +2575,29 @@ export class Runtime {
         case 'messages': {
           let messages = nil;
           for (let i = process.mailbox.length - 1; i >= 0; i--) {
-            messages = this.cons(process.mailbox[i], messages);
+            messages = this.cons(process.mailbox.get(i), messages);
           }
           return this.tuple([item, messages]);
         }
         case 'dictionary': return this.tuple([item, this.#processDictionary(process, 'get', [])]);
-        case 'current_function':
+        case 'current_function': {
+          const stack = this.#currentStack(process);
+          if (isCons(stack)) {
+            const frame = this.listHead(stack);
+            return this.tuple([item, this.tuple([this.tupleElement(frame, 1), this.tupleElement(frame, 2),
+              this.tupleElement(frame, 3)])]);
+          }
           return this.tuple([item, process.module === undefined ? this.atom('undefined')
             : mfa(process.module, process.name, process.fn?.arity ?? process.args?.length ?? 0)]);
-        case 'current_location':
+        }
+        case 'current_location': {
+          const stack = this.#currentStack(process);
+          if (isCons(stack)) return this.tuple([item, this.listHead(stack)]);
           return this.tuple([item, this.tuple([
             this.atom(process.module ?? 'undefined'), this.atom(process.name ?? 'undefined'),
             BigInt(process.fn?.arity ?? process.args?.length ?? 0), nil])]);
-        case 'current_stacktrace': return this.tuple([item, nil]);
+        }
+        case 'current_stacktrace': return this.tuple([item, this.truncateStacktrace(this.#currentStack(process))]);
         case 'initial_call': return this.tuple([item, mfa(...process.initialCall)]);
         case 'links': return this.tuple([item, pidList(process.links)]);
         case 'monitors':
@@ -2179,12 +2606,14 @@ export class Runtime {
         case 'monitored_by': return this.tuple([item, pidList(new Set(process.monitoredBy.values()))]);
         case 'trap_exit': return this.tuple([item, this.atom(process.trapExit ? 'true' : 'false')]);
         case 'group_leader': return this.tuple([item, process.groupLeader ?? this.#defaultGroupLeader()]);
-        case 'error_handler': return this.tuple([item, this.atom('error_handler')]);
-        case 'priority': return this.tuple([item, this.atom('normal')]);
-        case 'message_queue_data': return this.tuple([item, this.atom('on_heap')]);
+        case 'error_handler':
+        case 'priority':
+        case 'message_queue_data':
+          return this.tuple([item, process.flags[Symbol.keyFor(item)]]);
         case 'parent': return this.tuple([item, process.parent ?? this.atom('undefined')]);
         case 'label': return this.tuple([item, this.atom('undefined')]);
         case 'async_dist':
+          return this.tuple([item, this.atom(process.flags.async_dist ? 'true' : 'false')]);
         case 'magic_ref':
         case 'trace':
           return this.tuple([item, Symbol.keyFor(item) === 'trace' ? 0n : this.atom('false')]);
@@ -2199,11 +2628,12 @@ export class Runtime {
           return this.tuple([item, nil]);
         case 'backtrace': return this.tuple([item, this.bitstring(new Uint8Array(0), 0)]);
         case 'max_heap_size':
-          return this.tuple([item, this.map([[this.atom('size'), 0n], [this.atom('kill'), this.atom('true')],
-            [this.atom('error_logger'), this.atom('true')], [this.atom('include_shared_binaries'), this.atom('false')]])]);
-        case 'fullsweep_after': return this.tuple([item, 65535n]);
-        case 'min_heap_size': return this.tuple([item, 233n]);
-        case 'min_bin_vheap_size': return this.tuple([item, 46422n]);
+          return this.tuple([item, process.flags.max_heap_size ?? this.#maxHeapSize(0n)]);
+        case 'fullsweep_after':
+        case 'min_heap_size':
+        case 'min_bin_vheap_size':
+          return this.tuple([item, process.flags[Symbol.keyFor(item)]]);
+        case 'reductions': return this.tuple([item, this.#reductions(process)]);
         default: return this.tuple([item, 0n]);
       }
     };
@@ -2362,7 +2792,7 @@ export class Runtime {
     return previous;
   }
 
-  sendPidMessage(destination, message) {
+  sendPidMessage(destination, message, priority = false) {
     if (!isTerm(destination) || !isTerm(message)) throw new TypeError('expected supported Erlang terms');
     if (this.#localPids.has(destination)) {
       const process = this.#pidProcesses.get(destination);
@@ -2382,7 +2812,7 @@ export class Runtime {
           this.#removeAlias(destination);
           this.#demonitorProcess(owner, destination, nil);
         }
-        this.#deliverMessage(owner, message);
+        this.#deliverMessage(owner, message, priority && owner.priorityAliases?.has(destination[1]));
       }
       return message;
     }
@@ -2521,8 +2951,19 @@ export class Runtime {
     this.#deliverMessage(process, message);
   }
 
-  #deliverMessage(process, message) {
-    process.mailbox.push(message);
+  // Priority messages (OTP 28) are queued after earlier priority messages but
+  // ahead of ordinary ones; a receive in progress rescans from that point.
+  #deliverMessage(process, message, priority = false) {
+    if (priority) {
+      const position = process.priorityCount ?? 0;
+      process.mailbox.insertAt(position, message);
+      process.priorityCount = position + 1;
+      if (process.markers) for (const marker of process.markers) if (marker.index >= position) marker.index++;
+      if (process.receiveSkip > position) process.receiveSkip++;
+      if (position <= process.receiveIndex) process.receiveIndex = position;
+    } else {
+      process.mailbox.push(message);
+    }
     if (process.status === 'waiting') {
       this.#waiting.delete(process);
       process.status = 'runnable';
@@ -2531,35 +2972,86 @@ export class Runtime {
   }
 
   processMailbox(handle) {
-    return this.#getProcess(handle).mailbox.slice();
+    return this.#getProcess(handle).mailbox.toArray();
   }
 
   receiveMessage(pid) {
     const process = this.#receiveProcess(pid);
     process.receiveChecked = true;
-    return process.mailbox[process.receiveIndex] ?? null;
+    return process.mailbox.get(process.receiveIndex) ?? null;
   }
 
   advanceMessage(pid) {
     const process = this.#receiveProcess(pid);
     if (process.receiveIndex >= process.mailbox.length) throw new Error('no current mailbox message');
     process.receiveIndex++;
+    // Priority messages are always scanned; ordinary ones only from the marker.
+    if (process.receiveSkip > process.receiveIndex && process.receiveIndex >= (process.priorityCount ?? 0)) {
+      process.receiveIndex = process.receiveSkip;
+    }
   }
 
   removeMessage(pid) {
     const process = this.#receiveProcess(pid);
     if (process.receiveIndex >= process.mailbox.length) throw new Error('no current mailbox message');
-    process.mailbox.splice(process.receiveIndex, 1);
+    this.#spliceMessage(process, process.receiveIndex);
+    this.#endReceive(process);
+  }
+
+  timeoutMessage(pid) {
+    this.#endReceive(this.#receiveProcess(pid));
+  }
+
+  #endReceive(process) {
     process.receiveIndex = 0;
+    process.receiveSkip = 0;
     process.receiveChecked = false;
     this.#clearReceiveTimer(process);
   }
 
-  timeoutMessage(pid) {
+  #spliceMessage(process, index) {
+    process.mailbox.removeAt(index);
+    if (index < process.receiveIndex) process.receiveIndex--;
+    if (index < process.receiveSkip) process.receiveSkip--;
+    if (index < (process.priorityCount ?? 0)) process.priorityCount--;
+    if (process.markers) for (const marker of process.markers) if (marker.index > index) marker.index--;
+  }
+
+  // Receive markers (BEAM's recv_marker_* instructions) let a receive that
+  // matches a freshly created reference skip messages queued before it.
+  recvMarkerReserve(pid) {
     const process = this.#receiveProcess(pid);
-    process.receiveIndex = 0;
-    process.receiveChecked = false;
-    this.#clearReceiveTimer(process);
+    process.markers ??= [];
+    if (process.markers.length >= 4) process.markers.shift();
+    const id = process.nextMarker = (process.nextMarker ?? 0) + 1;
+    process.markers.push({id, index: process.mailbox.length, reference: undefined});
+    return BigInt(id);
+  }
+
+  #findMarker(process, test) {
+    return process.markers?.find(test);
+  }
+
+  recvMarkerBind(pid, marker, reference) {
+    const process = this.#receiveProcess(pid);
+    if (typeof marker !== 'bigint' || !references.has(reference)) return;
+    const found = this.#findMarker(process, entry => BigInt(entry.id) === marker);
+    if (found) found.reference = reference;
+  }
+
+  recvMarkerClear(pid, reference) {
+    const process = this.#receiveProcess(pid);
+    if (!process.markers) return;
+    const index = process.markers.findIndex(entry => entry.reference === reference);
+    if (index >= 0) process.markers.splice(index, 1);
+  }
+
+  recvMarkerUse(pid, reference) {
+    const process = this.#receiveProcess(pid);
+    const found = this.#findMarker(process, entry => entry.reference === reference);
+    if (!found || process.receiveIndex !== 0) return;
+    process.receiveSkip = found.index;
+    if ((process.priorityCount ?? 0) === 0) process.receiveIndex = found.index;
   }
 
   #receiveProcess(pid) {
@@ -2574,6 +3066,14 @@ export class Runtime {
     return process;
   }
 
+  #defaultFlags() {
+    return {
+      priority: this.atom('normal'), message_queue_data: this.atom('on_heap'),
+      error_handler: this.atom('error_handler'), min_heap_size: 233n, min_bin_vheap_size: 46422n,
+      save_calls: 0n, scheduler: 0n, sensitive: false, async_dist: false, fullsweep_after: 65535n,
+    };
+  }
+
   #newProcess(module, name, args) {
     if (!Array.isArray(args) || args.some(value => !isTerm(value))) {
       throw new TypeError('arguments must be supported Erlang terms');
@@ -2584,9 +3084,10 @@ export class Runtime {
     this.#livePids.add(pid);
     const process = {
       pid, module, name, args: args.slice(), external: true, fn: undefined, state: undefined,
-      continuations: [], mailbox: [], dictionary: [], receiveIndex: 0, receiveChecked: false, status: 'runnable',
+      continuations: [], mailbox: new Mailbox(), dictionary: [], receiveIndex: 0, receiveChecked: false, status: 'runnable',
       trapExit: false, links: new Set(), monitors: new Map(), monitoredBy: new Map(),
       initialCall: [module, name, args.length], groupLeader: undefined,
+      flags: this.#defaultFlags(),
     };
     this.#pidProcesses.set(pid, process);
     return process;
@@ -2616,6 +3117,7 @@ export class Runtime {
     });
     child.groupLeader = process.groupLeader ?? this.#defaultGroupLeader();
     child.parent = process.pid;
+    if (action.flags) child.flags = action.flags;
     if (action.link) {
       process.links.add(child.pid);
       child.links.add(process.pid);
@@ -2632,16 +3134,30 @@ export class Runtime {
     this.#schedule();
   }
 
+  // Ready processes run back to back inside one macrotask; the event loop only
+  // gets control back every SCHEDULER_SLICE_MS so timers and I/O still run.
   #schedule() {
-    while (this.#scheduled < this.#schedulerCount &&
-           this.#scheduled < this.#ready.length - this.#readyHead) {
-      this.#scheduled++;
-      setTimeout(() => this.#runScheduled(), 0);
+    if (this.#tickPending || this.#inTick || this.#readyHead >= this.#ready.length) return;
+    this.#tickPending = true;
+    scheduleMacrotask(() => this.#tick());
+  }
+
+  #tick() {
+    this.#tickPending = false;
+    this.#inTick = true;
+    const deadline = performance.now() + SCHEDULER_SLICE_MS;
+    try {
+      while (this.#readyHead < this.#ready.length) {
+        this.#runScheduled();
+        if (performance.now() >= deadline) break;
+      }
+    } finally {
+      this.#inTick = false;
+      this.#schedule();
     }
   }
 
   #runScheduled() {
-    this.#scheduled--;
     const process = this.#ready[this.#readyHead++];
     if (this.#readyHead === this.#ready.length) {
       this.#ready = [];
@@ -2651,10 +3167,7 @@ export class Runtime {
       this.#readyHead = 0;
     }
     // A process can be terminated by an exit signal while it waits in the run queue.
-    if (process.status !== 'runnable') {
-      this.#schedule();
-      return;
-    }
+    if (process.status !== 'runnable') return;
     process.status = 'running';
     try {
       const result = this.#runProcess(process, this.#reductionLimit);
@@ -2677,7 +3190,6 @@ export class Runtime {
         ? new AggregateError([error, cleanupError], 'process and timer cleanup failed')
         : error);
     }
-    this.#schedule();
   }
 
   #exitReason(error) {
@@ -2691,25 +3203,112 @@ export class Runtime {
     }
   }
 
-  #stacktrace(process) {
+  #errorInfoLocation(module) {
+    const errors = errorInfoModules.get(module);
+    if (errors === undefined) return nil;
+    return this.cons(this.tuple([this.atom('error_info'),
+      this.map([[this.atom('module'), this.atom(errors)]])]), nil);
+  }
+
+  #location(module, line, extra) {
+    const entry = line ? this.#locations.get(module)?.[line - 1] : undefined;
+    let location = extra === undefined ? nil : this.cons(extra, nil);
+    // Like BEAM, line numbers that do not fit a 24-bit location are dropped.
+    if (entry && entry[1] < 0xffffff) {
+      location = this.cons(this.tuple([this.atom('file'), listFromArray(Array.from(entry[0], c => BigInt(c.codePointAt(0))))]),
+        this.cons(this.tuple([this.atom('line'), BigInt(entry[1])]), location));
+    }
+    return location;
+  }
+
+  // Frames of the callers of the current function, innermost first.
+  // The Erlang-level stack of a process; a process inspecting itself is shown at its BIF call site.
+  #currentStack(process) {
+    if (process.module === undefined) return nil;
+    if (process.module === 'erlang' || process.fn?.native) return this.#callerStacktrace(process);
+    return this.cons(this.tuple([this.atom(process.module), this.atom(process.name),
+      BigInt(process.fn?.arity ?? process.args?.length ?? 0), this.#location(process.module, process.line)]),
+    this.#callerStacktrace(process));
+  }
+
+  #callerStacktrace(process) {
     const frames = [];
-    const frame = (module, name, arity) => {
-      if (typeof module === 'string' && typeof name === 'string' && Number.isInteger(arity)) {
-        frames.push(this.tuple([this.atom(module), this.atom(name), BigInt(arity), nil]));
-      }
-    };
-    if (process.module !== 'erlang' || !['error', 'exit', 'throw', 'raise', 'nif_error'].includes(process.name)) {
-      frame(process.module, process.name, process.fn?.arity ?? process.args?.length);
-    } else if (process.tailCaller) {
+    if (process.tailCaller && (process.module === 'erlang' || process.fn?.native)) {
       // A tail-called BIF raises on behalf of the function that called it.
-      frame(process.tailCaller.module, process.tailCaller.name, process.tailCaller.arity);
+      const {module, name, arity, line} = process.tailCaller;
+      frames.push([module, name, arity, line]);
     }
     for (let i = process.continuations.length - 1; i >= 0; i--) {
-      const {module, name, fn} = process.continuations[i];
-      frame(module, name, fn?.arity);
+      const {module, name, fn, line} = process.continuations[i];
+      frames.push([module, name, fn?.arity, line]);
     }
+    return this.#frames(frames);
+  }
+
+  #frames(frames, callerArgs, callerInfo) {
     let stack = nil;
-    for (let i = frames.length - 1; i >= 0; i--) stack = this.cons(frames[i], stack);
+    const valid = frames.filter(([module, name, arity]) =>
+      typeof module === 'string' && typeof name === 'string' && Number.isInteger(arity));
+    for (let i = valid.length - 1; i >= 0; i--) {
+      const [module, name, arity, line, args] = valid[i];
+      const first = i === 0;
+      stack = this.cons(this.tuple([this.atom(module), this.atom(name),
+        first && callerArgs !== undefined ? callerArgs : args === undefined ? BigInt(arity) : listFromArray(args),
+        this.#location(module, line, first ? callerInfo : undefined)]), stack);
+    }
+    return stack;
+  }
+
+  #stacktrace(process, error) {
+    const {callArguments, bifFrame} = error;
+    const frames = [];
+    const raising = process.module === 'erlang' && ['error', 'exit', 'throw', 'raise', 'nif_error'].includes(process.name);
+    if (!raising) {
+      if (bifFrame === undefined || process.module !== 'erlang' ||
+          this.tupleElement(bifFrame, 2) !== this.atom(process.name)) {
+        const native = process.module === 'erlang' || process.fn?.native;
+        frames.push([process.module, process.name, process.fn?.arity ?? process.args?.length, process.line,
+          callArguments ?? (native ? process.args : undefined)]);
+      }
+    }
+    const nativeFrame = !raising && frames.length && (process.module === 'erlang' || process.fn?.native);
+    let stack = this.#frames(frames, undefined, raising ? undefined : error.callerInfo);
+    if (nativeFrame && bifFrame === undefined && process.module !== 'erlang') {
+      // Natively implemented library functions carry their arguments and error_info, like BIFs.
+      const [module, name, , , args] = frames[0];
+      stack = this.cons(this.tuple([this.atom(module), this.atom(name), listFromArray(args),
+        this.#errorInfoLocation(module)]), nil);
+    } else if (nativeFrame && bifFrame === undefined && isCons(stack)) {
+      const frame = this.listHead(stack);
+      stack = this.cons(this.tuple([this.tupleElement(frame, 1), this.tupleElement(frame, 2),
+        this.tupleElement(frame, 3), this.#errorInfoLocation('erlang')]), nil);
+    }
+    let callers = this.#callerStacktrace(process);
+    if (raising && (error.callerArgs !== undefined || error.callerInfo !== undefined) && isCons(callers)) {
+      const frame = this.listHead(callers);
+      let location = this.tupleElement(frame, 4);
+      if (error.callerInfo !== undefined) location = listFromArray([...(listToArrayLocal(location)), error.callerInfo]);
+      callers = this.cons(this.tuple([this.tupleElement(frame, 1), this.tupleElement(frame, 2),
+        error.callerArgs ?? this.tupleElement(frame, 3), location]), this.listTail(callers));
+    }
+    if (stack === nil) stack = callers;
+    else {
+      const items = [];
+      for (let item = stack; isCons(item); item = this.listTail(item)) items.push(this.listHead(item));
+      stack = callers;
+      for (let i = items.length - 1; i >= 0; i--) stack = this.cons(items[i], stack);
+    }
+    if (bifFrame !== undefined) stack = this.cons(bifFrame, stack);
+    return this.truncateStacktrace(stack);
+  }
+
+  // Like BEAM, stacktraces keep at most max(1, backtrace_depth) frames.
+  truncateStacktrace(stack) {
+    const items = [];
+    for (let item = stack; isCons(item); item = this.listTail(item)) {
+      if (items.length === Math.max(1, this.backtraceDepth)) return listFromArray(items);
+      items.push(this.listHead(item));
+    }
     return stack;
   }
 
@@ -2734,7 +3333,8 @@ export class Runtime {
       const tag = watcher.monitorTags?.get(reference) ?? this.atom('DOWN');
       watcher.monitorTags?.delete(reference);
       if (watcher.aliases?.get(reference[1]) !== 'explicit_unalias') this.#removeAlias(reference);
-      this.#deliverMessage(watcher, this.tuple([tag, reference, this.atom('process'), object, reason]));
+      const priority = watcher.priorityAliases?.delete(reference[1]) ?? false;
+      this.#deliverMessage(watcher, this.tuple([tag, reference, this.atom('process'), object, reason]), priority);
     }
     process.monitoredBy.clear();
     process.monitorNames = undefined;
@@ -2750,12 +3350,78 @@ export class Runtime {
   }
 
   #processFlag(process, flag, value) {
-    if (!isAtom(flag) || !isAtom(value) && typeof value !== 'boolean') this.raiseError(this.atom('badarg'));
-    if (Symbol.keyFor(flag) !== 'trap_exit') this.raiseError(this.atom('badarg'));
-    if (value !== this.atom('true') && value !== this.atom('false')) this.raiseError(this.atom('badarg'));
-    const previous = process.trapExit ? this.atom('true') : this.atom('false');
-    process.trapExit = value === this.atom('true');
+    if (!isAtom(flag)) this.raiseError(this.atom('badarg'));
+    const name = Symbol.keyFor(flag);
+    const bool = () => {
+      if (value !== this.atom('true') && value !== this.atom('false')) this.raiseError(this.atom('badarg'));
+      return value === this.atom('true');
+    };
+    const flags = process.flags;
+    switch (name) {
+      case 'trap_exit': {
+        const previous = this.atom(process.trapExit ? 'true' : 'false');
+        process.trapExit = bool();
+        return previous;
+      }
+      case 'sensitive':
+      case 'async_dist': {
+        const previous = this.atom(flags[name] ? 'true' : 'false');
+        flags[name] = bool();
+        return previous;
+      }
+      case 'error_handler':
+        if (!isAtom(value)) this.raiseError(this.atom('badarg'));
+        break;
+      case 'priority':
+        if (!['low', 'normal', 'high', 'max'].includes(isAtom(value) ? Symbol.keyFor(value) : '')) {
+          this.raiseError(this.atom('badarg'));
+        }
+        break;
+      case 'message_queue_data':
+        if (value !== this.atom('on_heap') && value !== this.atom('off_heap')) this.raiseError(this.atom('badarg'));
+        break;
+      case 'min_heap_size':
+      case 'min_bin_vheap_size':
+        if (typeof value !== 'bigint' || value < 0n) this.raiseError(this.atom('badarg'));
+        break;
+      case 'save_calls':
+        if (typeof value !== 'bigint' || value < 0n || value > 10000n) this.raiseError(this.atom('badarg'));
+        break;
+      case 'scheduler':
+        if (typeof value !== 'bigint' || value < 0n || value > 1n) this.raiseError(this.atom('badarg'));
+        break;
+      case 'max_heap_size':
+        value = this.#maxHeapSize(value, flags.max_heap_size);
+        break;
+      default:
+        this.raiseError(this.atom('badarg'));
+    }
+    const previous = flags[name];
+    flags[name] = value;
     return previous;
+  }
+
+  // max_heap_size accepts a size or a map of size/kill/error_logger/include_shared_binaries.
+  #maxHeapSize(value, current) {
+    const entries = new Map((current ? this.mapEntries(current) : [[this.atom('size'), 0n],
+      [this.atom('kill'), this.atom('true')], [this.atom('error_logger'), this.atom('true')],
+      [this.atom('include_shared_binaries'), this.atom('false')]]).map(([k, v]) => [k, v]));
+    if (typeof value === 'bigint') {
+      if (value < 0n) this.raiseError(this.atom('badarg'));
+      entries.set(this.atom('size'), value);
+    } else if (this.isType('is_map', value)) {
+      for (const [key, item] of this.mapEntries(value)) {
+        const name = isAtom(key) ? Symbol.keyFor(key) : '';
+        if (name === 'size' ? typeof item !== 'bigint' || item < 0n :
+            ['kill', 'error_logger', 'include_shared_binaries'].includes(name) ? !this.isType('is_boolean', item) : true) {
+          this.raiseError(this.atom('badarg'));
+        }
+        entries.set(key, item);
+      }
+    } else {
+      this.raiseError(this.atom('badarg'));
+    }
+    return this.map([...entries]);
   }
 
   #linkProcess(process, pid) {
@@ -2794,6 +3460,7 @@ export class Runtime {
   #removeAlias(reference) {
     const owner = this.#aliases.get(reference[1]);
     if (!owner) return false;
+    owner.priorityAliases?.delete(reference[1]);
     this.#aliases.delete(reference[1]);
     owner.aliases?.delete(reference[1]);
     return true;
@@ -2819,7 +3486,20 @@ export class Runtime {
       else if (tuples.get(option)?.length === 2 && tuples.get(option)[0] === this.atom('monitor')) {
         action.monitor = true;
         action.monitorOptions = tuples.get(option)[1];
-      } else if (!isAtom(option) && !(tuples.get(option)?.length === 2 && isAtom(tuples.get(option)[0]))) {
+      } else if (tuples.get(option)?.length === 2 && isAtom(tuples.get(option)[0])) {
+        const [key, value] = tuples.get(option);
+        const name = Symbol.keyFor(key);
+        action.flags ??= this.#defaultFlags();
+        if (name === 'fullsweep_after') {
+          if (typeof value !== 'bigint' || value < 0n) this.raiseError(this.atom('badarg'));
+          action.flags.fullsweep_after = value;
+        } else if (['priority', 'message_queue_data', 'min_heap_size', 'min_bin_vheap_size',
+          'max_heap_size', 'async_dist'].includes(name)) {
+          this.#processFlag({flags: action.flags}, key, value);
+        } else if (!['scheduler', 'error_handler'].includes(name)) {
+          this.raiseError(this.atom('badarg'));
+        }
+      } else if (!isAtom(option)) {
         this.raiseError(this.atom('badarg'));
       }
     }
@@ -2831,13 +3511,15 @@ export class Runtime {
     switch (op) {
       case 'alias/0':
       case 'alias/1': {
-        let mode = 'explicit_unalias';
+        let mode = 'explicit_unalias', priority = false;
         for (const option of op === 'alias/1' ? this.#properList(args[0]) : []) {
           if (option === this.atom('explicit_unalias') || option === this.atom('reply')) mode = Symbol.keyFor(option);
-          else if (option !== this.atom('priority')) this.raiseError(this.atom('badarg'));
+          else if (option === this.atom('priority')) priority = true;
+          else this.raiseError(this.atom('badarg'));
         }
         const reference = this.makeRef();
         this.#addAlias(process, reference, mode === 'reply' ? 'reply_demonitor' : mode);
+        if (priority) (process.priorityAliases ??= new Set()).add(reference[1]);
         return value(reference);
       }
       case 'unalias/1': {
@@ -2879,8 +3561,14 @@ export class Runtime {
         return value(listFromArray(live));
       }
       case 'send/3': {
-        this.#properList(args[2]);
-        this.sendPidMessage(args[0], args[1]);
+        let priority = false;
+        for (const option of this.#properList(args[2])) {
+          if (option === this.atom('priority')) priority = true;
+          else if (option !== this.atom('noconnect') && option !== this.atom('nosuspend')) {
+            this.raiseError(this.atom('badarg'));
+          }
+        }
+        this.sendPidMessage(args[0], args[1], priority);
         return value(this.atom('ok'));
       }
       case 'hibernate/3': {
@@ -2962,8 +3650,12 @@ export class Runtime {
 
   #monitorProcess(process, kind, target, options = nil) {
     if (!isAtom(kind) || Symbol.keyFor(kind) !== 'process') this.raiseError(this.atom('badarg'));
-    let aliasMode, tag;
+    let aliasMode, tag, priority = false;
     for (const option of this.#properList(options)) {
+      if (option === this.atom('priority')) {
+        priority = true;
+        continue;
+      }
       const pair = tuples.get(option);
       if (pair?.length !== 2) this.raiseError(this.atom('badarg'));
       if (pair[0] === this.atom('alias') &&
@@ -2986,11 +3678,12 @@ export class Runtime {
     }
     const reference = this.makeRef();
     if (aliasMode) this.#addAlias(process, reference, aliasMode);
+    if (priority) (process.priorityAliases ??= new Set()).add(reference[1]);
     if (!targetProcess || !this.#livePids.has(targetProcess.pid)) {
       if (aliasMode === 'demonitor' || aliasMode === 'reply_demonitor') this.#removeAlias(reference);
       this.#deliverMessage(process, this.tuple([
         tag ?? this.atom('DOWN'), reference, this.atom('process'), object, this.atom('noproc'),
-      ]));
+      ]), priority);
       return reference;
     }
     if (tag !== undefined) (process.monitorTags ??= new Map()).set(reference, tag);
@@ -3013,6 +3706,7 @@ export class Runtime {
     const targetPid = process.monitors.get(reference);
     const tag = process.monitorTags?.get(reference) ?? this.atom('DOWN');
     process.monitorTags?.delete(reference);
+    if (!process.aliases?.has(reference[1])) process.priorityAliases?.delete(reference[1]);
     if (process.aliases?.has(reference[1]) && process.aliases.get(reference[1]) !== 'explicit_unalias') {
       this.#removeAlias(reference);
     }
@@ -3022,14 +3716,14 @@ export class Runtime {
       target?.monitoredBy.delete(reference);
       target?.monitorNames?.delete(reference);
     }
-    if (flush) {
+    // An active monitor cannot have queued its DOWN message yet.
+    if (flush && targetPid === undefined) {
       const down = tag;
       for (let i = process.mailbox.length - 1; i >= 0; i--) {
-        const message = process.mailbox[i];
+        const message = process.mailbox.get(i);
         if (this.isType('is_tuple', message) && this.tupleSize(message) === 5 &&
             this.tupleElement(message, 1) === down && this.tupleElement(message, 2) === reference) {
-          process.mailbox.splice(i, 1);
-          if (i < process.receiveIndex) process.receiveIndex--;
+          this.#spliceMessage(process, i);
         }
       }
     }
@@ -3187,14 +3881,65 @@ export class Runtime {
     return pending;
   }
 
+  // Reductions used by a process, including the slice it is running now.
+  #reductions(process) {
+    const active = activeSlice;
+    let total = process.reductions ?? 0;
+    if (active?.process === process && Number.isFinite(active.limit)) total += active.limit - active.budget.remaining;
+    return BigInt(total);
+  }
+
+  // Charges extra reductions (large binary copies, bump_reductions) to the running process.
+  chargeReductions(count) {
+    chargeProcessReductions(count);
+  }
+
+  chargeBigArithmetic(op, left, right) {
+    if (!isSmallInteger(left) || (typeof right === 'bigint' && !isSmallInteger(right))) {
+      chargeBigArithmetic(op, left, right);
+    }
+  }
+
+  // Integer band/bor/bxor/div/rem on operands outside the small range, as
+  // inlined by compiled code; charges reductions by operand size.
+  bigIntegerOp(op, left, right) {
+    chargeBigArithmetic(op, left, right);
+    switch (op) {
+      case 'band': return left & right;
+      case 'bor': return left | right;
+      case 'bxor': return left ^ right;
+      case 'div': return left / right;
+      case 'rem': return left % right;
+      case 'bnot': return checkInteger(~left);
+    }
+    throw new Error(`invalid integer operation: ${op}`);
+  }
+
   #runProcess(process, limit) {
     const budget = {remaining: limit};
+    const outer = activeSlice;
+    activeSlice = {process, budget, limit};
+    try {
+      return this.#runProcessSlice(process, budget);
+    } finally {
+      if (Number.isFinite(limit)) process.reductions = (process.reductions ?? 0) + limit - Math.max(budget.remaining, 0);
+      activeSlice = outer;
+    }
+  }
+
+  #runProcessSlice(process, budget) {
     while (true) {
       try {
         return this.#runFrames(process, budget);
-      } catch (error) {
+      } catch (caught) {
+        let error = caught;
+        // Engines cap BigInt size (SpiderMonkey: 2^20 bits); report it like BEAM's integer limit.
+        if (error instanceof RangeError && /bigint/i.test(error.message)) {
+          error = new ErlangError(this.atom('system_limit'), 'error');
+        }
         if (!(error instanceof ErlangError) || error instanceof ProcessExit) throw error;
-        if (error.stack === nil) error.stack = this.#stacktrace(process);
+        process.line = budget.line;
+        if (error.stack === nil) error.stack = this.#stacktrace(process, error);
         const handler = process.exceptionHandlers?.pop();
         if (!handler) throw error;
         if (process.continuations.length > handler.depth) {
@@ -3213,6 +3958,22 @@ export class Runtime {
     }
   }
 
+  // Function lookup by name/arity, cached per module function table.
+  #lookupFunction(module, name, arity) {
+    const table = this.modules.get(module);
+    if (table === undefined) return undefined;
+    let cache = this.#functionCache.get(module);
+    if (cache === undefined || cache.table !== table) {
+      cache = {table, functions: new Map()};
+      this.#functionCache.set(module, cache);
+    }
+    let byArity = cache.functions.get(name);
+    if (byArity === undefined) cache.functions.set(name, byArity = []);
+    let fn = byArity[arity];
+    if (fn === undefined) fn = byArity[arity] = table.get(JSON.stringify([name, arity])) ?? null;
+    return fn ?? undefined;
+  }
+
   #runFrames(process, budget) {
     if ('startError' in process) {
       const error = process.startError;
@@ -3225,7 +3986,7 @@ export class Runtime {
           throw new TypeError('arguments must be supported Erlang terms');
         }
         const {external, module, name, args} = process;
-        process.fn = external && module === 'erlang' ? callableBifs.get(JSON.stringify([name, args.length])) : undefined;
+        process.fn = external && module === 'erlang' ? callableBif(name, args.length) : undefined;
         // Native overrides run without waiting for their compiled module.
         if (!process.fn && !this.modules.has(module)) process.fn = nativeModuleFunction(module, name, args.length);
         if (!process.fn && module !== 'erlang' && process.initializingModule !== module &&
@@ -3236,13 +3997,15 @@ export class Runtime {
             throw this.#undefError(process, `${diagnostic}; ${error.message}`, error);
           }), false);
         }
-        if (!process.fn) process.fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
+        if (!process.fn) process.fn = this.#lookupFunction(module, name, args.length);
         if (!process.fn || (external && !process.fn.exported)) {
           throw this.#undefError(process, `undefined or unsupported function: ${module}:${name}/${args.length}`);
         }
       }
       const previous = budget.remaining;
+      budget.line = process.line;
       let action = process.resumedAction ?? process.fn.run(this, process.args.slice(), process.state, budget, process.pid);
+      process.line = budget.line;
       process.resumedAction = undefined;
       if (action.type === 'load_nif') action = {...action, name: this.#nifName(action.name)};
       if (budget.remaining === previous) budget.remaining--;
@@ -3275,9 +4038,11 @@ export class Runtime {
         const callArgs = this.funCallArgs(action.fun, action.args);
         if (action.type === 'fun_call') process.continuations.push({
           fn: process.fn, state: action.state, module: process.module, name: process.name, external: process.external,
+          line: process.line,
         });
         process.tailCaller = action.type === 'tail_fun'
-          ? {module: process.module, name: process.name, arity: process.fn?.arity} : undefined;
+          ? {module: process.module, name: process.name, arity: process.fn?.arity, line: process.line} : undefined;
+        process.line = 0;
         if (process.module !== 'erlang') process.callingModule = process.module;
         process.module = data.module;
         process.name = data.name;
@@ -3324,9 +4089,11 @@ export class Runtime {
       } else if (action.type === 'call' || action.type === 'tail') {
         if (action.type === 'call') process.continuations.push({
           fn: process.fn, state: action.state, module: process.module, name: process.name, external: process.external,
+          line: process.line,
         });
         process.tailCaller = action.type === 'tail'
-          ? {module: process.module, name: process.name, arity: process.fn?.arity} : undefined;
+          ? {module: process.module, name: process.name, arity: process.fn?.arity, line: process.line} : undefined;
+        process.line = 0;
         if (process.module !== 'erlang') process.callingModule = process.module;
         ({module: process.module, name: process.name, args: process.args, external: process.external} = action);
         process.fn = undefined;
@@ -3347,6 +4114,8 @@ export class Runtime {
           const value = action.timeout;
           if (value !== this.atom('infinity') &&
               (typeof value !== 'bigint' || value < 0n || value > 4294967295n)) {
+            // The failed receive ends; the next one scans the whole mailbox.
+            this.#endReceive(process);
             this.raiseError(this.atom('timeout_value'));
           }
           if (value === 0n) {
@@ -3377,9 +4146,21 @@ export class Runtime {
   }
 }
 
+const errorInfoModules = new Map([
+  ...['erlang', 'erts_internal', 'atomics', 'counters', 'persistent_term'].map(module => [module, 'erl_erts_errors']),
+  ...['lists', 'maps', 'binary', 'ets', 'unicode', 'math', 'string', 're'].map(module => [module, 'erl_stdlib_errors']),
+  ...['os', 'code'].map(module => [module, 'erl_kernel_errors']),
+]);
+
+function listToArrayLocal(list) {
+  const items = [];
+  for (let item = list; isCons(item); item = item[1][1]) items.push(item[1][0]);
+  return items;
+}
+
 function moduleBifEntry(name, arity, run) {
   return {
-    name, arity, exported: true,
+    name, arity, exported: true, native: true,
     run: (rt, args, state, budget, pid) => {
       const result = run(rt, args, pid);
       return isModuleBifAction(result) ? result : {type: 'return', value: result};

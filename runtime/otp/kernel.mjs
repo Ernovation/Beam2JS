@@ -3,7 +3,8 @@
 // code_server, which reads .beam files from disk) and net_kernel (the
 // distribution server; a Beam2JS node is never distributed). Beam2JS loads modules
 // through its own loader, so these modules talk to the runtime directly.
-import {BITSTRING, is, isAtom, listToArray, arrayToList, charlist, charlistText} from './term.mjs';
+import {BITSTRING, is, isAtom, listToArray, arrayToList, bool, charlist, charlistText, binary} from './term.mjs';
+import {readFileBytes} from './file.mjs';
 
 // Modules made only of the native definitions below; the loader never fetches them.
 export const nativeModules = new Set(['init', 'code', 'net_kernel', 'erl_prim_loader', 'application']);
@@ -26,7 +27,8 @@ function moduleName(rt, term) {
 // Where a loaded module came from, as code:which/1 and code:is_loaded/1 report it.
 function loadedFrom(rt, name) {
   if (nativeModules.has(name) || name === 'erlang') return rt.atom('preloaded');
-  return charlist(rt, new URL(`${encodeURIComponent(name)}.mjs`, rt.moduleBaseURL).href);
+  // The object file, as in OTP; the module itself was loaded from Name.mjs.
+  return charlist(rt, new URL(`${encodeURIComponent(name)}.beam`, rt.moduleBaseURL).href);
 }
 
 function isLoaded(rt, name) {
@@ -78,6 +80,35 @@ export function kernelBifs() {
     environment(rt).delete(envKey(rt, app, key));
     return ok(rt);
   });
+  // No application controller is booted: kernel and stdlib count as running,
+  // and other applications behave as if their .app file were missing.
+  const running = ['kernel', 'stdlib'];
+  const appInfo = rt => arrayToList(rt, running.map(app =>
+    rt.tuple([rt.atom(app), charlist(rt, app), charlist(rt, '')])));
+  const missingApp = (rt, app) => rt.tuple([charlist(rt, 'no such file or directory'),
+    charlist(rt, `${moduleName(rt, app)}.app`)]);
+  for (const name of ['start', 'ensure_started']) for (const arity of [1, 2]) {
+    def('application', name, arity, (rt, [app]) => {
+      if (!running.includes(moduleName(rt, app))) return rt.tuple([rt.atom('error'), missingApp(rt, app)]);
+      return name === 'start' ? rt.tuple([rt.atom('error'), rt.tuple([rt.atom('already_started'), app])]) : ok(rt);
+    });
+  }
+  for (const arity of [1, 2, 3]) def('application', 'ensure_all_started', arity, (rt, [apps]) => {
+    for (const app of rt.isType('is_list', apps) ? listToArray(apps) : [apps]) {
+      if (!running.includes(moduleName(rt, app))) {
+        return rt.tuple([rt.atom('error'), rt.tuple([app, missingApp(rt, app)])]);
+      }
+    }
+    return rt.tuple([rt.atom('ok'), arrayToList(rt, [])]);
+  });
+  def('application', 'stop', 1, (rt, [app]) => {
+    moduleName(rt, app);
+    return rt.tuple([rt.atom('error'), rt.tuple([rt.atom('not_started'), app])]);
+  });
+  def('application', 'loaded_applications', 0, appInfo);
+  def('application', 'which_applications', 0, appInfo);
+  def('application', 'which_applications', 1, appInfo);
+
   // No kernel_safe_sup or disk_log is booted in a browser. Keep session
   // history locally instead of waiting for that supervisor indefinitely.
   def('group_history', 'load', 0, rt => arrayToList(rt, histories.get(rt) ?? []));
@@ -161,18 +192,39 @@ export function kernelBifs() {
     return rt.atom('non_existing');
   });
   def('code', 'get_object_code', 1, rt => rt.atom('error'));
-  def('code', 'load_abs', 1, rt => rt.tuple([rt.atom('error'), rt.atom('nofile')]));
-  def('code', 'load_abs', 2, rt => rt.tuple([rt.atom('error'), rt.atom('nofile')]));
-  def('code', 'load_binary', 3, rt => rt.tuple([rt.atom('error'), rt.atom('badfile')]));
+  // Loads File.beam (for example written by compile:file to the in-memory
+  // file system) through the self-hosted compiler.
+  const loadAbs = (rt, file, module) => {
+    const path = isAtom(file) ? Symbol.keyFor(file) : charlistText(file);
+    if (path === null || path === undefined || (module !== undefined && !isAtom(module))) badarg(rt);
+    const name = module === undefined ? path.slice(path.lastIndexOf('/') + 1) : moduleName(rt, module);
+    return {type: 'async', run: async () => {
+      const bytes = await readFileBytes(rt, charlist(rt, path + '.beam'));
+      if (typeof bytes === 'string') return rt.tuple([rt.atom('error'), rt.atom('nofile')]);
+      const reason = await rt.loadBinary(name, binary(rt, bytes));
+      return reason === null ? rt.tuple([rt.atom('module'), rt.atom(name)])
+        : rt.tuple([rt.atom('error'), rt.atom(reason)]);
+    }};
+  };
+  def('code', 'load_abs', 1, (rt, [file]) => loadAbs(rt, file));
+  def('code', 'load_abs', 2, (rt, [file, module]) => loadAbs(rt, file, module));
+  def('code', 'load_binary', 3, (rt, [module, file, beam]) => {
+    if (!isAtom(module) || (!isAtom(file) && charlistText(file) === null) || !is(beam, BITSTRING) || beam[1][1] % 8 !== 0) badarg(rt);
+    const name = moduleName(rt, module);
+    return {type: 'async', run: async () => {
+      const reason = await rt.loadBinary(name, beam);
+      return reason === null ? rt.tuple([rt.atom('module'), module]) : rt.tuple([rt.atom('error'), rt.atom(reason)]);
+    }};
+  });
   def('code', 'get_doc', 1, rt => rt.tuple([rt.atom('error'), rt.atom('missing')]));
   def('code', 'get_doc', 2, rt => rt.tuple([rt.atom('error'), rt.atom('missing')]));
   def('code', 'modified_modules', 0, rt => rt.nil());
   def('code', 'is_sticky', 1, rt => rt.atom('false'));
   def('code', 'stick_mod', 1, rt => rt.atom('true'));
   def('code', 'unstick_mod', 1, rt => rt.atom('true'));
-  def('code', 'purge', 1, rt => rt.atom('false'));
-  def('code', 'soft_purge', 1, rt => rt.atom('true'));
-  def('code', 'delete', 1, rt => rt.atom('false'));
+  def('code', 'purge', 1, (rt, [module]) => { moduleName(rt, module); return rt.atom('false'); });
+  def('code', 'soft_purge', 1, (rt, [module]) => { moduleName(rt, module); return rt.atom('true'); });
+  def('code', 'delete', 1, (rt, [module]) => bool(rt, rt.deleteModule(moduleName(rt, module))));
   def('code', 'module_status', 1, (rt, [module]) =>
     rt.atom(isLoaded(rt, moduleName(rt, module)) ? 'loaded' : 'not_loaded'));
   def('code', 'coverage_support', 0, rt => rt.atom('false'));

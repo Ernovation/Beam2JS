@@ -144,9 +144,11 @@ devices (including `file:consult`), file metadata, directory listing and
 changing the virtual working directory are supported. The working directory
 is a URL, not a path on the browser host. `beam2js serve` supplies directory
 and metadata queries; a generic static server can serve file contents but
-may not support those queries. Files are read-only: writes return
-`{error,erofs}`. OS handles, symlinks and archives are not provided and return
-explicit unsupported-operation errors.
+may not support those queries. Writes, new directories and deletions go to an
+in-memory overlay that lives as long as the runtime and is visible to later
+reads; server files themselves are never modified, so deleting or renaming
+one returns `{error,erofs}`. OS handles, symlinks and archives are not provided
+and return explicit unsupported-operation errors (`enotsup`).
 
 Module loading is separate from file IO. `code:ensure_loaded` and ordinary
 remote calls import and register compiled `.mjs` files. Compatibility
@@ -170,6 +172,7 @@ Requests under the module root are handled as follows:
 | Request | Response |
 | --- | --- |
 | `<root><module>.mjs` | `<module>.beam`, compiled to JavaScript |
+| `<root><module>.beam` | `<module>.beam` itself, unchanged; `code:which/1` points here so tools like `beam_disasm` can read it |
 | `<root><name>.nif.mjs` | `<name>.nif.mjs` from a NIF directory or next to the BEAM files, unchanged |
 | anything else | the document root's file at that path, or 404 |
 
@@ -311,7 +314,7 @@ Use the runtime helpers to create terms at the JavaScript boundary:
 
 | Erlang term | JavaScript representation/helper |
 | --- | --- |
-| Integer | `bigint`, for example `42n` |
+| Integer | `bigint`, for example `42n` (at most 1,048,512 bits; BEAM allows 4,194,240) |
 | Atom | `runtime.atom('ok')` |
 | Float | `runtime.float(3.14)` |
 | Empty list | `runtime.nil()` |
@@ -351,10 +354,11 @@ Erlang links and monitors follow OTP semantics: `spawn_link`, `spawn_monitor`,
 linked processes, trapping processes receive `{'EXIT', Pid, Reason}` messages,
 and monitors receive `{'DOWN', Ref, process, Pid, Reason}`. From JavaScript,
 `runtime.terminateProcess(pid, reason)` sends an exit signal and rejects the
-process's `result` promise. `schedulers` and
-`reductionLimit` are runtime options; scheduler slots cooperate on one
-JavaScript event loop and do not provide parallel execution. Synchronous host
-operations can still block that event loop.
+process's `result` promise. `reductionLimit` sets the reductions per process
+time slice. All processes share one JavaScript event loop: ready processes run
+back to back, and control returns to the event loop about every 10 ms so timers
+and I/O are serviced. `schedulers` is still accepted but does not provide
+parallel execution. Synchronous host operations can still block the event loop.
 
 ## Supported Erlang subset
 
@@ -478,3 +482,9 @@ parsing, linting, evaluation, formatting and `re` results with OTP.
 `browser-shell` boots the interactive OTP shell in Chromium and tests
 evaluation, exception recovery, line editing and history, Unicode input,
 terminal resizing, HTTP files/directories and on-demand `.mjs` loading.
+
+An optional `rebar3 test otp-opcodes` probe compiles and executes original
+OTP opcode-oriented testcase bodies. It is not in the default test run:
+some applicable functionality and Common Test prerequisites remain missing.
+See [Original OTP opcode tests](docs/otp-opcode-tests.md) for commands,
+result meanings, verified fixes and outstanding work.
