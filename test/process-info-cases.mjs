@@ -95,13 +95,10 @@ export async function processInfoChecks(Runtime, registerModules) {
     badarg(target.pid, pair(atom('bad'), atom('key'))),
     badarg(target.pid, list(atom('memory'), atom('bad'))),
   ].every(Boolean);
-  let unsupported = false;
-  try {
-    info(target.pid, atom('memory'));
-  } catch (error) {
-    unsupported = /unsupported process_info item: memory/.test(error.message);
-  }
-  check(unsupported, 'valid unsupported process information was not diagnosed');
+  check(rt.equalExact(info(target.pid, atom('memory')), pair(atom('memory'), 0n)),
+    'process_info memory is not reported');
+  check(rt.equalExact(info(target.pid, atom('trap_exit')), pair(atom('trap_exit'), atom('false'))),
+    'process_info trap_exit is not reported');
   rt.sendMessage(target, atom('finish'));
   check(await within(target.result) === atom('ok'), 'target did not terminate');
   const snapshot = equal(saved, entry('messages', expectedMessages)) &&

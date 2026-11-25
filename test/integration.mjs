@@ -331,8 +331,8 @@ try {
     ['float_bif_missing_label', /invalid branch label 3/],
     ['trunc_bif_live_limit', /unsupported instruction \{gc_bif,trunc/],
     ['float_bif_live_limit', /unsupported instruction \{gc_bif,float/],
-    ['exact_bif_nonzero', /unsupported instruction \{bif,'=:='/],
-    ['predicate_nonzero', /unsupported instruction \{bif,is_number/]]) {
+    ['exact_bif_nonzero', /invalid branch label 3/],
+    ['predicate_nonzero', /invalid branch label 3/]]) {
     const result = spawnSync(compiler, [join(dir, `${module}.beam`), output],
       {encoding: 'utf8', timeout: 30000});
     assert.notEqual(result.status, 0);

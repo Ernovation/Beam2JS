@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
+import {runtimeHelperResources} from './runtime-files.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-sudoku-'));
 const run = (command, args) => execFileSync(command, args, {encoding: 'utf8', timeout: 30000});
@@ -47,6 +48,7 @@ try {
     const resources = new Map([
       ['/', '<!doctype html><title>Sudoku test</title>'],
       ['/runtime.mjs', source('runtime/beam2js.mjs')],
+      ...runtimeHelperResources('/'),
       ['/checks.mjs', source('test/sudoku-cases.mjs')],
       ['/sudoku.mjs', readFileSync(join(dir, 'sudoku.mjs'), 'utf8')],
       ['/sudoku-stripped.mjs', readFileSync(join(dir, 'sudoku-stripped.mjs'), 'utf8')],

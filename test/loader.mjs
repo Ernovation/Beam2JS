@@ -7,6 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {Runtime} from '../runtime/beam2js.mjs';
 import {loaderChecks} from './loader-cases.mjs';
+import {runtimeHelperResources} from './runtime-files.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-loader-'));
 const source = path => readFileSync(resolve(path), 'utf8');
@@ -53,6 +54,8 @@ try {
       ['/runtime.mjs', source('runtime/beam2js.mjs')],
       ['/checks.mjs', source('test/loader-cases.mjs')],
       ['/runtime/beam2js.mjs', source('runtime/beam2js.mjs')],
+      ...runtimeHelperResources('/'),
+      ...runtimeHelperResources('/runtime/'),
       ['/examples/browser/main.mjs', source('examples/browser/main.mjs')],
       ['/examples/browser/dom.nif.mjs', source('examples/browser/dom.nif.mjs')],
       ...['browser_demo', 'dom'].map(name =>

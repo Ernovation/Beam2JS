@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {Runtime, ErlangError} from '../runtime/beam2js.mjs';
 
-export function mapChecks() {
+export async function mapChecks() {
   const rt = new Runtime();
+  // maps is OTP's compiled module, bundled with the runtime; its BIFs are native.
+  await Promise.all(['maps', 'lists'].map(name => rt.loadModule(name)));
 
   const nestedKey = rt.tuple([rt.atom('point'), rt.cons(1n, rt.cons(2n, rt.nil()))]);
   const nestedValue = rt.map([
@@ -45,4 +47,15 @@ export function mapChecks() {
   assert.equal(rt.invoke('maps', 'is_iterator_valid', [iterator]), rt.atom('true'));
   const next = rt.invoke('maps', 'next', [iterator]);
   assert.equal(rt.isType('is_tuple', next), true);
+  assert.equal(rt.tupleElement(next, 1), rt.atom('a'));
+
+  // Keys and to_list follow OTP's map-key order: integers before floats.
+  const mixed = rt.map([[rt.float(0.5), 1n], [2n, 2n], [rt.atom('z'), 3n], [1n, 4n]]);
+  const keys = rt.invoke('maps', 'keys', [mixed]);
+  const order = [];
+  for (let cursor = keys; rt.isType('is_nonempty_list', cursor); cursor = rt.listTail(cursor)) order.push(rt.listHead(cursor));
+  assert.deepEqual(order.slice(0, 2), [1n, 2n]);
+  assert.equal(rt.floatValue(order[2]), 0.5);
+  assert.equal(order[3], rt.atom('z'));
+  assert.equal(rt.mapSize(rt.map(rt.mapEntries(rt.invoke('maps', 'from_list', [rt.invoke('maps', 'to_list', [mixed])])))), 4n);
 }

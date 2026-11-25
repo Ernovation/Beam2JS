@@ -26,6 +26,7 @@ import {registryChecks} from './registry-cases.mjs';
 import {applyChecks} from './apply-cases.mjs';
 import {atomConversionChecks} from './atom-conversion-cases.mjs';
 import {mapChecks} from './map-cases.mjs';
+import {runtimeHelperResources} from './runtime-files.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-browser-'));
 const compiler = resolve('_build/default/bin/beam2js');
@@ -1648,7 +1649,7 @@ try {
   ]);
   assert.equal(eventRuntime.mapSize(eventMap), 2n);
   assert.equal(eventRuntime.floatValue(eventRuntime.mapGet(eventMap, eventRuntime.atom('client_x'))), 12.5);
-  mapChecks();
+  await mapChecks();
   const compoundMapModule = await import(pathToFileURL(join(dir, 'compound_maps.mjs')));
   compoundMapModule.register(eventRuntime);
   const compoundMap = eventRuntime.invoke('compound_maps', 'literal', []);
@@ -1708,6 +1709,7 @@ try {
       ['/examples/browser/dom.mjs', ['text/javascript', readFileSync(join(dir, 'dom.mjs'), 'utf8')]],
       ['/examples/browser/browser_demo.mjs', ['text/javascript', readFileSync(join(dir, 'browser_demo.mjs'), 'utf8')]],
       ['/runtime/beam2js.mjs', ['text/javascript', source('runtime/beam2js.mjs')]],
+      ...runtimeHelperResources('/runtime/', body => ['text/javascript', body]),
       ['/test/call-cases.mjs', ['text/javascript', source('test/call-cases.mjs')]],
       ['/test/match-cases.mjs', ['text/javascript', source('test/match-cases.mjs')]],
       ['/test/arithmetic-cases.mjs', ['text/javascript', source('test/arithmetic-cases.mjs')]],

@@ -49,6 +49,11 @@ try {
   }
   writeFileSync(join(nifs, 'probe.nif.mjs'), 'export function nif() { return []; }\n');
   writeFileSync(join(beams, 'beside.nif.mjs'), 'export function nif() { return []; }\n');
+  // Every OTP module compiles, so a hand-assembled BEAM provides an unsupported instruction.
+  execFileSync('erl', ['-noshell', '-eval',
+    'Is=[{label,1},{func_info,{atom,unsupported_demo},{atom,f},0},{label,2},{trim,2000,0},return], ' +
+    '{ok,B}=beam_asm:module({unsupported_demo,[{f,0}],[],#{},[{function,f,0,2,Is}],3},[],[],[]), ' +
+    `ok=file:write_file("${join(beams, 'unsupported_demo.beam')}",B), halt().`]);
 
   // Default mode: every module on the code path, plus a static document root.
   const base = await serve(['--pa', beams, '--nif-dir', nifs]);
@@ -65,9 +70,9 @@ try {
   assert.deepEqual([head.status, head.type, head.body], [200, 'text/javascript; charset=utf-8', '']);
 
   assert.equal((await get(base, '/modules/lists.mjs')).status, 200);
-  const unsupported = await get(base, '/modules/string.mjs');
+  const unsupported = await get(base, '/modules/unsupported_demo.mjs');
   assert.equal(unsupported.status, 500);
-  assert.match(unsupported.body, /^beam2js: string: .*unsupported instruction/);
+  assert.match(unsupported.body, /^beam2js: unsupported_demo: .*unsupported instruction/);
   for (const path of ['/modules/no_such_module.mjs', '/modules/ordsets.beam', '/modules/..%2Fpackage.mjs',
     '/modules/%2E%2E.mjs', '/modules/.hidden.mjs', '/modules/a%00b.mjs', '/modules/.nif.mjs',
     '/modules/..%2F..%2F..%2Fetc%2Fpasswd', '/modules/no_such.nif.mjs']) {

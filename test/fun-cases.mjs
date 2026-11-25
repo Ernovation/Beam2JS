@@ -19,6 +19,7 @@ try {
   slice.register(rt);
   call.register(rt);
   maps.register(rt);
+  await Promise.all(['maps', 'lists'].map(name => rt.loadModule(name)));
 
   const exported = rt.invoke('fun_slice', 'exported', []);
   assert.equal(rt.isType('is_function', exported), true);

@@ -6,6 +6,7 @@ import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {Runtime} from '../runtime/beam2js.mjs';
+import {runtimeHelperResources} from './runtime-files.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'beam2js-opcodes-'));
 const run = (command, args) => execFileSync(command, args, {encoding: 'utf8', timeout: 30000});
@@ -1236,11 +1237,12 @@ try {
     'ok=file:write_file(filename:join(Dir,"predicate_fail.beam"),B), ' +
     '{module,predicate_fail}=code:load_binary(predicate_fail,"predicate_fail",B), ' +
     'true=predicate_fail:check(1), false=predicate_fail:check(no), halt().', '-extra', dir]);
-  const predicateFail = spawnSync(compiler, [join(dir, 'predicate_fail.beam'), preserved],
-    {encoding: 'utf8', timeout: 30000});
-  assert.notEqual(predicateFail.status, 0);
-  assert.match(predicateFail.stderr, /unsupported instruction \{bif,is_integer,\{f,3\}/);
-  assert.equal(readFileSync(preserved, 'utf8'), 'existing output');
+  // A type-test BIF with a fail label never fails; it returns false like OTP.
+  const predicateFail = join(dir, 'predicate_fail.mjs');
+  run(compiler, [join(dir, 'predicate_fail.beam'), predicateFail]);
+  (await import(pathToFileURL(predicateFail))).register(runtime);
+  assert.equal(runtime.invoke('predicate_fail', 'check', [1n]), runtime.atom('true'));
+  assert.equal(runtime.invoke('predicate_fail', 'check', [runtime.atom('no')]), runtime.atom('false'));
 
   run('erl', ['+S', '1:1', '-noshell', '-eval',
     '[Dir]=init:get_plain_arguments(), ' +
@@ -1253,11 +1255,11 @@ try {
     'true=Module:check(<<>>), false=Module:check(no) end, ' +
     '[{binary_predicate_fail,is_binary},{bits_predicate_fail,is_bitstring}]), halt().', '-extra', dir]);
   for (const [module, op] of [['binary_predicate_fail', 'is_binary'], ['bits_predicate_fail', 'is_bitstring']]) {
-    const invalid = spawnSync(compiler, [join(dir, `${module}.beam`), preserved],
-      {encoding: 'utf8', timeout: 30000});
-    assert.notEqual(invalid.status, 0);
-    assert.match(invalid.stderr, new RegExp(`unsupported instruction \\{bif,${op},\\{f,3\\}`));
-    assert.equal(readFileSync(preserved, 'utf8'), 'existing output');
+    const output = join(dir, `${module}.mjs`);
+    run(compiler, [join(dir, `${module}.beam`), output]);
+    (await import(pathToFileURL(output))).register(runtime);
+    assert.equal(runtime.invoke(module, 'check', [runtime.bitstring([], 0)]), runtime.atom('true'), op);
+    assert.equal(runtime.invoke(module, 'check', [runtime.atom('no')]), runtime.atom('false'), op);
   }
 
   run('erl', ['+S', '1:1', '-noshell', '-eval',
@@ -1301,6 +1303,7 @@ try {
     const resources = new Map([
       ['/', '<!doctype html><title>Opcode tests</title>'],
       ['/runtime.mjs', readFileSync(resolve('runtime/beam2js.mjs'), 'utf8')],
+      ...runtimeHelperResources('/'),
       ['/opcode_tests.mjs', readFileSync(join(dir, 'opcode_tests.mjs'), 'utf8')],
       ['/guards.mjs', readFileSync(join(dir, 'guards.mjs'), 'utf8')],
       ['/bif_predicates.mjs', readFileSync(join(dir, 'bif_predicates.mjs'), 'utf8')],

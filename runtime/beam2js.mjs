@@ -1,3 +1,10 @@
+import {erlangBifs, existingAtoms} from './otp/erlang.mjs';
+import {stdlibBifs} from './otp/stdlib.mjs';
+import {etsBifs} from './otp/ets.mjs';
+import {ertsBifs} from './otp/erts.mjs';
+import {kernelBifs, nativeModules} from './otp/kernel.mjs';
+import {reBifs} from './otp/re.mjs';
+
 const CONS = 1;
 const FLOAT = 2;
 const TUPLE = 3;
@@ -29,6 +36,7 @@ let nextHostHandleId = 0n;
 let nextPidId = 0n;
 let nextReferenceId = 0n;
 const nil = Object.freeze([NIL, null]);
+const externalFuns = new Map();
 const processInfoItems = new Set([
   'registered_name', 'current_function', 'initial_call', 'status', 'messages', 'message_queue_len',
   'links', 'monitors', 'monitored_by', 'dictionary', 'trap_exit', 'error_handler', 'heap_size',
@@ -37,9 +45,6 @@ const processInfoItems = new Set([
   'total_heap_size', 'suspending', 'min_heap_size', 'min_bin_vheap_size', 'max_heap_size',
   'current_location', 'current_stacktrace', 'message_queue_data', 'garbage_collection_info',
   'magic_ref', 'fullsweep_after', 'parent', 'async_dist', 'label', 'priority_messages',
-]);
-const supportedProcessInfoItems = new Set([
-  'registered_name', 'status', 'messages', 'message_queue_len', 'dictionary',
 ]);
 const callableBifs = new Map([
   'is_integer', 'is_number', 'is_atom', 'is_boolean', 'is_float',
@@ -305,6 +310,19 @@ callableBifs.set(JSON.stringify(['get_module_info', 2]), {
     return {type: 'module_info', module: Symbol.keyFor(module), arity: 1, args: [key]};
   },
 });
+for (const [name, arity] of [
+  ['alias', 0], ['alias', 1], ['unalias', 1], ['monitor', 3], ['group_leader', 0], ['group_leader', 2],
+  ['process_info', 1], ['processes', 0], ['send', 3], ['spawn', 2], ['spawn', 4], ['spawn_link', 2],
+  ['spawn_link', 4], ['spawn_monitor', 2], ['spawn_monitor', 4], ['spawn_opt', 2], ['spawn_opt', 3],
+  ['spawn_opt', 4], ['spawn_opt', 5], ['hibernate', 3], ['statistics', 1], ['halt', 0], ['halt', 1],
+  ['halt', 2], ['process_display', 2], ['suspend_process', 1], ['suspend_process', 2], ['resume_process', 1],
+  ['process_flag', 3],
+]) {
+  callableBifs.set(JSON.stringify([name, arity]), {
+    exported: true,
+    run: (rt, args) => ({type: 'process_op', op: `${name}/${arity}`, args}),
+  });
+}
 callableBifs.set(JSON.stringify(['register', 2]), {
   exported: true,
   run: (rt, args) => ({type: 'return', value: rt.registerProcess(...args)}),
@@ -464,6 +482,9 @@ function keyFind(rt, key, position, list) {
   if (cursor !== nil) rt.raiseError(rt.atom('badarg'));
   return null;
 }
+const bundledModules = new Set(['erts_internal', 'persistent_term', 'atomics', 'counters', 'prim_eval', 'maps', 'lists',
+  'beam2js_user']);
+
 const moduleBifs = new Map([['lists', [
   ['reverse', 2, (rt, [list, tail]) => {
     const elements = properList(list);
@@ -504,6 +525,270 @@ function listFromArray(elements, tail = nil) {
   let result = tail;
   for (let i = elements.length - 1; i >= 0; i--) result = Object.freeze([CONS, [elements[i], result]]);
   return result;
+}
+
+// Binary syntax support. Field flag bits: 1 = signed, 2 = little-endian
+// (native is treated as little-endian, as on every common JavaScript host).
+const BS_SIGNED = 1;
+const BS_LITTLE = 2;
+// A match context is internal to compiled code: it lives in registers but is
+// never stored inside a term. Its state is mutable, like BEAM's.
+const MATCH_CONTEXT = 11;
+// ArrayBuffer -> number of bytes in use. A binary whose bytes end at the used
+// mark can be extended in place, as BEAM does for writable binaries.
+const writableBuffers = new WeakMap();
+
+function makeBitstring(bytes, bitLength) {
+  return Object.freeze([BITSTRING, [bytes, bitLength]]);
+}
+
+function readBitsNumber(bytes, position, count) {
+  let value = 0;
+  while (count > 0) {
+    const offset = position & 7;
+    const available = 8 - offset;
+    const take = available < count ? available : count;
+    const chunk = (bytes[position >> 3] >> (available - take)) & ((1 << take) - 1);
+    value = value * (1 << take) + chunk;
+    position += take;
+    count -= take;
+  }
+  return value;
+}
+
+function readBits(bytes, position, count) {
+  if (count <= 48) return BigInt(readBitsNumber(bytes, position, count));
+  let value = 0n;
+  while (count > 0) {
+    const take = count > 48 ? 48 : count;
+    value = (value << BigInt(take)) | BigInt(readBitsNumber(bytes, position, take));
+    position += take;
+    count -= take;
+  }
+  return value;
+}
+
+function decodeInteger(bytes, position, size, flags) {
+  let value;
+  if (flags & BS_LITTLE && size > 8) {
+    const whole = size >> 3;
+    value = 0n;
+    for (let i = 0; i < whole; i++) {
+      value |= BigInt(readBitsNumber(bytes, position + i * 8, 8)) << BigInt(i * 8);
+    }
+    const rest = size & 7;
+    if (rest) value |= BigInt(readBitsNumber(bytes, position + whole * 8, rest)) << BigInt(whole * 8);
+  } else {
+    value = readBits(bytes, position, size);
+  }
+  if (flags & BS_SIGNED && size > 0 && value >= 1n << BigInt(size - 1)) value -= 1n << BigInt(size);
+  return value;
+}
+
+function copyBits(bytes, position, count) {
+  if ((position & 7) === 0) {
+    const start = position >> 3;
+    const view = bytes.subarray(start, start + Math.ceil(count / 8));
+    if ((count & 7) === 0 || (view[view.length - 1] & (0xff >> (count & 7))) === 0) return view;
+    const copy = view.slice();
+    copy[copy.length - 1] &= (0xff << (8 - (count & 7))) & 0xff;
+    return copy;
+  }
+  const writer = new BitWriter(Math.ceil(count / 8));
+  writer.copyBits(bytes, position, count);
+  return writer.bytes.subarray(0, Math.ceil(count / 8));
+}
+
+class BitWriter {
+  constructor(capacity, buffer = null, start = 0, bits = 0) {
+    this.buffer = buffer ?? new ArrayBuffer(Math.max(capacity, 1));
+    this.start = start;
+    this.bits = bits;
+    this.bytes = new Uint8Array(this.buffer, start);
+  }
+
+  ensure(extra) {
+    const needed = Math.ceil((this.bits + extra) / 8);
+    if (needed <= this.bytes.length) return;
+    const buffer = new ArrayBuffer(Math.max(needed * 2, 64));
+    const bytes = new Uint8Array(buffer);
+    bytes.set(this.bytes.subarray(0, Math.ceil(this.bits / 8)));
+    this.buffer = buffer;
+    this.start = 0;
+    this.bytes = bytes;
+  }
+
+  writeNumber(value, count) {
+    // value is a non-negative integer below 2 ** count, with count <= 48.
+    while (count > 0) {
+      const offset = this.bits & 7;
+      const room = 8 - offset;
+      const take = room < count ? room : count;
+      const chunk = Math.floor(value / 2 ** (count - take)) & ((1 << take) - 1);
+      this.bytes[this.bits >> 3] |= chunk << (room - take);
+      this.bits += take;
+      count -= take;
+    }
+  }
+
+  writeInteger(value, size, flags) {
+    this.ensure(size);
+    const modulus = 1n << BigInt(size);
+    let unsigned = value % modulus;
+    if (unsigned < 0n) unsigned += modulus;
+    if (flags & BS_LITTLE && size > 8) {
+      const whole = size >> 3;
+      for (let i = 0; i < whole; i++) {
+        this.writeNumber(Number((unsigned >> BigInt(i * 8)) & 0xffn), 8);
+      }
+      const rest = size & 7;
+      if (rest) this.writeNumber(Number(unsigned >> BigInt(whole * 8)), rest);
+      return;
+    }
+    if (size <= 48) {
+      this.writeNumber(Number(unsigned), size);
+      return;
+    }
+    let remaining = size;
+    while (remaining > 0) {
+      const take = remaining % 48 || 48;
+      remaining -= take;
+      this.writeNumber(Number((unsigned >> BigInt(remaining)) & ((1n << BigInt(take)) - 1n)), take);
+    }
+  }
+
+  copyBits(bytes, position, count) {
+    this.ensure(count);
+    if ((this.bits & 7) === 0 && (position & 7) === 0) {
+      const whole = count >> 3;
+      this.bytes.set(bytes.subarray(position >> 3, (position >> 3) + whole), this.bits >> 3);
+      this.bits += whole * 8;
+      position += whole * 8;
+      count -= whole * 8;
+    }
+    while (count > 0) {
+      const take = count > 24 ? 24 : count;
+      this.writeNumber(readBitsNumber(bytes, position, take), take);
+      position += take;
+      count -= take;
+    }
+  }
+
+  writeBytes(values) {
+    this.ensure(values.length * 8);
+    for (const value of values) this.writeNumber(value, 8);
+  }
+
+  finish(writable) {
+    const length = Math.ceil(this.bits / 8);
+    const bytes = new Uint8Array(this.buffer, this.start, length);
+    if (writable) writableBuffers.set(this.buffer, this.start + length);
+    return makeBitstring(bytes, this.bits);
+  }
+}
+
+function encodeUtf(codepoint, type, flags) {
+  if (typeof codepoint !== 'bigint' || codepoint < 0n || codepoint > 0x10ffffn ||
+      (codepoint >= 0xd800n && codepoint <= 0xdfffn)) return null;
+  const value = Number(codepoint);
+  if (type === 'utf8') {
+    if (value < 0x80) return [value];
+    if (value < 0x800) return [0xc0 | (value >> 6), 0x80 | (value & 0x3f)];
+    if (value < 0x10000) return [0xe0 | (value >> 12), 0x80 | ((value >> 6) & 0x3f), 0x80 | (value & 0x3f)];
+    return [0xf0 | (value >> 18), 0x80 | ((value >> 12) & 0x3f), 0x80 | ((value >> 6) & 0x3f), 0x80 | (value & 0x3f)];
+  }
+  const little = flags & BS_LITTLE;
+  const unit = (word, size) => {
+    const out = [];
+    for (let i = size - 1; i >= 0; i--) out.push((word >> (i * 8)) & 0xff);
+    return little ? out.reverse() : out;
+  };
+  if (type === 'utf32') return unit(value, 4);
+  if (value < 0x10000) return unit(value, 2);
+  const rest = value - 0x10000;
+  return [...unit(0xd800 | (rest >> 10), 2), ...unit(0xdc00 | (rest & 0x3ff), 2)];
+}
+
+function decodeUtf(context, type, flags) {
+  const {bytes, size} = context;
+  let position = context.position;
+  const available = size - position;
+  const byteAt = offset => readBitsNumber(bytes, position + offset * 8, 8);
+  if (type === 'utf8') {
+    if (available < 8) return null;
+    const first = byteAt(0);
+    let length;
+    let value;
+    if (first < 0x80) return [first, 8];
+    if (first >= 0xc2 && first < 0xe0) { length = 2; value = first & 0x1f; }
+    else if (first >= 0xe0 && first < 0xf0) { length = 3; value = first & 0x0f; }
+    else if (first >= 0xf0 && first < 0xf5) { length = 4; value = first & 0x07; }
+    else return null;
+    if (available < length * 8) return null;
+    for (let i = 1; i < length; i++) {
+      const next = byteAt(i);
+      if ((next & 0xc0) !== 0x80) return null;
+      value = (value << 6) | (next & 0x3f);
+    }
+    if ((length === 3 && value < 0x800) || (length === 4 && (value < 0x10000 || value > 0x10ffff)) ||
+        (value >= 0xd800 && value <= 0xdfff)) return null;
+    return [value, length * 8];
+  }
+  const word = (offset, count) => {
+    let value = 0;
+    for (let i = 0; i < count; i++) {
+      const byte = byteAt(offset + i);
+      value += flags & BS_LITTLE ? byte * 2 ** (8 * i) : byte * 2 ** (8 * (count - 1 - i));
+    }
+    return value;
+  };
+  if (type === 'utf32') {
+    if (available < 32) return null;
+    const value = word(0, 4);
+    if (value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) return null;
+    return [value, 32];
+  }
+  if (available < 16) return null;
+  const high = word(0, 2);
+  if (high < 0xd800 || high > 0xdfff) return [high, 16];
+  if (high > 0xdbff || available < 32) return null;
+  const low = word(2, 2);
+  if (low < 0xdc00 || low > 0xdfff) return null;
+  return [0x10000 + ((high - 0xd800) << 10) + (low - 0xdc00), 32];
+}
+
+// IEEE 754 binary16 encoding with round-to-nearest-even; overflow gives infinity, as in OTP.
+function halfFloatBits(number) {
+  const sign = number < 0 || Object.is(number, -0) ? 0x8000 : 0;
+  let magnitude = Math.abs(number);
+  if (magnitude === 0) return sign;
+  if (magnitude < 2 ** -14) {
+    const fraction = roundEven(magnitude / 2 ** -24);
+    return sign | fraction;
+  }
+  let exponent = Math.floor(Math.log2(magnitude));
+  if (2 ** exponent > magnitude) exponent--;
+  if (2 ** (exponent + 1) <= magnitude) exponent++;
+  let fraction = roundEven((magnitude / 2 ** exponent - 1) * 1024);
+  if (fraction === 1024) {
+    fraction = 0;
+    exponent++;
+  }
+  if (exponent > 15) return sign | 0x7c00;
+  return sign | ((exponent + 15) << 10) | fraction;
+}
+
+function roundEven(value) {
+  const floor = Math.floor(value);
+  const difference = value - floor;
+  if (difference > 0.5 || (difference === 0.5 && floor % 2 === 1)) return floor + 1;
+  return floor;
+}
+
+function segmentBits(size, unit) {
+  if (typeof size !== 'bigint' || size < 0n) return null;
+  const bits = size * BigInt(unit);
+  return bits > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(bits);
 }
 
 function isAtom(value) {
@@ -588,7 +873,12 @@ export class Runtime {
   #pidProcesses = new WeakMap();
   #localPids = new WeakSet();
   #livePids = new WeakSet();
+  #pidsById = new Map();
+  #aliases = new Map();
+  #halted = false;
+  #onHalt;
   #registered = new Map();
+  #stdout;
   #ready = [];
   #waiting = new Set(); // Keep blocked processes alive even without an external PID reference.
   #readyHead = 0;
@@ -610,8 +900,14 @@ export class Runtime {
   constructor({schedulers = 1, reductionLimit = 1000,
     moduleBaseURL = globalThis.document?.baseURI ?? new URL('../', import.meta.url),
     onProcessError = (pid, error) => console.error('Erlang-spawned process failed:', error),
+    onHalt = status => {
+      if (globalThis.process?.exit) globalThis.process.exit(typeof status === 'number' ? status : 1);
+    },
     clock = {now: () => performance.now(), setTimeout: (callback, delay) => setTimeout(callback, delay),
-      clearTimeout: handle => clearTimeout(handle)}} = {}) {
+      clearTimeout: handle => clearTimeout(handle)},
+    arguments: initArguments = {root: ['/'], progname: ['erl'], home: ['/']},
+    plainArguments = [],
+    stdout = defaultStdout()} = {}) {
     if (!Number.isSafeInteger(schedulers) || schedulers < 1 ||
         !Number.isSafeInteger(reductionLimit) || reductionLimit < 1) {
       throw new RangeError('schedulers and reductionLimit must be positive safe integers');
@@ -622,65 +918,41 @@ export class Runtime {
     this.#schedulerCount = schedulers;
     this.#reductionLimit = reductionLimit;
     this.#onProcessError = onProcessError;
+    if (typeof onHalt !== 'function') throw new TypeError('onHalt must be a function');
+    this.#onHalt = onHalt;
     this.#clock = clock;
     this.#moduleBaseURL = new URL(moduleBaseURL);
+    if (typeof initArguments !== 'object' || initArguments === null ||
+        Object.values(initArguments).some(values => !Array.isArray(values)) || !Array.isArray(plainArguments)) {
+      throw new TypeError('arguments must map flags to arrays, and plainArguments must be an array');
+    }
+    // init:get_arguments/0 flags and init:get_plain_arguments/0.
+    this.initArguments = initArguments;
+    this.plainArguments = plainArguments;
+    if (typeof stdout !== 'function') throw new TypeError('stdout must be a function');
+    this.#stdout = stdout;
     this.modules = new Map();
-    this.registerMapsModule();
   }
 
-  registerMapsModule() {
-    const rt = this;
-    const requireMap = value => {
-      if (!rt.isType('is_map', value)) rt.raiseError(rt.atom('badmap'));
-    };
-    const erlList = values => {
-      let result = rt.nil();
-      for (let i = values.length - 1; i >= 0; i--) result = rt.cons(values[i], result);
-      return result;
-    };
-    const erlPairs = pairs => {
-      let result = rt.nil();
-      for (let i = pairs.length - 1; i >= 0; i--) {
-        result = rt.cons(rt.tuple(pairs[i]), result);
-      }
-      return result;
-    };
-    rt.registerModule(26, 'maps', [
-      {name: 'new', arity: 0, exported: true, run: () => ({type: 'return', value: rt.map()})},
-      {name: 'size', arity: 1, exported: true, run: (r, [value]) => { requireMap(value); return {type: 'return', value: rt.mapSize(value)}; }},
-      {name: 'is_key', arity: 2, exported: true, run: (r, [key, value]) => { requireMap(value); return {type: 'return', value: rt.atom(rt.mapGet(value, key) !== null ? 'true' : 'false')}; }},
-      {name: 'get', arity: 2, exported: true, run: (r, [key, value]) => { requireMap(value); const found = rt.mapGet(value, key); if (found === null) rt.raiseError(rt.tuple([rt.atom('badkey'), key])); return {type: 'return', value: found}; }},
-      {name: 'get', arity: 3, exported: true, run: (r, [key, value, fallback]) => { requireMap(value); const found = rt.mapGet(value, key); return {type: 'return', value: found === null ? fallback : found}; }},
-      {name: 'find', arity: 2, exported: true, run: (r, [key, value]) => { requireMap(value); const found = rt.mapGet(value, key); return {type: 'return', value: found === null ? rt.atom('error') : rt.tuple([rt.atom('ok'), found])}; }},
-      {name: 'put', arity: 3, exported: true, run: (r, [key, value, map]) => { requireMap(map); return {type: 'return', value: rt.mapPut(map, [[key, value]])}; }},
-      {name: 'update', arity: 3, exported: true, run: (r, [key, value, map]) => ({type: 'return', value: rt.mapUpdate(map, key, value)})},
-      {name: 'remove', arity: 2, exported: true, run: (r, [key, map]) => ({type: 'return', value: rt.mapRemove(map, [key])})},
-      {name: 'take', arity: 2, exported: true, run: (r, [key, map]) => { requireMap(map); const found = rt.mapGet(map, key); return {type: 'return', value: found === null ? rt.atom('error') : rt.tuple([found, rt.mapRemove(map, [key])])}; }},
-      {name: 'keys', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: erlList(rt.mapEntries(map).map(([key]) => key))}; }},
-      {name: 'values', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: erlList(rt.mapEntries(map).map(([, value]) => value))}; }},
-      {name: 'to_list', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: erlPairs(rt.mapEntries(map))}; }},
-      {name: 'from_list', arity: 1, exported: true, run: (r, [list]) => { const entries = []; let cursor = list; while (r.isType('is_nonempty_list', cursor)) { const pair = r.listHead(cursor); if (!r.isType('is_tuple', pair) || r.tupleSize(pair) !== 2) r.raiseError(r.atom('badarg')); entries.push([r.tupleElement(pair, 1), r.tupleElement(pair, 2)]); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: r.map(entries)}; }},
-      {name: 'from_keys', arity: 2, exported: true, run: (r, [value, keys]) => { const entries = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { entries.push([r.listHead(cursor), value]); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: r.map(entries)}; }},
-      {name: 'merge', arity: 2, exported: true, run: (r, [left, right]) => { requireMap(left); requireMap(right); const entries = rt.mapEntries(right); return {type: 'return', value: rt.mapPut(left, entries)}; }},
-      {name: 'with', arity: 2, exported: true, run: (r, [keys, map]) => { requireMap(map); const wanted = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { wanted.push(r.listHead(cursor)); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(rt.mapEntries(map).filter(([key]) => wanted.some(candidate => rt.equalExact(key, candidate))))}; }},
-      {name: 'without', arity: 2, exported: true, run: (r, [keys, map]) => { requireMap(map); const unwanted = []; let cursor = keys; while (r.isType('is_nonempty_list', cursor)) { unwanted.push(r.listHead(cursor)); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.mapRemove(map, unwanted)}; }},
-      {name: 'intersect', arity: 2, exported: true, run: (r, [left, right]) => { requireMap(left); requireMap(right); return {type: 'return', value: rt.map(rt.mapEntries(left).filter(([key]) => rt.mapGet(right, key) !== null))}; }},
-      {name: 'merge_with', arity: 3, exported: true, run: (r, [fun, left, right]) => { requireMap(left); requireMap(right); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const combined = rt.mapEntries(left).map(entry => [entry[0], entry[1]]); for (const [key, rightValue] of rt.mapEntries(right)) { const leftValue = rt.mapGet(left, key); if (leftValue === null) combined.push([key, rightValue]); else { const replacement = rt.invokeFun(fun, [key, leftValue, rightValue]); const index = combined.findIndex(([candidate]) => rt.equalExact(candidate, key)); combined[index] = [key, replacement]; } } return {type: 'return', value: rt.map(combined)}; }},
-      {name: 'intersect_with', arity: 3, exported: true, run: (r, [fun, left, right]) => { requireMap(left); requireMap(right); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const combined = []; for (const [key, leftValue] of rt.mapEntries(left)) { const rightValue = rt.mapGet(right, key); if (rightValue !== null) combined.push([key, rt.invokeFun(fun, [key, leftValue, rightValue])]); } return {type: 'return', value: rt.map(combined)}; }},
-      {name: 'filter', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const kept = rt.mapEntries(map).filter(([key, value]) => rt.equalExact(rt.invokeFun(fun, [key, value]), rt.atom('true'))); return {type: 'return', value: rt.map(kept)}; }},
-      {name: 'filtermap', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const kept = []; for (const [key, value] of rt.mapEntries(map)) { const result = rt.invokeFun(fun, [key, value]); if (rt.equalExact(result, rt.atom('true'))) kept.push([key, value]); else if (rt.isType('is_tuple', result) && rt.tupleSize(result) === 2 && rt.equalExact(rt.tupleElement(result, 1), rt.atom('true'))) kept.push([key, rt.tupleElement(result, 2)]); } return {type: 'return', value: rt.map(kept)}; }},
-      {name: 'map', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const changed = rt.mapEntries(map).map(([key, value]) => [key, rt.invokeFun(fun, [key, value])]); return {type: 'return', value: rt.map(changed)}; }},
-      {name: 'fold', arity: 3, exported: true, run: (r, [fun, initial, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); let accumulator = initial; for (const [key, value] of rt.mapEntries(map)) accumulator = rt.invokeFun(fun, [key, value, accumulator]); return {type: 'return', value: accumulator}; }},
-      {name: 'foreach', arity: 2, exported: true, run: (r, [fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); for (const [key, value] of rt.mapEntries(map)) rt.invokeFun(fun, [key, value]); return {type: 'return', value: rt.atom('ok')}; }},
-      {name: 'groups_from_list', arity: 2, exported: true, run: (r, [fun, list]) => { if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const entries = []; let cursor = list; while (r.isType('is_nonempty_list', cursor)) { const item = r.listHead(cursor); const key = rt.invokeFun(fun, [item]); let index = entries.findIndex(([candidate]) => rt.equalExact(candidate, key)); if (index < 0) { index = entries.length; entries.push([key, []]); } entries[index][1].push(item); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(entries.map(([key, values]) => { let result = rt.nil(); for (let i = values.length - 1; i >= 0; i--) result = rt.cons(values[i], result); return [key, result]; }))}; }},
-      {name: 'groups_from_list', arity: 3, exported: true, run: (r, [keyFun, valueFun, list]) => { if (!rt.isType('is_function', keyFun) || !rt.isType('is_function', valueFun)) rt.raiseError(rt.atom('badfun')); const entries = []; let cursor = list; while (r.isType('is_nonempty_list', cursor)) { const item = r.listHead(cursor); const key = rt.invokeFun(keyFun, [item]); const value = rt.invokeFun(valueFun, [item]); let index = entries.findIndex(([candidate]) => rt.equalExact(candidate, key)); if (index < 0) { index = entries.length; entries.push([key, []]); } entries[index][1].push(value); cursor = r.listTail(cursor); } if (cursor !== r.nil()) r.raiseError(r.atom('badarg')); return {type: 'return', value: rt.map(entries.map(([key, values]) => { let result = rt.nil(); for (let i = values.length - 1; i >= 0; i--) result = rt.cons(values[i], result); return [key, result]; }))}; }},
-      {name: 'update_with', arity: 3, exported: true, run: (r, [key, fun, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const found = rt.mapGet(map, key); if (found === null) rt.raiseError(r.tuple([r.atom('badkey'), key])); return {type: 'return', value: rt.mapUpdate(map, key, rt.invokeFun(fun, [found]))}; }},
-      {name: 'update_with', arity: 4, exported: true, run: (r, [key, fun, initial, map]) => { requireMap(map); if (!rt.isType('is_function', fun)) rt.raiseError(rt.atom('badfun')); const found = rt.mapGet(map, key); return {type: 'return', value: found === null ? rt.mapPut(map, [[key, initial]]) : rt.mapUpdate(map, key, rt.invokeFun(fun, [found]))}; }},
-      {name: 'iterator', arity: 1, exported: true, run: (r, [map]) => { requireMap(map); return {type: 'return', value: rt.tuple([rt.atom('maps_iterator'), map, erlPairs(rt.mapEntries(map))])}; }},
-      {name: 'iterator', arity: 2, exported: true, run: (r, [map, order]) => { requireMap(map); if (!rt.isType('is_atom', order)) rt.raiseError(rt.atom('badarg')); const name = Symbol.keyFor(order); if (!['ordered','reversed','undefined'].includes(name)) rt.raiseError(rt.atom('badarg')); let entries = rt.mapEntries(map); if (name === 'reversed') entries = entries.reverse(); else if (name === 'ordered') entries = entries.slice().sort((left, right) => rt.compare(left[0], right[0])).map(entry => [entry[0], entry[1]]); return {type: 'return', value: rt.tuple([rt.atom('maps_iterator'), map, erlPairs(entries)])}; }},
-      {name: 'next', arity: 1, exported: true, run: (r, [iterator]) => { if (!rt.isType('is_tuple', iterator) || rt.tupleSize(iterator) !== 3 || !rt.equalExact(rt.tupleElement(iterator, 1), rt.atom('maps_iterator'))) rt.raiseError(rt.atom('badarg')); const entries = rt.tupleElement(iterator, 3); if (entries === r.nil()) return {type: 'return', value: rt.atom('none')}; if (!r.isType('is_nonempty_list', entries)) rt.raiseError(rt.atom('badarg')); const pair = r.listHead(entries); const tail = r.listTail(entries); if (!r.isType('is_tuple', pair) || r.tupleSize(pair) !== 2) rt.raiseError(rt.atom('badarg')); const rest = rt.tuple([rt.atom('maps_iterator'), rt.tupleElement(iterator, 2), tail]); return {type: 'return', value: rt.tuple([r.tupleElement(pair, 1), r.tupleElement(pair, 2), rest])}; }},
-      {name: 'is_iterator_valid', arity: 1, exported: true, run: (r, [iterator]) => ({type: 'return', value: rt.atom(rt.isType('is_tuple', iterator) && rt.tupleSize(iterator) === 3 && rt.equalExact(rt.tupleElement(iterator, 1), rt.atom('maps_iterator')) ? 'true' : 'false')})},
-    ]);
+  // Output of the default user IO server.
+  writeStdout(text) {
+    this.#stdout(text);
+  }
+
+  // The group leader of processes that have none: the registered user
+  // process, started on first use.
+  #defaultGroupLeader() {
+    const user = this.#registered.get(this.atom('user'));
+    if (user) return user.pid;
+    const {pid, result} = this.spawnProcess('beam2js_user', 'server', []);
+    result.catch(() => {});
+    this.registerProcess(this.atom('user'), pid);
+    this.#pidProcesses.get(pid).groupLeader = pid;
+    return pid;
+  }
+
+  get moduleBaseURL() {
+    return this.#moduleBaseURL.href;
   }
 
   hostHandle(value) {
@@ -759,13 +1031,42 @@ export class Runtime {
     if (args.length !== this.funArity(value)) {
       this.raiseError(this.tuple([this.atom('badarity'), this.tuple([value, listFromArray(args)])]));
     }
-    return [...data.environment, ...args];
+    return [...args, ...data.environment];
   }
 
   // is_function/2: null when the arity is not a non-negative integer (badarg).
   isFunctionArity(value, arity) {
     if (typeof arity !== 'bigint' || arity < 0n) return null;
     return funs.has(value) && BigInt(this.funArity(value)) === arity;
+  }
+
+  externalFun(module, name, arity) {
+    const key = `${module}:${name}/${arity}`;
+    let fun = externalFuns.get(key);
+    if (!fun) {
+      fun = Object.freeze([FUN, Object.freeze({id: nextFunId++, module, name, arity,
+        environment: Object.freeze([]), external: true})]);
+      externalFuns.set(key, fun);
+    }
+    return fun;
+  }
+
+  // The pid term with the given serial number (as decoded from text or the
+  // external term format). Unknown serials yield pids of no process.
+  lookupPid(id) {
+    const pid = this.#pidsById.get(id)?.deref();
+    if (pid) return pid;
+    const fresh = Object.freeze([PID, id]);
+    this.#pidsById.set(id, new WeakRef(fresh));
+    return fresh;
+  }
+
+  isErlangBif(name, arity) {
+    return isErlangBif(name, arity);
+  }
+
+  lookupRef(id) {
+    return Object.freeze([REFERENCE, id]);
   }
 
   makeRef() {
@@ -1041,6 +1342,11 @@ export class Runtime {
         !(op === 'binary_part' && (args.length === 2 || args.length === 3))) {
       throw new Error(`invalid bitstring BIF: ${op}/${args.length}`);
     }
+    if (op !== 'binary_part' && args[0]?.[0] === MATCH_CONTEXT) {
+      // OTP sizes a match context by the bits that remain unmatched.
+      const {size, position} = args[0][1];
+      return BigInt(op === 'bit_size' ? size - position : Math.ceil((size - position) / 8));
+    }
     for (const value of args) termType(value);
     if (op !== 'binary_part') {
       const bits = bitstrings.get(args[0]);
@@ -1068,6 +1374,218 @@ export class Runtime {
     const stop = length < 0n ? position : end;
     const copy = bytes.slice(Number(start), Number(stop));
     return Object.freeze([BITSTRING, [copy, copy.length * 8]]);
+  }
+
+  bsStartMatch(value) {
+    if (Array.isArray(value) && value[0] === MATCH_CONTEXT) return value;
+    const bits = bitstrings.get(value);
+    if (!bits) return null;
+    return [MATCH_CONTEXT, {bytes: bits[0], size: bits[1], position: 0, source: value}];
+  }
+
+  bsEnsureAtLeast(context, bits, unit) {
+    const remaining = context[1].size - context[1].position;
+    return remaining >= bits && (remaining - bits) % unit === 0;
+  }
+
+  bsEnsureExactly(context, bits) {
+    return context[1].size - context[1].position === bits;
+  }
+
+  bsReadInteger(context, size, flags) {
+    const state = context[1];
+    const value = decodeInteger(state.bytes, state.position, size, flags);
+    state.position += size;
+    return value;
+  }
+
+  bsReadBinary(context, size) {
+    const state = context[1];
+    const bytes = copyBits(state.bytes, state.position, size);
+    state.position += size;
+    return makeBitstring(bytes, size);
+  }
+
+  bsSkip(context, size) {
+    context[1].position += size;
+    return true;
+  }
+
+  bsGetTail(context) {
+    const state = context[1];
+    if (state.position === 0) return state.source;
+    return this.bsReadBinary(context, state.size - state.position);
+  }
+
+  bsGetPosition(context) {
+    return BigInt(context[1].position);
+  }
+
+  bsSetPosition(context, position) {
+    context[1].position = Number(position);
+  }
+
+  bsGetInteger(context, size, unit, flags) {
+    const bits = segmentBits(size, unit);
+    const state = context[1];
+    if (bits === null || state.size - state.position < bits) return null;
+    return this.bsReadInteger(context, bits, flags);
+  }
+
+  bsGetBinary(context, size, unit) {
+    const state = context[1];
+    const remaining = state.size - state.position;
+    const bits = size === 'all' ? remaining : segmentBits(size, unit);
+    if (bits === null || bits > remaining || (size === 'all' && remaining % unit !== 0)) return null;
+    return this.bsReadBinary(context, bits);
+  }
+
+  bsSkipBits(context, size, unit) {
+    const state = context[1];
+    const remaining = state.size - state.position;
+    const bits = size === 'all' ? remaining : segmentBits(size, unit);
+    if (bits === null || bits > remaining || (size === 'all' && remaining % unit !== 0)) return false;
+    state.position += bits;
+    return true;
+  }
+
+  bsGetFloat(context, size, unit, flags) {
+    const bits = segmentBits(size, unit);
+    const state = context[1];
+    if ((bits !== 16 && bits !== 32 && bits !== 64) || state.size - state.position < bits) return null;
+    const bytes = [];
+    for (let i = 0; i < bits / 8; i++) bytes.push(readBitsNumber(state.bytes, state.position + i * 8, 8));
+    if (flags & BS_LITTLE) bytes.reverse();
+    const view = new DataView(Uint8Array.from(bytes).buffer);
+    let value;
+    if (bits === 64) value = view.getFloat64(0);
+    else if (bits === 32) value = view.getFloat32(0);
+    else {
+      const half = view.getUint16(0);
+      const exponent = (half >> 10) & 0x1f;
+      const fraction = half & 0x3ff;
+      const sign = half & 0x8000 ? -1 : 1;
+      value = exponent === 0 ? sign * fraction * 2 ** -24
+        : exponent === 31 ? NaN : sign * (1 + fraction / 1024) * 2 ** (exponent - 15);
+    }
+    if (!Number.isFinite(value)) return null;
+    state.position += bits;
+    return this.float(value);
+  }
+
+  bsGetUtf(context, type, flags) {
+    const decoded = decodeUtf(context[1], type, flags);
+    if (decoded === null) return null;
+    context[1].position += decoded[1];
+    return BigInt(decoded[0]);
+  }
+
+  bsMatchString(context, bits, bytes) {
+    const state = context[1];
+    if (state.size - state.position < bits) return false;
+    for (let i = 0; i < bits; i += 8) {
+      const count = Math.min(8, bits - i);
+      if (readBitsNumber(state.bytes, state.position + i, count) !== bytes[i >> 3] >> (8 - count)) return false;
+    }
+    state.position += bits;
+    return true;
+  }
+
+  // Segments are [type, unit, flags, value, size]; size is a bigint,
+  // 'all' or null. Returns null when construction fails.
+  bsCreate(segments) {
+    let writer;
+    let writable = false;
+    let first = 0;
+    let used;
+    const head = segments[0];
+    if (head && (head[0] === 'append' || head[0] === 'private_append')) {
+      const bits = bitstrings.get(head[3]);
+      if (!bits || bits[1] % head[1] !== 0) return null;
+      const [bytes, length] = bits;
+      writable = true;
+      used = writableBuffers.get(bytes.buffer);
+      if (length % 8 === 0 && used === bytes.byteOffset + bytes.length) {
+        writer = new BitWriter(0, bytes.buffer, bytes.byteOffset, length);
+      } else {
+        used = undefined;
+        writer = new BitWriter(Math.max(64, bytes.length * 2));
+        writer.copyBits(bytes, 0, length);
+      }
+      first = 1;
+    } else {
+      writer = new BitWriter(16);
+    }
+    const original = writer.buffer;
+    const fail = () => {
+      if (used !== undefined) {
+        new Uint8Array(original).fill(0, used, Math.min(original.byteLength,
+          writer.start + Math.ceil(writer.bits / 8)));
+      }
+      return null;
+    };
+    for (let i = first; i < segments.length; i++) {
+      const [type, unit, flags, value, size] = segments[i];
+      if (type === 'integer') {
+        const bits = segmentBits(size, unit);
+        if (bits === null || typeof value !== 'bigint') return fail();
+        writer.writeInteger(value, bits, flags);
+      } else if (type === 'binary' || type === 'string') {
+        const source = bitstrings.get(value);
+        if (!source) return fail();
+        const bits = size === 'all' ? source[1] : segmentBits(size, unit);
+        if (bits === null || bits > source[1] || (size === 'all' && source[1] % unit !== 0)) return fail();
+        writer.copyBits(source[0], 0, bits);
+      } else if (type === 'float') {
+        const bits = segmentBits(size, unit);
+        const number = typeof value === 'bigint' ? Number(value) : floats.get(value);
+        if (number === undefined || !Number.isFinite(number) ||
+            (bits !== 16 && bits !== 32 && bits !== 64)) return fail();
+        const view = new DataView(new ArrayBuffer(8));
+        if (bits === 64) view.setFloat64(0, number);
+        else if (bits === 32) view.setFloat32(0, number);
+        else view.setUint16(0, halfFloatBits(number));
+        const bytes = Array.from(new Uint8Array(view.buffer, 0, bits / 8));
+        writer.writeBytes(flags & BS_LITTLE ? bytes.reverse() : bytes);
+      } else if (type === 'utf8' || type === 'utf16' || type === 'utf32') {
+        const bytes = encodeUtf(value, type, flags);
+        if (bytes === null) return fail();
+        writer.writeBytes(bytes);
+      } else {
+        throw new Error(`unsupported binary segment type: ${type}`);
+      }
+    }
+    return writer.finish(writable);
+  }
+
+  // Runs a BIF from compiled guard or body code; only BIFs that return a value directly are allowed.
+  callBif(name, args, pid) {
+    const bif = callableBifs.get(JSON.stringify([name, args.length]));
+    if (!bif) throw new Error(`undefined or unsupported function: erlang:${name}/${args.length}`);
+    const action = bif.run(this, args, undefined, {remaining: 1}, pid);
+    if (action.type !== 'return') throw new Error(`BIF erlang:${name}/${args.length} cannot run inline`);
+    return action.value;
+  }
+
+  guardBif(name, args, pid) {
+    try {
+      return this.callBif(name, args, pid);
+    } catch (error) {
+      if (error instanceof ErlangError) return null;
+      throw error;
+    }
+  }
+
+  updateRecord(record, updates) {
+    const elements = tuples.get(record);
+    if (!elements) this.raiseError(this.tuple([this.atom('badrecord'), record]));
+    const copy = elements.slice();
+    for (const [position, value] of updates) copy[position - 1] = value;
+    return this.tuple(copy);
+  }
+
+  isMatchContext(value) {
+    return Array.isArray(value) && value[0] === MATCH_CONTEXT;
   }
 
   read(registers, index) {
@@ -1219,9 +1737,16 @@ export class Runtime {
           pending.push([elements[i], otherElements[i]]);
         }
       } else if (type === 'fun') {
-        if (funs.get(a).id !== funs.get(b).id) return false;
+        const x = funs.get(a);
+        const y = funs.get(b);
+        if (x.id === y.id) continue;
+        if (Boolean(x.external) !== Boolean(y.external) || x.module !== y.module || x.name !== y.name ||
+            x.arity !== y.arity || x.environment.length !== y.environment.length) return false;
+        for (let i = x.environment.length - 1; i >= 0; i--) pending.push([x.environment[i], y.environment[i]]);
       } else if (type === 'bitstring') {
         if (compareBitstrings(a, b) !== 0) return false;
+      } else if (type === 'pid' || type === 'reference') {
+        if (a[1] !== b[1]) return false;
       } else {
         return false;
       }
@@ -1234,8 +1759,9 @@ export class Runtime {
   }
 
   compare(left, right) {
-    const rank = {integer: 0, float: 0, atom: 1, reference: 2, host_handle: 3, pid: 4,
-      tuple: 5, map: 6, fun: 7, nil: 8, cons: 9, bitstring: 10};
+    // Host handles take the place of ports in the term order.
+    const rank = {integer: 0, float: 0, atom: 1, reference: 2, fun: 3, host_handle: 4, pid: 5,
+      tuple: 6, map: 7, nil: 8, cons: 9, bitstring: 10};
     const pending = [[left, right]];
     while (pending.length) {
       const [a, b] = pending.pop();
@@ -1263,7 +1789,13 @@ export class Runtime {
       } else if (aType === 'fun') {
         const x = funs.get(a);
         const y = funs.get(b);
-        if (x.id !== y.id) return x.id < y.id ? -1 : 1;
+        if (x.id === y.id) continue;
+        if (Boolean(x.external) !== Boolean(y.external)) return x.external ? 1 : -1;
+        const order = this.compare(Symbol.for(x.module), Symbol.for(y.module)) ||
+          this.compare(Symbol.for(x.name), Symbol.for(y.name)) || x.arity - y.arity ||
+          x.environment.length - y.environment.length;
+        if (order !== 0) return order < 0 ? -1 : 1;
+        for (let i = x.environment.length - 1; i >= 0; i--) pending.push([x.environment[i], y.environment[i]]);
       } else if (aType === 'atom') {
         const leftChars = Symbol.keyFor(a)[Symbol.iterator]();
         const rightChars = Symbol.keyFor(b)[Symbol.iterator]();
@@ -1326,6 +1858,7 @@ export class Runtime {
       case 'is_tuple': return actual === 'tuple';
       case 'is_pid': return actual === 'pid';
       case 'is_reference': return actual === 'reference';
+      case 'is_port': return false;
       case 'is_function': return actual === 'fun';
       case 'is_fun': return actual === 'fun';
       case 'is_map': return actual === 'map';
@@ -1337,10 +1870,12 @@ export class Runtime {
     }
   }
 
-  registerModule(version, name, functions, {onLoad} = {}) {
+  registerModule(version, name, functions, {onLoad, atoms = []} = {}) {
     if (version !== 26) {
       throw new Error(`unsupported runtime ABI ${version}`);
     }
+    existingAtoms.add(name);
+    for (const atom of atoms) existingAtoms.add(atom);
     if (this.modules.has(name)) throw new Error(`module already registered: ${name}`);
     const table = new Map();
     for (const fn of functions) {
@@ -1350,10 +1885,7 @@ export class Runtime {
     }
     for (const [bifName, arity, run] of moduleBifs.get(name) ?? []) {
       const key = JSON.stringify([bifName, arity]);
-      table.set(key, {
-        name: bifName, arity, exported: table.get(key)?.exported ?? true,
-        run: (rt, args) => ({type: 'return', value: run(rt, args)}),
-      });
+      table.set(key, {...moduleBifEntry(bifName, arity, run), exported: table.get(key)?.exported ?? true});
     }
     for (const arity of [0, 1]) {
       const key = JSON.stringify(['module_info', arity]);
@@ -1371,6 +1903,23 @@ export class Runtime {
     if (onLoad !== undefined) this.#onLoads.set(name, onLoad);
   }
 
+  // Modules come from the module root; the OTP modules bundled with the
+  // runtime (runtime/otp/lib) are the fallback.
+  async #importModule(name) {
+    if (nativeModules.has(name)) return {register: rt => rt.registerModule(26, name, [])};
+    const url = new URL(`${encodeURIComponent(name)}.mjs`, this.#moduleBaseURL).href;
+    if (!bundledModules.has(name)) return import(url);
+    try {
+      return await import(url);
+    } catch (error) {
+      try {
+        return await import(new URL(`./otp/lib/${name}.mjs`, import.meta.url).href);
+      } catch {
+        throw error;
+      }
+    }
+  }
+
   loadModule(name) {
     if (typeof name !== 'string' || !name) throw new TypeError('module name must be a nonempty string');
     if (this.#moduleLoads.has(name)) return this.#moduleLoads.get(name);
@@ -1378,7 +1927,7 @@ export class Runtime {
     const loading = Promise.resolve().then(async () => {
       try {
         if (!this.modules.has(name)) {
-          const source = await import(new URL(`${encodeURIComponent(name)}.mjs`, this.#moduleBaseURL).href);
+          const source = await this.#importModule(name);
           if (typeof source.register !== 'function') throw new TypeError(`module ${name} has no register function`);
           await source.register(this);
           if (!this.modules.has(name)) throw new Error(`module ${name} did not register itself`);
@@ -1481,6 +2030,17 @@ export class Runtime {
     return loading;
   }
 
+  // A call to a missing function raises error:undef with the call on top of
+  // the stacktrace; the message keeps the diagnostic for uncaught failures.
+  #undefError(process, message, cause) {
+    const call = this.tuple([this.atom(process.module), this.atom(process.name),
+      listFromArray(process.args), this.nil()]);
+    const error = new ErlangError(this.atom('undef'), 'error', this.cons(call, this.nil()));
+    error.message = message;
+    if (cause) error.cause = cause;
+    return error;
+  }
+
   #suspendForLoad(process, promise, resume) {
     if (!process.scheduled) throw new Error('synchronous invocation cannot load code; use invokeAsync or loadModule');
     promise.then(value => {
@@ -1566,16 +2126,15 @@ export class Runtime {
     } else {
       items.push(itemSpec);
     }
-    let unsupported;
     for (const item of items) {
       const pair = tuples.get(item);
       if (pair?.length === 2 && pair[0] === this.atom('dictionary')) continue;
       if (!isAtom(item) || !processInfoItems.has(Symbol.keyFor(item))) this.raiseError(this.atom('badarg'));
-      if (!supportedProcessInfoItems.has(Symbol.keyFor(item))) unsupported ??= Symbol.keyFor(item);
     }
     const process = this.#pidProcesses.get(pid);
     if (!process || process.status === 'completed' || process.status === 'failed') return this.atom('undefined');
-    if (unsupported !== undefined) throw new Error(`unsupported process_info item: ${unsupported}`);
+    const mfa = (module, name, arity) => this.tuple([this.atom(module), this.atom(name), BigInt(arity)]);
+    const pidList = set => listFromArray([...set]);
     const info = item => {
       const pair = tuples.get(item);
       if (pair) return this.tuple([item, this.#processDictionary(process, 'get', [pair[1]])]);
@@ -1593,7 +2152,48 @@ export class Runtime {
           return this.tuple([item, messages]);
         }
         case 'dictionary': return this.tuple([item, this.#processDictionary(process, 'get', [])]);
-        default: throw new Error('invalid process_info item');
+        case 'current_function':
+          return this.tuple([item, process.module === undefined ? this.atom('undefined')
+            : mfa(process.module, process.name, process.fn?.arity ?? process.args?.length ?? 0)]);
+        case 'current_location':
+          return this.tuple([item, this.tuple([
+            this.atom(process.module ?? 'undefined'), this.atom(process.name ?? 'undefined'),
+            BigInt(process.fn?.arity ?? process.args?.length ?? 0), nil])]);
+        case 'current_stacktrace': return this.tuple([item, nil]);
+        case 'initial_call': return this.tuple([item, mfa(...process.initialCall)]);
+        case 'links': return this.tuple([item, pidList(process.links)]);
+        case 'monitors':
+          return this.tuple([item, listFromArray([...process.monitors.values()].map(target =>
+            this.tuple([this.atom('process'), target])))]);
+        case 'monitored_by': return this.tuple([item, pidList(new Set(process.monitoredBy.values()))]);
+        case 'trap_exit': return this.tuple([item, this.atom(process.trapExit ? 'true' : 'false')]);
+        case 'group_leader': return this.tuple([item, process.groupLeader ?? this.#defaultGroupLeader()]);
+        case 'error_handler': return this.tuple([item, this.atom('error_handler')]);
+        case 'priority': return this.tuple([item, this.atom('normal')]);
+        case 'message_queue_data': return this.tuple([item, this.atom('on_heap')]);
+        case 'parent': return this.tuple([item, process.parent ?? this.atom('undefined')]);
+        case 'label': return this.tuple([item, this.atom('undefined')]);
+        case 'async_dist':
+        case 'magic_ref':
+        case 'trace':
+          return this.tuple([item, Symbol.keyFor(item) === 'trace' ? 0n : this.atom('false')]);
+        case 'sequential_trace_token':
+        case 'binary':
+        case 'last_calls':
+        case 'suspending':
+        case 'priority_messages':
+          return this.tuple([item, Symbol.keyFor(item) === 'last_calls' ? this.atom('false') : nil]);
+        case 'garbage_collection':
+        case 'garbage_collection_info':
+          return this.tuple([item, nil]);
+        case 'backtrace': return this.tuple([item, this.bitstring(new Uint8Array(0), 0)]);
+        case 'max_heap_size':
+          return this.tuple([item, this.map([[this.atom('size'), 0n], [this.atom('kill'), this.atom('true')],
+            [this.atom('error_logger'), this.atom('true')], [this.atom('include_shared_binaries'), this.atom('false')]])]);
+        case 'fullsweep_after': return this.tuple([item, 65535n]);
+        case 'min_heap_size': return this.tuple([item, 233n]);
+        case 'min_bin_vheap_size': return this.tuple([item, 46422n]);
+        default: return this.tuple([item, 0n]);
       }
     };
     if (!list) return info(items[0]);
@@ -1764,7 +2364,21 @@ export class Runtime {
       this.#deliverMessage(process, message);
       return message;
     }
-    if (pids.has(destination)) throw new Error('sending to a non-local PID is unsupported');
+    if (references.has(destination)) {
+      const owner = this.#aliases.get(destination[1]);
+      if (owner) {
+        if (owner.aliases?.get(destination[1]) === 'reply_demonitor') {
+          this.#removeAlias(destination);
+          this.#demonitorProcess(owner, destination, nil);
+        }
+        this.#deliverMessage(owner, message);
+      }
+      return message;
+    }
+    if (pids.has(destination)) {
+      if (this.#pidsById.get(destination[1])?.deref() === destination) return message;
+      throw new Error('sending to a non-local PID is unsupported');
+    }
     const address = tuples.get(destination);
     if (address?.length === 2 && isAtom(address[0]) && isAtom(address[1])) {
       throw new Error('sending to a registered name on a node is unsupported');
@@ -1955,11 +2569,13 @@ export class Runtime {
     }
     const pid = Object.freeze([PID, nextPidId++]);
     this.#localPids.add(pid);
+    this.#pidsById.set(pid[1], new WeakRef(pid));
     this.#livePids.add(pid);
     const process = {
       pid, module, name, args: args.slice(), external: true, fn: undefined, state: undefined,
       continuations: [], mailbox: [], dictionary: [], receiveIndex: 0, receiveChecked: false, status: 'runnable',
       trapExit: false, links: new Set(), monitors: new Map(), monitoredBy: new Map(),
+      initialCall: [module, name, args.length], groupLeader: undefined,
     };
     this.#pidProcesses.set(pid, process);
     return process;
@@ -1987,11 +2603,16 @@ export class Runtime {
     handle.result.catch(error => {
       if (!(error instanceof ErlangError && error.erlangClass === 'exit')) this.#onProcessError(handle.pid, error);
     });
+    child.groupLeader = process.groupLeader ?? this.#defaultGroupLeader();
+    child.parent = process.pid;
     if (action.link) {
       process.links.add(child.pid);
       child.links.add(process.pid);
     }
-    if (action.monitor) return this.tuple([child.pid, this.#monitorProcess(process, this.atom('process'), child.pid)]);
+    if (action.monitor) {
+      const reference = this.#monitorProcess(process, this.atom('process'), child.pid, action.monitorOptions ?? nil);
+      return this.tuple([child.pid, reference]);
+    }
     return child.pid;
   }
 
@@ -2099,7 +2720,10 @@ export class Runtime {
       if (!watcher) continue;
       watcher.monitors.delete(reference);
       const object = process.monitorNames?.get(reference) ?? process.pid;
-      this.#deliverMessage(watcher, this.tuple([this.atom('DOWN'), reference, this.atom('process'), object, reason]));
+      const tag = watcher.monitorTags?.get(reference) ?? this.atom('DOWN');
+      watcher.monitorTags?.delete(reference);
+      if (watcher.aliases?.get(reference[1]) !== 'explicit_unalias') this.#removeAlias(reference);
+      this.#deliverMessage(watcher, this.tuple([tag, reference, this.atom('process'), object, reason]));
     }
     process.monitoredBy.clear();
     process.monitorNames = undefined;
@@ -2145,8 +2769,201 @@ export class Runtime {
     return this.atom('true');
   }
 
-  #monitorProcess(process, kind, target) {
+  #properList(value) {
+    const list = properList(value);
+    if (list === null) this.raiseError(this.atom('badarg'));
+    return list;
+  }
+
+  #addAlias(process, reference, mode) {
+    (process.aliases ??= new Map()).set(reference[1], mode);
+    this.#aliases.set(reference[1], process);
+  }
+
+  #removeAlias(reference) {
+    const owner = this.#aliases.get(reference[1]);
+    if (!owner) return false;
+    this.#aliases.delete(reference[1]);
+    owner.aliases?.delete(reference[1]);
+    return true;
+  }
+
+  #spawnArgs(op, args) {
+    // Normalises spawn/2,4, spawn_link/2,4, spawn_monitor/2,4 and spawn_opt/2-5
+    // (node arguments name the local node) into a spawn action.
+    const [name, arity] = op.split('/');
+    let rest = args.slice();
+    const options = name === 'spawn_opt' ? this.#properList(rest.pop()) : [];
+    if ((name === 'spawn_opt' && (arity === '3' || arity === '5')) || (name !== 'spawn_opt' && (arity === '2' || arity === '4'))) {
+      const node = rest.shift();
+      if (!isAtom(node)) this.raiseError(this.atom('badarg'));
+      if (node !== this.atom('nonode@nohost')) this.raiseError(this.atom('notsup'));
+    }
+    const action = rest.length === 1 ? {fun: rest[0]} : {args: rest};
+    if (name === 'spawn_link') action.link = true;
+    if (name === 'spawn_monitor') action.monitor = true;
+    for (const option of options) {
+      if (option === this.atom('link')) action.link = true;
+      else if (option === this.atom('monitor')) action.monitor = true;
+      else if (tuples.get(option)?.length === 2 && tuples.get(option)[0] === this.atom('monitor')) {
+        action.monitor = true;
+        action.monitorOptions = tuples.get(option)[1];
+      } else if (!isAtom(option) && !(tuples.get(option)?.length === 2 && isAtom(tuples.get(option)[0]))) {
+        this.raiseError(this.atom('badarg'));
+      }
+    }
+    return action;
+  }
+
+  #processOperation(process, op, args) {
+    const value = result => ({type: 'return', value: result});
+    switch (op) {
+      case 'alias/0':
+      case 'alias/1': {
+        let mode = 'explicit_unalias';
+        for (const option of op === 'alias/1' ? this.#properList(args[0]) : []) {
+          if (option === this.atom('explicit_unalias') || option === this.atom('reply')) mode = Symbol.keyFor(option);
+          else if (option !== this.atom('priority')) this.raiseError(this.atom('badarg'));
+        }
+        const reference = this.makeRef();
+        this.#addAlias(process, reference, mode === 'reply' ? 'reply_demonitor' : mode);
+        return value(reference);
+      }
+      case 'unalias/1': {
+        const [reference] = args;
+        if (!references.has(reference)) this.raiseError(this.atom('badarg'));
+        if (!process.aliases?.has(reference[1])) return value(this.atom('false'));
+        return value(this.atom(this.#removeAlias(reference) ? 'true' : 'false'));
+      }
+      case 'monitor/3':
+        return value(this.#monitorProcess(process, args[0], args[1], args[2]));
+      case 'group_leader/0':
+        return value(process.groupLeader ?? this.#defaultGroupLeader());
+      case 'group_leader/2': {
+        const [leader, pid] = args;
+        if (!pids.has(leader) || !this.#localPids.has(pid)) this.raiseError(this.atom('badarg'));
+        const target = this.#pidProcesses.get(pid);
+        if (!target || !this.#livePids.has(pid)) this.raiseError(this.atom('badarg'));
+        target.groupLeader = leader;
+        return value(this.atom('true'));
+      }
+      case 'process_info/1': {
+        if (!this.#localPids.has(args[0])) this.raiseError(this.atom('badarg'));
+        const items = ['current_function', 'initial_call', 'status', 'message_queue_len', 'links', 'dictionary',
+          'trap_exit', 'error_handler', 'priority', 'group_leader', 'total_heap_size', 'heap_size', 'stack_size',
+          'reductions', 'garbage_collection', 'suspending'];
+        const info = this.processInfo(args[0], listFromArray(items.map(item => this.atom(item))), process);
+        if (info === this.atom('undefined')) return value(info);
+        const name = this.#pidProcesses.get(args[0])?.registeredName;
+        return value(name === undefined ? info : this.cons(this.tuple([this.atom('registered_name'), name]), info));
+      }
+      case 'processes/0': {
+        const live = [];
+        for (const [id, ref] of this.#pidsById) {
+          const pid = ref.deref();
+          if (!pid) this.#pidsById.delete(id);
+          else if (this.#livePids.has(pid)) live.push(pid);
+        }
+        live.sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+        return value(listFromArray(live));
+      }
+      case 'send/3': {
+        this.#properList(args[2]);
+        this.sendPidMessage(args[0], args[1]);
+        return value(this.atom('ok'));
+      }
+      case 'hibernate/3': {
+        const [module, name, list] = args;
+        const callArgs = properList(list);
+        if (!isAtom(module) || !isAtom(name) || callArgs === null) this.raiseError(this.atom('badarg'));
+        process.continuations = [];
+        process.exceptionHandlers = [];
+        return {type: 'tail', module: Symbol.keyFor(module), name: Symbol.keyFor(name), args: callArgs};
+      }
+      case 'statistics/1':
+        return value(this.#statistics(process, args[0]));
+      case 'halt/0':
+      case 'halt/1':
+      case 'halt/2': {
+        const status = op === 'halt/0' ? 0n : args[0];
+        if (typeof status !== 'bigint' && status !== this.atom('abort') && !this.isType('is_list', status)) {
+          this.raiseError(this.atom('badarg'));
+        }
+        this.#halted = true;
+        this.#onHalt(typeof status === 'bigint' ? Number(status) : status === this.atom('abort') ? 'abort' : 1,
+          status);
+        this.#terminateProcess(process, this.atom('killed'));
+        return value(this.atom('true'));
+      }
+      case 'process_display/2':
+        return value(this.atom('true'));
+      case 'suspend_process/1':
+      case 'suspend_process/2':
+      case 'resume_process/1':
+        if (!this.#localPids.has(args[0])) this.raiseError(this.atom('badarg'));
+        return value(this.atom('true'));
+      case 'process_flag/3':
+        return value(this.atom('false'));
+      default:
+        if (/^spawn/.test(op)) return value(this.#spawnErlang(process, this.#spawnArgs(op, args)));
+        throw new Error(`unknown process operation ${op}`);
+    }
+  }
+
+  #statistics(process, item) {
+    const ms = BigInt(Math.floor(this.#clockNow()));
+    const previous = name => {
+      const last = (process.statistics ??= {})[name] ?? 0n;
+      process.statistics[name] = ms;
+      return last;
+    };
+    switch (isAtom(item) ? Symbol.keyFor(item) : undefined) {
+      case 'runtime':
+      case 'wall_clock':
+        return this.tuple([ms, ms - previous(Symbol.keyFor(item))]);
+      case 'reductions':
+      case 'exact_reductions':
+        return this.tuple([0n, 0n]);
+      case 'run_queue':
+      case 'total_run_queue_lengths':
+      case 'total_run_queue_lengths_all':
+      case 'total_active_tasks':
+      case 'total_active_tasks_all':
+      case 'context_switches':
+        return Symbol.keyFor(item) === 'context_switches' ? this.tuple([0n, 0n]) : 0n;
+      case 'run_queue_lengths':
+      case 'run_queue_lengths_all':
+      case 'active_tasks':
+      case 'active_tasks_all':
+        return this.cons(0n, nil);
+      case 'garbage_collection':
+        return this.tuple([0n, 0n, 0n]);
+      case 'io':
+        return this.tuple([this.tuple([this.atom('input'), 0n]), this.tuple([this.atom('output'), 0n])]);
+      case 'scheduler_wall_time':
+      case 'scheduler_wall_time_all':
+      case 'microstate_accounting':
+        return this.atom('undefined');
+      default:
+        return this.raiseError(this.atom('badarg'));
+    }
+  }
+
+  #monitorProcess(process, kind, target, options = nil) {
     if (!isAtom(kind) || Symbol.keyFor(kind) !== 'process') this.raiseError(this.atom('badarg'));
+    let aliasMode, tag;
+    for (const option of this.#properList(options)) {
+      const pair = tuples.get(option);
+      if (pair?.length !== 2) this.raiseError(this.atom('badarg'));
+      if (pair[0] === this.atom('alias') &&
+          ['explicit_unalias', 'demonitor', 'reply_demonitor'].includes(Symbol.keyFor(pair[1]))) {
+        aliasMode = Symbol.keyFor(pair[1]);
+      } else if (pair[0] === this.atom('tag')) {
+        tag = pair[1];
+      } else {
+        this.raiseError(this.atom('badarg'));
+      }
+    }
     let targetProcess, object = target;
     if (isAtom(target)) {
       targetProcess = this.#registered.get(target);
@@ -2157,12 +2974,15 @@ export class Runtime {
       this.raiseError(this.atom('badarg'));
     }
     const reference = this.makeRef();
+    if (aliasMode) this.#addAlias(process, reference, aliasMode);
     if (!targetProcess || !this.#livePids.has(targetProcess.pid)) {
+      if (aliasMode === 'demonitor' || aliasMode === 'reply_demonitor') this.#removeAlias(reference);
       this.#deliverMessage(process, this.tuple([
-        this.atom('DOWN'), reference, this.atom('process'), object, this.atom('noproc'),
+        tag ?? this.atom('DOWN'), reference, this.atom('process'), object, this.atom('noproc'),
       ]));
       return reference;
     }
+    if (tag !== undefined) (process.monitorTags ??= new Map()).set(reference, tag);
     process.monitors.set(reference, targetProcess.pid);
     targetProcess.monitoredBy.set(reference, process.pid);
     if (isAtom(target)) (targetProcess.monitorNames ??= new Map()).set(reference, object);
@@ -2180,6 +3000,11 @@ export class Runtime {
     }
     if (options !== nil || !references.has(reference)) this.raiseError(this.atom('badarg'));
     const targetPid = process.monitors.get(reference);
+    const tag = process.monitorTags?.get(reference) ?? this.atom('DOWN');
+    process.monitorTags?.delete(reference);
+    if (process.aliases?.has(reference[1]) && process.aliases.get(reference[1]) !== 'explicit_unalias') {
+      this.#removeAlias(reference);
+    }
     if (targetPid !== undefined) {
       process.monitors.delete(reference);
       const target = this.#pidProcesses.get(targetPid);
@@ -2187,7 +3012,7 @@ export class Runtime {
       target?.monitorNames?.delete(reference);
     }
     if (flush) {
-      const down = this.atom('DOWN');
+      const down = tag;
       for (let i = process.mailbox.length - 1; i >= 0; i--) {
         const message = process.mailbox[i];
         if (this.isType('is_tuple', message) && this.tupleSize(message) === 5 &&
@@ -2263,6 +3088,10 @@ export class Runtime {
           errors.push(error);
         }
       }
+    }
+    if (process.aliases) {
+      for (const id of process.aliases.keys()) this.#aliases.delete(id);
+      process.aliases = undefined;
     }
     this.#livePids.delete(process.pid);
     this.#pidProcesses.delete(process.pid);
@@ -2381,22 +3210,24 @@ export class Runtime {
     }
     while (budget.remaining > 0) {
       if (!process.fn) {
-        if (!Array.isArray(process.args) || process.args.some(value => !isTerm(value))) {
+        if (!Array.isArray(process.args) || process.args.some(value => !isTerm(value) && value?.[0] !== MATCH_CONTEXT)) {
           throw new TypeError('arguments must be supported Erlang terms');
         }
         const {external, module, name, args} = process;
         process.fn = external && module === 'erlang' ? callableBifs.get(JSON.stringify([name, args.length])) : undefined;
+        // Native overrides run without waiting for their compiled module.
+        if (!process.fn && !this.modules.has(module)) process.fn = nativeModuleFunction(module, name, args.length);
         if (!process.fn && module !== 'erlang' && process.initializingModule !== module &&
             (!this.modules.has(module) || this.#moduleLoads.has(module) || this.#onLoads.has(module))) {
           const diagnostic = `undefined or unsupported function: ${module}:${name}/${args.length}`;
           if (!process.scheduled) throw new Error(`${diagnostic}; use invokeAsync or loadModule to load code`);
           return this.#suspendForLoad(process, this.#loadDependency(process, module).catch(error => {
-            throw new Error(`${diagnostic}; ${error.message}`, {cause: error});
+            throw this.#undefError(process, `${diagnostic}; ${error.message}`, error);
           }), false);
         }
         if (!process.fn) process.fn = this.modules.get(module)?.get(JSON.stringify([name, args.length]));
         if (!process.fn || (external && !process.fn.exported)) {
-          throw new Error(`undefined or unsupported function: ${module}:${name}/${args.length}`);
+          throw this.#undefError(process, `undefined or unsupported function: ${module}:${name}/${args.length}`);
         }
       }
       const previous = budget.remaining;
@@ -2408,6 +3239,16 @@ export class Runtime {
         if (!process.scheduled) throw new Error('synchronous invocation cannot load a NIF; use invokeAsync');
         return this.#suspendForLoad(process,
           this.#loadNif(process.callingModule, action.name, action.info), true);
+      } else if (action.type === 'load') {
+        const pending = action.modules.filter(name => name !== 'erlang' && name !== process.initializingModule &&
+          (!this.modules.has(name) || this.#moduleLoads.has(name) || this.#onLoads.has(name)));
+        if (pending.length) {
+          if (!process.scheduled) throw new Error('synchronous invocation cannot load code; use invokeAsync or loadModule');
+          return this.#suspendForLoad(process, Promise.all(pending.map(name =>
+            this.#loadDependency(process, name).then(() => null, () => name)))
+            .then(failed => action.done(this, failed.filter(name => name !== null))), true);
+        }
+        action = {type: 'return', value: action.done(this, [])};
       } else if (action.type === 'dictionary') {
         action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
       } else if (action.type === 'spawn') {
@@ -2427,10 +3268,23 @@ export class Runtime {
         process.module = data.module;
         process.name = data.name;
         process.args = callArgs;
-        process.external = false;
+        process.external = Boolean(data.external);
         process.fn = undefined;
         process.state = undefined;
         continue;
+      } else if (action.type === 'process_op') {
+        action = this.#processOperation(process, action.op, action.args);
+        if (action.type === 'tail') {
+          if (process.module !== 'erlang') process.callingModule = process.module;
+          process.module = action.module;
+          process.name = action.name;
+          process.args = action.args;
+          process.external = true;
+          process.tailCaller = undefined;
+          process.fn = undefined;
+          process.state = undefined;
+          continue;
+        }
       } else if (action.type === 'process_flag') {
         action = {type: 'return', value: this.#processFlag(process, action.flag, action.value)};
       } else if (action.type === 'link') {
@@ -2507,4 +3361,65 @@ export class Runtime {
     }
     return {done: false};
   }
+}
+
+function moduleBifEntry(name, arity, run) {
+  return {
+    name, arity, exported: true,
+    run: (rt, args, state, budget, pid) => {
+      const result = run(rt, args, pid);
+      return isModuleBifAction(result) ? result : {type: 'return', value: result};
+    },
+  };
+}
+
+const nativeEntries = new Map();
+function nativeModuleFunction(module, name, arity) {
+  if (!nativeEntries.has(module)) {
+    const entries = new Map();
+    for (const [bifName, bifArity, run] of moduleBifs.get(module) ?? []) {
+      entries.set(`${bifName}/${bifArity}`, moduleBifEntry(bifName, bifArity, run));
+    }
+    nativeEntries.set(module, entries);
+  }
+  return nativeEntries.get(module).get(`${name}/${arity}`);
+}
+
+function defaultStdout() {
+  if (globalThis.process?.stdout?.write) return text => globalThis.process.stdout.write(text);
+  let pending = '';
+  return text => {
+    const lines = (pending + text).split('\n');
+    pending = lines.pop();
+    for (const line of lines) console.log(line);
+  };
+}
+
+function isModuleBifAction(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && typeof value.type === 'string';
+}
+
+moduleBifs.set('ets', etsBifs());
+for (const [module, definitions] of [...stdlibBifs(), ...ertsBifs(), ...kernelBifs(), ...reBifs()]) {
+  moduleBifs.set(module, [...(moduleBifs.get(module) ?? []), ...definitions]);
+}
+for (const [name, arity, fn] of erlangBifs()) {
+  callableBifs.set(JSON.stringify([name, arity]), {
+    exported: true,
+    run: (rt, args, state, budget, pid) => {
+      const result = fn(rt, args, pid);
+      return isModuleBifAction(result) ? result : {type: 'return', value: result};
+    },
+  });
+}
+for (const name of ['true', 'false', 'undefined', 'ok', 'error', 'badarg', 'badarith', 'badmatch', 'function_clause',
+  'case_clause', 'if_clause', 'undef', 'badfun', 'badarity', 'noproc', 'normal', 'kill', 'killed', 'nil', 'infinity',
+  'EXIT', 'DOWN', 'process', 'utf8', 'latin1', 'unicode', 'erlang', 'nonode@nohost', 'timeout_value', 'system_limit',
+  'throw', 'exit', 'badkey', 'badmap', 'badrecord', 'try_clause', 'noconnection', 'nocatch', 'none', 'all',
+  'module', 'name', 'arity', 'env', 'type', 'local', 'external', 'safe', 'used', 'trap_exit', 'self', 'node']) {
+  existingAtoms.add(name);
+}
+
+export function isErlangBif(name, arity) {
+  return callableBifs.has(JSON.stringify([name, arity]));
 }

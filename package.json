@@ -2,8 +2,10 @@
   "name": "beam2js",
   "private": true,
   "scripts": {
-    "test": "npm run --silent test:toolchain && npm run --silent test:execution && npm run --silent test:opcodes && npm run --silent test:bifs && npm run --silent test:maps && npm run --silent test:funs && npm run --silent test:errors && npm run --silent test:links && npm run --silent test:lists && npm run --silent test:loader && npm run --silent test:sudoku && npm run --silent test:server && npm run --silent test:integration && npm run --silent test:browser",
+    "test": "npm run --silent test:toolchain && npm run --silent test:execution && npm run --silent test:opcodes && npm run --silent test:bifs && npm run --silent test:maps && npm run --silent test:funs && npm run --silent test:errors && npm run --silent test:links && npm run --silent test:lists && npm run --silent test:binary && npm run --silent test:otplib && npm run --silent test:shell && npm run --silent test:loader && npm run --silent test:sudoku && npm run --silent test:server && npm run --silent test:integration && npm run --silent test:browser",
+    "build:otplib": "node tools/build-otp-lib.mjs",
     "test:bifs": "node test/bif-inventory.mjs",
+    "test:binary": "node test/binary-cases.mjs",
     "test:browser": "node test/browser.mjs",
     "test:errors": "node test/error-process-cases.mjs",
     "test:execution": "node test/opcodes.mjs",
@@ -14,7 +16,9 @@
     "test:loader": "node test/loader.mjs",
     "test:maps": "node --input-type=module -e \"import('./test/map-cases.mjs').then(({mapChecks}) => mapChecks())\"",
     "test:opcodes": "node test/opcode-ledger.mjs && node test/raw-opcodes.mjs && node test/obsolete-opcodes.mjs",
+    "test:otplib": "node test/otp-lib-cases.mjs",
     "test:server": "node test/server.mjs",
+    "test:shell": "node test/shell-cases.mjs",
     "test:sudoku": "node test/sudoku.mjs",
     "test:toolchain": "node test/toolchain.mjs"
   },

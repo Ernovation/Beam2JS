@@ -175,6 +175,20 @@ before making synchronous calls with `runtime.invoke`. Synchronous `invoke`
 does not download modules or NIFs. Explicit registration is also supported:
 import a generated module and call its `register(runtime)` export.
 
+### Runtime options and standard output
+
+Besides `moduleBaseURL`, `schedulers` and `reductionLimit`, the runtime accepts:
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `stdout` | `process.stdout.write` in Node.js, `console.log` per line in browsers | Receives text written by `io:format` and other output to the default IO server |
+| `arguments` | `{root: ['/'], progname: ['erl'], home: ['/']}` | Values returned by `init:get_argument/1` |
+| `plainArguments` | `[]` | Strings returned by `init:get_plain_arguments/0` |
+
+Processes without a group leader use the IO server registered as `user`,
+which the runtime starts on first use. It writes output to `stdout` and
+answers input requests with `eof`.
+
 ### JavaScript NIFs
 
 An Erlang module can provide fallback functions and load replacements from
@@ -278,6 +292,24 @@ OTP's own `lists.beam` compiles and runs unchanged. OTP implements
 BIFs, so the runtime supplies JavaScript versions of those five when the
 `lists` module is loaded.
 
+OTP's stdlib and compiler modules can be compiled from their installed BEAM
+files and loaded unchanged, including the building blocks of the interactive
+shell: `erl_scan`, `erl_parse`, `erl_lint`, `erl_eval`, `erl_pp`, `io_lib`,
+`io`, `re`, `ets`, `maps`, `sets`, `gb_trees`, `sofs` and friends. Functions
+that OTP implements as BIFs or NIFs (for example in `lists`, `maps`, `ets`,
+`unicode`, `binary`, `persistent_term`, `atomics` and `re`) have JavaScript
+implementations that the runtime installs when the module loads. The runtime
+ships compiled copies of a few core modules in
+[runtime/otp/lib](runtime/otp/lib) and uses them when the module root has
+none; rebuild them with `npm run build:otplib` after changing the compiler.
+`init`, `code` and `net_kernel` are JavaScript modules describing a single,
+non-distributed node.
+
+`re` translates PCRE patterns into JavaScript regular expressions, so a few
+PCRE-only features (branch reset groups `(?|...)`, conditional subpatterns,
+recursion and subroutine calls, `\K` and backtracking verbs such as `(*SKIP)`)
+return compile errors.
+
 This is not a drop-in OTP runtime. Unsupported instructions or operand forms
 reject compilation. Stack traces have no line information. Distributed processes,
 serialization, worker-based parallelism, and many OTP library functions are
@@ -312,8 +344,8 @@ npm test
 
 Each suite can also be run on its own: `npm run test:integration`,
 `test:execution`, `test:opcodes`, `test:bifs`, `test:maps`, `test:funs`,
-`test:errors`, `test:links`, `test:lists`, `test:loader`, `test:sudoku`,
-`test:server` and `test:browser`. `test:server` starts `beam2js serve` and loads both browser
+`test:errors`, `test:links`, `test:lists`, `test:binary`, `test:otplib`,
+`test:shell`, `test:loader`, `test:sudoku`, `test:server` and `test:browser`. `test:server` starts `beam2js serve` and loads both browser
 examples through it in Chromium.
 `test:links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
 and checks that its link, monitor, exit-signal and exception scenarios produce
@@ -321,3 +353,9 @@ the same results in Beam2JS as in OTP.
 `test:lists` compiles OTP's installed `lists.beam` and
 [fixtures/lists_cases.erl](fixtures/lists_cases.erl) and compares every
 exported `lists` function with OTP.
+`test:binary`, `test:otplib` and `test:shell` follow the same approach with
+[fixtures/binary_cases.erl](fixtures/binary_cases.erl),
+[fixtures/otp_lib_cases.erl](fixtures/otp_lib_cases.erl) and
+[fixtures/shell_cases.erl](fixtures/shell_cases.erl); `test:shell` compiles
+the OTP modules that the interactive shell builds on and compares scanning,
+parsing, linting, evaluation, formatting and `re` results with OTP.
