@@ -3,170 +3,262 @@ export function register(runtime) {
   runtime.registerModule(26, "persistent_term", [
     {name: "erase", arity: 1, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "get", arity: 0, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "get", arity: 1, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "get", arity: 2, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "info", arity: 0, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "put", arity: 2, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "put_new", arity: 2, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("undef"); pc = 5; break;
-          case 5: pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("undef");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "nif_error", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "module_info", arity: 0, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("persistent_term"); pc = 5; break;
-          case 5: return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("persistent_term");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "module_info", arity: 1, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[1] = rt.read(x, 0); pc = 5; break;
-          case 5: x[0] = rt.atom("persistent_term"); pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 2), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.read(x, 0);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.atom("persistent_term");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 2), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }

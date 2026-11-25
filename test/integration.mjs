@@ -29,6 +29,46 @@ try {
   (await import(pathToFileURL(output))).register(runtime);
   (await import(pathToFileURL(helperOutput))).register(runtime);
   (await import(pathToFileURL(arithmeticOutput))).register(runtime);
+  run('erl', ['-noshell', '-eval',
+    '[Dir]=init:get_plain_arguments(), {ok,raw_blocks}=' +
+    'compile:file("fixtures/raw_blocks.S",[from_asm,no_postopt,{outdir,Dir}]),halt().', '-extra', dir]);
+  const blocksOutput = join(dir, 'raw_blocks.mjs');
+  run(compiler, [join(dir, 'raw_blocks.beam'), blocksOutput]);
+  const blocks = await import(pathToFileURL(blocksOutput));
+  blocks.register(runtime);
+  let definitions;
+  blocks.register({registerModule(_abi, _name, functions) { definitions = functions; }});
+  const chain = definitions.find(fn => fn.name === 'chain');
+  assert.equal([...chain.run.toString().matchAll(/case \d+:/g)].length, 2,
+    'straight-line instructions must share a case, rather than redispatching each instruction');
+  for (const limit of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    let registers = [42n], state, action, reductions = 0, reads = 0;
+    const rt = {read(x, index) { reads++; return runtime.read(x, index); }};
+    do {
+      const budget = {remaining: limit};
+      action = chain.run(rt, registers, state, budget);
+      reductions += limit - budget.remaining;
+      assert.ok(budget.remaining >= 0, 'a grouped block must not overrun its scheduler budget');
+      if (action.type === 'yield') {
+        registers = action.registers;
+        state = action.state;
+        const paused = chain.run(rt, registers, state, {remaining: 0});
+        assert.deepEqual(paused.state, state, 'zero-budget resumption must preserve the block offset');
+      }
+    } while (action.type === 'yield' && reductions < 20);
+    assert.equal(action.type, 'return');
+    assert.equal(action.value, 42n, 'resuming a block must not replay register writes');
+    assert.equal(reads, 4, 'each register read must execute exactly once');
+    assert.equal(reductions, 7, 'grouping must preserve instruction-level reduction accounting, including no-ops');
+  }
+  const failure = new Error('register read failed');
+  const budget = {remaining: 20};
+  let reads = 0;
+  assert.throws(() => chain.run({read(x, index) {
+    if (++reads === 2) throw failure;
+    return runtime.read(x, index);
+  }}, [42n], undefined, budget), error => error === failure);
+  assert.equal(budget.remaining, 15, 'a failed instruction must not charge for the rest of its block');
   const yes = runtime.atom('yes');
   const no = runtime.atom('no');
   const large = 123456789012345678901234567890n;

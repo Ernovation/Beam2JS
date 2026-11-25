@@ -8,164 +8,351 @@ export function register(runtime) {
   runtime.registerModule(26, "beam2js_shell", [
     {name: "start", arity: 0, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: y = rt.allocate(y, 5); pc = 5; break;
-          case 5: rt.initYregs(y, [0, 1, 2, 3, 4]); pc = 6; break;
-          case 6: x[1] = pid; pc = 7; break;
-          case 7: x[0] = rt.read(x, 1); pc = 8; break;
-          case 8: pc = 9; break;
-          case 9: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "group_leader", args: rt.args(x, 2), external: true, state: {pc: 10, y}};
-          case 10: pc = rt.equalExact(rt.read(x, 0), rt.atom("true")) ? 11 : 79; break;
-          case 11: x[1] = rt.atom("server"); pc = 12; break;
-          case 12: x[2] = rt.nil(); pc = 13; break;
-          case 13: x[0] = rt.atom("beam2js_user"); pc = 14; break;
-          case 14: pc = 15; break;
-          case 15: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "spawn", args: rt.args(x, 3), external: true, state: {pc: 16, y}};
-          case 16: rt.writeY(y, 4, rt.read(x, 0)); pc = 17; break;
-          case 17: x[1] = rt.read(x, 0); pc = 18; break;
-          case 18: x[0] = rt.atom("standard_error"); pc = 19; break;
-          case 19: pc = 20; break;
-          case 20: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "register", args: rt.args(x, 2), external: true, state: {pc: 21, y}};
-          case 21: pc = rt.equalExact(rt.read(x, 0), rt.atom("true")) ? 22 : 76; break;
-          case 22: x[0] = literal(rt, 0); pc = 23; break;
-          case 23: pc = 24; break;
-          case 24: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "gen_event", name: "start", args: rt.args(x, 1), external: true, state: {pc: 25, y}};
-          case 25: rt.writeY(y, 3, rt.read(x, 0)); pc = 26; break;
-          case 26: pc = (value => rt.isType('is_tuple', value) && rt.tupleSize(value) === 2 && rt.equalExact(rt.tupleElement(value, 1), rt.atom("ok")))(rt.read(x, 0)) ? 27 : 73; break;
-          case 27: x[1] = rt.atom("shell_history"); pc = 28; break;
-          case 28: x[2] = rt.atom("disabled"); pc = 29; break;
-          case 29: x[0] = rt.atom("kernel"); pc = 30; break;
-          case 30: pc = 31; break;
-          case 31: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "application", name: "set_env", args: rt.args(x, 3), external: true, state: {pc: 32, y}};
-          case 32: pc = rt.equalExact(rt.read(x, 0), rt.atom("ok")) ? 33 : 70; break;
-          case 33: pc = 34; break;
-          case 34: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "user_drv", name: "start", args: rt.args(x, 0), external: true, state: {pc: 35, y}};
-          case 35: rt.writeY(y, 2, rt.read(x, 0)); pc = 36; break;
-          case 36: pc = rt.isType("is_pid", rt.read(x, 0)) ? 37 : 67; break;
-          case 37: x[0] = rt.atom("user"); pc = 38; break;
-          case 38: pc = 39; break;
-          case 39: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "whereis", args: rt.args(x, 1), external: true, state: {pc: 40, y}};
-          case 40: rt.writeY(y, 1, rt.read(x, 0)); pc = 41; break;
-          case 41: pc = rt.isType("is_pid", rt.read(x, 0)) ? 42 : 64; break;
-          case 42: x[0] = rt.atom("user_drv_reader"); pc = 43; break;
-          case 43: pc = 44; break;
-          case 44: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "whereis", args: rt.args(x, 1), external: true, state: {pc: 45, y}};
-          case 45: rt.writeY(y, 0, rt.read(x, 0)); pc = 46; break;
-          case 46: x[0] = rt.atom("user_drv_writer"); pc = 47; break;
-          case 47: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "whereis", args: rt.args(x, 1), external: true, state: {pc: 48, y}};
-          case 48: pc = 49; break;
-          case 49: x[1] = rt.tupleElement(rt.readY(y, 3), 2); pc = 50; break;
-          case 50: x[0] = rt.cons(rt.read(x, 0), rt.nil()); pc = 51; break;
-          case 51: x[0] = rt.cons(rt.readY(y, 0), rt.read(x, 0)); pc = 52; break;
-          case 52: x[0] = rt.cons(rt.readY(y, 2), rt.read(x, 0)); pc = 53; break;
-          case 53: x[0] = rt.cons(rt.read(x, 1), rt.read(x, 0)); pc = 54; break;
-          case 54: x[0] = rt.cons(rt.readY(y, 4), rt.read(x, 0)); pc = 55; break;
-          case 55: x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0)); pc = 56; break;
-          case 56: x[1] = rt.readY(y, 1); pc = 57; break;
-          case 57: rt.writeY(y, 4, rt.readY(y, 2)); pc = 58; break;
-          case 58: y = rt.trim(y, 4, 1); pc = 59; break;
-          case 59: pc = 60; break;
-          case 60: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "beam2js_shell", name: "-start/0-lc$^0/1-0-", args: rt.args(x, 2), external: false, state: {pc: 61, y}};
-          case 61: x[0] = rt.readY(y, 0); pc = 62; break;
-          case 62: y = rt.deallocate(y, 1); pc = 63; break;
-          case 63: if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)};
-          case 64: pc = 65; break;
-          case 65: pc = 66; break;
-          case 66: rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.atom("false")]));
-          case 67: pc = 68; break;
-          case 68: pc = 69; break;
-          case 69: rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.atom("false")]));
-          case 70: pc = 71; break;
-          case 71: pc = 72; break;
-          case 72: rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)]));
-          case 73: pc = 74; break;
-          case 74: pc = 75; break;
-          case 75: rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)]));
-          case 76: pc = 77; break;
-          case 77: pc = 78; break;
-          case 78: rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)]));
-          case 79: pc = 80; break;
-          case 80: pc = 81; break;
-          case 81: rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)]));
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 7;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.allocate(y, 5);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.initYregs(y, [0, 1, 2, 3, 4]);  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[1] = pid;  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[0] = rt.read(x, 1);  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "group_leader", args: rt.args(x, 2), external: true, state: {pc: 10, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
+          case 10: budget.remaining--; pc = rt.equalExact(rt.read(x, 0), rt.atom("true")) ? 11 : 79; break;
+          case 11: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[1] = rt.atom("server");  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[2] = rt.nil();  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.atom("beam2js_user");  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "spawn", args: rt.args(x, 3), external: true, state: {pc: 16, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 11, offset: end, y, f}, registers: x};
+          }
+          case 16: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); rt.writeY(y, 4, rt.read(x, 0));  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.read(x, 0);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.atom("standard_error");  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "register", args: rt.args(x, 2), external: true, state: {pc: 21, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 16, offset: end, y, f}, registers: x};
+          }
+          case 21: budget.remaining--; pc = rt.equalExact(rt.read(x, 0), rt.atom("true")) ? 22 : 76; break;
+          case 22: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = literal(rt, 0);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "gen_event", name: "start", args: rt.args(x, 1), external: true, state: {pc: 25, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 22, offset: end, y, f}, registers: x};
+          }
+          case 25: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); rt.writeY(y, 3, rt.read(x, 0));  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = (value => rt.isType('is_tuple', value) && rt.tupleSize(value) === 2 && rt.equalExact(rt.tupleElement(value, 1), rt.atom("ok")))(rt.read(x, 0)) ? 27 : 73; break; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 25, offset: end, y, f}, registers: x};
+          }
+          case 27: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 5;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[1] = rt.atom("shell_history");  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[2] = rt.atom("disabled");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.atom("kernel");  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "application", name: "set_env", args: rt.args(x, 3), external: true, state: {pc: 32, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 27, offset: end, y, f}, registers: x};
+          }
+          case 32: budget.remaining--; pc = rt.equalExact(rt.read(x, 0), rt.atom("ok")) ? 33 : 70; break;
+          case 33: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "user_drv", name: "start", args: rt.args(x, 0), external: true, state: {pc: 35, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 33, offset: end, y, f}, registers: x};
+          }
+          case 35: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); rt.writeY(y, 2, rt.read(x, 0));  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_pid", rt.read(x, 0)) ? 37 : 67; break; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 35, offset: end, y, f}, registers: x};
+          }
+          case 37: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.atom("user");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "whereis", args: rt.args(x, 1), external: true, state: {pc: 40, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 37, offset: end, y, f}, registers: x};
+          }
+          case 40: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); rt.writeY(y, 1, rt.read(x, 0));  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_pid", rt.read(x, 0)) ? 42 : 64; break; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 40, offset: end, y, f}, registers: x};
+          }
+          case 42: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.atom("user_drv_reader");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "whereis", args: rt.args(x, 1), external: true, state: {pc: 45, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 42, offset: end, y, f}, registers: x};
+          }
+          case 45: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); rt.writeY(y, 0, rt.read(x, 0));  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("user_drv_writer");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "whereis", args: rt.args(x, 1), external: true, state: {pc: 48, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 45, offset: end, y, f}, registers: x};
+          }
+          case 48: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 13;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.tupleElement(rt.readY(y, 3), 2);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.cons(rt.read(x, 0), rt.nil());  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[0] = rt.cons(rt.readY(y, 0), rt.read(x, 0));  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[0] = rt.cons(rt.readY(y, 2), rt.read(x, 0));  }
+            if (full || start <= 5 && end > 5) { budget.remaining = remaining - (6 - start); x[0] = rt.cons(rt.read(x, 1), rt.read(x, 0));  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); x[0] = rt.cons(rt.readY(y, 4), rt.read(x, 0));  }
+            if (full || start <= 7 && end > 7) { budget.remaining = remaining - (8 - start); x[0] = rt.cons(rt.readY(y, 1), rt.read(x, 0));  }
+            if (full || start <= 8 && end > 8) { budget.remaining = remaining - (9 - start); x[1] = rt.readY(y, 1);  }
+            if (full || start <= 9 && end > 9) { budget.remaining = remaining - (10 - start); rt.writeY(y, 4, rt.readY(y, 2));  }
+            if (full || start <= 10 && end > 10) { budget.remaining = remaining - (11 - start); y = rt.trim(y, 4, 1);  }
+            if (full || start <= 12 && end > 12) { budget.remaining = remaining - (13 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "beam2js_shell", name: "-start/0-lc$^0/1-0-", args: rt.args(x, 2), external: false, state: {pc: 61, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 48, offset: end, y, f}, registers: x};
+          }
+          case 61: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[0] = rt.readY(y, 0);  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); y = rt.deallocate(y, 1);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 61, offset: end, y, f}, registers: x};
+          }
+          case 64: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.atom("false")])); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 64, offset: end, y, f}, registers: x};
+          }
+          case 67: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.atom("false")])); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 67, offset: end, y, f}, registers: x};
+          }
+          case 70: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)])); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 70, offset: end, y, f}, registers: x};
+          }
+          case 73: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)])); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 73, offset: end, y, f}, registers: x};
+          }
+          case 76: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)])); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 76, offset: end, y, f}, registers: x};
+          }
+          case 79: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.tuple([rt.atom("badmatch"), rt.read(x, 0)])); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 79, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "module_info", arity: 0, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[0] = rt.atom("beam2js_shell"); pc = 5; break;
-          case 5: return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 1), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.atom("beam2js_shell");  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 1), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "module_info", arity: 1, exported: true, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: x[1] = rt.read(x, 0); pc = 5; break;
-          case 5: x[0] = rt.atom("beam2js_shell"); pc = 6; break;
-          case 6: return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 2), external: true};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 4;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[1] = rt.read(x, 0);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); x[0] = rt.atom("beam2js_shell");  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); return {type: 'tail', module: "erlang", name: "get_module_info", args: rt.args(x, 2), external: true}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }
     }},
     {name: "-start/0-lc$^0/1-0-", arity: 2, exported: false, run: (rt, x, state, budget, pid) => {
       let pc = state ? state.pc : 3;
+      let offset = state?.offset ?? 0;
       let y = state ? state.y : null;
       const f = state?.f ?? [];
       while (true) {
-        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};
-        budget.remaining--;
+        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};
         switch (pc) {
-          case 0: pc = 1; break;
-          case 1: pc = 2; break;
-          case 2: rt.raiseError(rt.atom('function_clause'));
-          case 3: pc = 4; break;
-          case 4: pc = rt.isType("is_nonempty_list", rt.read(x, 0)) ? 5 : 19; break;
-          case 5: { const list = rt.read(x, 0); x[2] = rt.listHead(list); x[0] = rt.listTail(list); } pc = 6; break;
-          case 6: pc = rt.isType("is_pid", rt.read(x, 2)) ? 7 : 17; break;
-          case 7: y = rt.allocate(y, 2); pc = 8; break;
-          case 8: rt.writeY(y, 0, rt.read(x, 1)); pc = 9; break;
-          case 9: rt.writeY(y, 1, rt.read(x, 0)); pc = 10; break;
-          case 10: x[0] = rt.read(x, 1); pc = 11; break;
-          case 11: x[1] = rt.read(x, 2); pc = 12; break;
-          case 12: pc = 13; break;
-          case 13: if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "group_leader", args: rt.args(x, 2), external: true, state: {pc: 14, y}};
-          case 14: x[1] = rt.readY(y, 0); pc = 15; break;
-          case 15: x[0] = rt.readY(y, 1); pc = 16; break;
-          case 16: y = rt.deallocate(y, 2); return {type: 'tail', module: "beam2js_shell", name: "-start/0-lc$^0/1-0-", args: rt.args(x, 2), external: false};
-          case 17: pc = 18; break;
-          case 18: return {type: 'tail', module: "beam2js_shell", name: "-start/0-lc$^0/1-0-", args: rt.args(x, 2), external: false};
-          case 19: pc = 20; break;
-          case 20: if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)};
+          case 0: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.raiseError(rt.atom('function_clause')); }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 0, offset: end, y, f}, registers: x};
+          }
+          case 3: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_nonempty_list", rt.read(x, 0)) ? 5 : 19; break; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 3, offset: end, y, f}, registers: x};
+          }
+          case 5: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); { const list = rt.read(x, 0); x[2] = rt.listHead(list); x[0] = rt.listTail(list); }  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); pc = rt.isType("is_pid", rt.read(x, 2)) ? 7 : 17; break; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 5, offset: end, y, f}, registers: x};
+          }
+          case 7: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 7;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); y = rt.allocate(y, 2);  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); rt.writeY(y, 0, rt.read(x, 1));  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); rt.writeY(y, 1, rt.read(x, 0));  }
+            if (full || start <= 3 && end > 3) { budget.remaining = remaining - (4 - start); x[0] = rt.read(x, 1);  }
+            if (full || start <= 4 && end > 4) { budget.remaining = remaining - (5 - start); x[1] = rt.read(x, 2);  }
+            if (full || start <= 6 && end > 6) { budget.remaining = remaining - (7 - start); if (y === null) throw new Error('call without allocated stack frame'); return {type: 'call', module: "erlang", name: "group_leader", args: rt.args(x, 2), external: true, state: {pc: 14, y}}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 7, offset: end, y, f}, registers: x};
+          }
+          case 14: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 3;
+            if (full || start <= 0 && end > 0) { budget.remaining = remaining - (1 - start); x[1] = rt.readY(y, 0);  }
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); x[0] = rt.readY(y, 1);  }
+            if (full || start <= 2 && end > 2) { budget.remaining = remaining - (3 - start); y = rt.deallocate(y, 2); return {type: 'tail', module: "beam2js_shell", name: "-start/0-lc$^0/1-0-", args: rt.args(x, 2), external: false}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 14, offset: end, y, f}, registers: x};
+          }
+          case 17: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); return {type: 'tail', module: "beam2js_shell", name: "-start/0-lc$^0/1-0-", args: rt.args(x, 2), external: false}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 17, offset: end, y, f}, registers: x};
+          }
+          case 19: {
+            const start = offset, remaining = budget.remaining, end = start + remaining;
+            offset = 0;
+            const full = start === 0 && end >= 2;
+            if (full || start <= 1 && end > 1) { budget.remaining = remaining - (2 - start); if (y !== null) throw new Error('return with allocated stack frame'); return {type: 'return', value: rt.read(x, 0)}; }
+            budget.remaining = 0;
+            return {type: 'yield', state: {pc: 19, offset: end, y, f}, registers: x};
+          }
           default: throw new Error('invalid BEAM program counter');
         }
       }

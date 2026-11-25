@@ -143,21 +143,70 @@ function(Module, {function, Name, Arity, Entry, Instructions}, Exports, Function
     case maps:find(Entry, Labels) of
         {ok, EntryIndex} ->
             Exported = lists:member({Name, Arity, Entry}, Exports),
+            Code = [{Index, instruction(I, Index, Labels, Module, Context, FunctionKeys)} ||
+                       {I, Index} <- indexed(Instructions)],
+            Blocks = basic_blocks(Code, Labels),
             [<<"    {name: ">>, string(Name), <<", arity: ">>, integer_to_list(Arity),
              <<", exported: ">>, atom_to_list(Exported),
              <<", run: (rt, x, state, budget, pid) => {\n      let pc = state ? state.pc : ">>,
              integer_to_list(EntryIndex),
-             <<";\n      let y = state ? state.y : null;\n      const f = state?.f ?? [];\n      while (true) {\n">>,
-             <<"        if (budget.remaining === 0) return {type: 'yield', state: {pc, y, f}, registers: x};\n">>,
-             <<"        budget.remaining--;\n        switch (pc) {\n">>,
-             [instruction(I, Index, Labels, Module, Context, FunctionKeys) ||
-                 {I, Index} <- indexed(Instructions)],
+             <<";\n      let offset = state?.offset ?? 0;\n      let y = state ? state.y : null;\n      const f = state?.f ?? [];\n      while (true) {\n">>,
+             <<"        if (budget.remaining === 0) return {type: 'yield', state: {pc, offset, y, f}, registers: x};\n">>,
+             <<"        switch (pc) {\n">>,
+             [block(Block) || Block <- Blocks],
              <<"          default: throw new Error('invalid BEAM program counter');\n">>,
              <<"        }\n      }\n    }}">>];
         error -> unsupported(Context, Entry, "missing entry label")
     end.
 
 indexed(List) -> lists:zip(List, lists:seq(0, length(List) - 1)).
+
+%% Labels and successors of control transfers are entry points, including
+%% call continuations and receive timeouts. A next node is an unconditional
+%% fallthrough; keeping it structured avoids analyzing generated JavaScript.
+basic_blocks(Code, Labels) ->
+    Entries = maps:from_list([{Index, true} || Index <-
+        [0 | maps:values(Labels)] ++ [Index + 1 || {Index, Body} <- Code,
+                                                   not falls_through(Body)]]),
+    basic_blocks(Code, Entries, [], []).
+
+basic_blocks([], _, [], Blocks) -> lists:reverse(Blocks);
+basic_blocks([], _, Current, Blocks) -> lists:reverse([lists:reverse(Current) | Blocks]);
+basic_blocks([{Index, _} = Instruction | Rest], Entries, Current, Blocks) ->
+    case Current =/= [] andalso maps:is_key(Index, Entries) of
+        true -> basic_blocks(Rest, Entries, [Instruction], [lists:reverse(Current) | Blocks]);
+        false -> basic_blocks(Rest, Entries, [Instruction | Current], Blocks)
+    end.
+
+falls_through({next, _}) -> true;
+falls_through(Body) when is_list(Body), Body =/= [] -> falls_through(lists:last(Body));
+falls_through(_) -> false.
+
+block([{Index, Body}]) ->
+    [<<"          case ">>, integer_to_list(Index), <<": budget.remaining--; ">>,
+     instruction_code(Body, true), <<"\n">>];
+block([{Entry, _} | _] = Instructions) ->
+    Last = length(Instructions) - 1,
+    [<<"          case ">>, integer_to_list(Entry), <<": {\n">>,
+     <<"            const start = offset, remaining = budget.remaining, end = start + remaining;\n            offset = 0;\n">>,
+     <<"            const full = start === 0 && end >= ">>, integer_to_list(Last + 1), <<";\n">>,
+     [[<<"            if (full || start <= ">>, integer_to_list(Position), <<" && end > ">>,
+       integer_to_list(Position), <<") { budget.remaining = remaining - (">>,
+       integer_to_list(Position + 1), <<" - start); ">>,
+       instruction_code(Body, Position =:= Last), <<" }\n">>] ||
+         {{Index, Body}, Position} <- indexed(Instructions),
+         Position =:= Last orelse Body =/= next(Index)],
+     %% Only an exhausted budget can reach here: the last instruction
+     %% otherwise transfers control, returns, or raises.
+     <<"            budget.remaining = 0;\n            return {type: 'yield', state: {pc: ">>, integer_to_list(Entry),
+     <<", offset: end, y, f}, registers: x};\n          }\n">>].
+
+instruction_code({next, Index}, true) ->
+    [<<"pc = ">>, integer_to_list(Index), <<"; break;">>];
+instruction_code({next, _}, false) -> [];
+instruction_code(Code, Last) when is_list(Code) ->
+    [instruction_code(Part, Last) || Part <- Code];
+instruction_code(Code, _) -> Code.
 
 valid_heap_needs(Needs) ->
     valid_heap_needs(Needs, []).
@@ -170,7 +219,7 @@ valid_heap_needs([{Kind, Count} | Rest], Seen)
 valid_heap_needs(_, _) -> false.
 
 instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
-    Body = case Instruction of
+    case Instruction of
         {label, _} -> next(Index);
         {line, _} -> next(Index);
         on_load -> next(Index);
@@ -535,8 +584,7 @@ instruction(Instruction, Index, Labels, Module, Context, FunctionKeys) ->
                 false -> other_instruction(Instruction, Index, Labels, Context);
                 Code -> Code
             end
-    end,
-    [<<"          case ">>, integer_to_list(Index), <<": ">>, Body, <<"\n">>].
+    end.
 
 other_instruction({update_record, {atom, _Hint}, Size, Source, Dest, {list, Updates}}, Index, _Labels, Context)
   when is_integer(Size), is_list(Updates) ->
@@ -750,7 +798,7 @@ byte_array(Bin) when is_bitstring(Bin) ->
     [<<"[">>, lists:join(<<",">>, [integer_to_list(B) || B <- binary_to_list(<<Bin/bitstring, 0:Padding>>)]),
      <<"]">>].
 
-next(Index) -> [<<"pc = ">>, integer_to_list(Index + 1), <<"; break;">>].
+next(Index) -> {next, Index + 1}.
 
 raise_match(Reason, Source, Context, Index) ->
     [<<"rt.raiseError(rt.tuple([rt.atom(">>, string(Reason), <<"), ">>,

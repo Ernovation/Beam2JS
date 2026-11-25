@@ -31,6 +31,13 @@ JavaScript `bigint`s; use `runtime.atom('name')` for atoms and
 `runtime.float(number)` for floats. See [Runtime API](#runtime-api) for
 constructing other terms and scheduling processes.
 
+Generated functions dispatch once per straight-line instruction block, rather
+than once per BEAM instruction. Jump targets, exception handlers and call/receive
+continuations remain block entry points. Scheduler slices can still stop inside
+a block and resume without replaying instructions or exceeding `reductionLimit`.
+Recompile existing modules to use this optimization; `rebar3 otplib` rebuilds the
+bundled OTP modules.
+
 ## Examples
 
 Each example runs with one command that first builds the compiler and the
