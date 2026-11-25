@@ -6,7 +6,14 @@
 import {BITSTRING, is, isAtom, listToArray, arrayToList, charlist, charlistText} from './term.mjs';
 
 // Modules made only of the native definitions below; the loader never fetches them.
-export const nativeModules = new Set(['init', 'code', 'net_kernel']);
+export const nativeModules = new Set(['init', 'code', 'net_kernel', 'erl_prim_loader', 'application']);
+
+const environments = new WeakMap();
+const histories = new WeakMap();
+function environment(rt) {
+  if (!environments.has(rt)) environments.set(rt, new Map());
+  return environments.get(rt);
+}
 
 const badarg = rt => rt.raiseError(rt.atom('badarg'));
 const ok = rt => rt.atom('ok');
@@ -53,6 +60,34 @@ export function kernelBifs() {
     if (!modules.has(module)) modules.set(module, []);
     modules.get(module).push([name, arity, fn]);
   };
+  const envKey = (rt, app, key) => {
+    moduleName(rt, app); moduleName(rt, key);
+    return JSON.stringify([Symbol.keyFor(app), Symbol.keyFor(key)]);
+  };
+  def('application', 'get_env', 2, (rt, [app, key]) => {
+    const value = environment(rt).get(envKey(rt, app, key));
+    return value === undefined ? rt.atom('undefined') : rt.tuple([rt.atom('ok'), value]);
+  });
+  def('application', 'get_env', 3, (rt, [app, key, fallback]) =>
+    environment(rt).get(envKey(rt, app, key)) ?? fallback);
+  for (const arity of [3, 4]) def('application', 'set_env', arity, (rt, [app, key, value]) => {
+    environment(rt).set(envKey(rt, app, key), value);
+    return ok(rt);
+  });
+  for (const arity of [2, 3]) def('application', 'unset_env', arity, (rt, [app, key]) => {
+    environment(rt).delete(envKey(rt, app, key));
+    return ok(rt);
+  });
+  // No kernel_safe_sup or disk_log is booted in a browser. Keep session
+  // history locally instead of waiting for that supervisor indefinitely.
+  def('group_history', 'load', 0, rt => arrayToList(rt, histories.get(rt) ?? []));
+  def('group_history', 'add', 1, (rt, [line]) => {
+    const history = histories.get(rt) ?? [];
+    history.unshift(line);
+    history.length = Math.min(history.length, 1000);
+    histories.set(rt, history);
+    return ok(rt);
+  });
 
   // init
   def('init', 'get_arguments', 0, rt => arrayToList(rt, initArguments(rt).map(([flag, values]) =>
@@ -74,7 +109,7 @@ export function kernelBifs() {
   def('init', 'get_configfd', 1, rt => rt.atom('none'));
   def('init', 'set_configfd', 2, ok);
   def('init', 'archive_extension', 0, rt => charlist(rt, '.ez'));
-  def('init', 'objfile_extension', 0, rt => charlist(rt, '.beam'));
+  def('init', 'objfile_extension', 0, rt => charlist(rt, '.mjs'));
   def('init', 'code_path_choice', 0, rt => rt.atom('relaxed'));
   for (const name of ['stop', 'reboot', 'restart']) {
     def('init', name, 0, () => ({type: 'tail', module: 'erlang', name: 'halt', args: [0n], external: true}));
@@ -120,7 +155,7 @@ export function kernelBifs() {
     moduleName(rt, app);
     return rt.tuple([rt.atom('error'), rt.atom('bad_name')]);
   });
-  def('code', 'objfile_extension', 0, rt => charlist(rt, '.beam'));
+  def('code', 'objfile_extension', 0, rt => charlist(rt, '.mjs'));
   def('code', 'where_is_file', 1, (rt, [file]) => {
     if (charlistText(file) === null) badarg(rt);
     return rt.atom('non_existing');

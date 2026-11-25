@@ -157,9 +157,65 @@ do(#mod{method = Method, request_uri = Uri, config_db = Db, data = Data}) ->
     case proplists:get_value(response, Data) of
         undefined when Method =:= "GET"; Method =:= "HEAD" ->
             Path = lists:takewhile(fun(C) -> C =/= $? andalso C =/= $# end, Uri),
-            route(Method, Path, State, Data);
+            case metadata_request(Uri) of
+                none -> route(Method, Path, State, Data);
+                Operation ->
+                    Result = file_metadata(Operation, Path, State),
+                    {break, [{response, response(Method, Result)} | Data]}
+            end;
         _ -> {proceed, Data}
     end.
+
+%% Optional filesystem metadata for browser prim_file. Ordinary file content
+%% is still fetched at its normal URL; this never reads outside the static root.
+metadata_request(Uri) ->
+    case uri_string:parse(Uri) of
+        #{query := Query} ->
+            case Query of
+                "beam2js=stat" -> stat;
+                "beam2js=list" -> list;
+                _ -> none
+            end;
+        _ -> none
+    end.
+
+file_metadata(_, _, #{document_root := undefined}) ->
+    not_found();
+file_metadata(Operation, "/" ++ Encoded, #{document_root := Root}) ->
+    try
+        Decoded = unicode:characters_to_list(uri_string:percent_decode(unicode:characters_to_binary(Encoded))),
+        false = lists:any(fun(C) -> C =:= 0 orelse C =:= $\\ end, Decoded),
+        Relative = filelib:safe_relative_path(Decoded, Root),
+        true = Relative =/= unsafe,
+        File = filename:join(Root, Relative),
+        metadata_result(Operation, File)
+    catch
+        error:badarg -> not_found();
+        error:{badmatch, _} -> not_found()
+    end.
+
+metadata_result(stat, File) ->
+    case file:read_file_info(File, [{time, posix}]) of
+        {ok, Info} ->
+            metadata_json(#{size => Info#file_info.size, type => Info#file_info.type,
+                            atime => Info#file_info.atime, mtime => Info#file_info.mtime,
+                            ctime => Info#file_info.ctime, mode => Info#file_info.mode});
+        {error, Reason} -> metadata_error(Reason)
+    end;
+metadata_result(list, File) ->
+    case file:list_dir(File) of
+        {ok, Names} ->
+            metadata_json(lists:sort([unicode:characters_to_binary(Name) || Name <- Names]));
+        {error, Reason} -> metadata_error(Reason)
+    end.
+
+metadata_json(Value) ->
+    {200, "application/vnd.beam2js.file+json", iolist_to_binary(json:encode(Value))}.
+
+metadata_error(Reason) ->
+    Code = case Reason of enoent -> 404; eacces -> 403; _ -> 400 end,
+    {Code, "application/vnd.beam2js.file+json",
+     iolist_to_binary(json:encode(#{error => Reason}))}.
 
 route(Method, Path, #{module_root := Root, document_root := DocRoot} = State, Data) ->
     case lists:prefix(Root, Path) of

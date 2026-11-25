@@ -648,6 +648,10 @@ export function erlangBifs() {
   def('seq_trace_info', 1, (rt, [item]) => rt.tuple([item, rt.atom('false')]));
   def('seq_trace_print', 1, rt => rt.atom('false'));
   def('seq_trace_print', 2, rt => rt.atom('false'));
+  for (const name of ['dt_spread_tag', 'dt_restore_tag']) def(name, 1, (rt, [enabled]) => {
+    if (enabled !== rt.atom('true') && (name === 'dt_restore_tag' || enabled !== rt.atom('false'))) badarg(rt);
+    return rt.atom('true');
+  });
   def('system_monitor', 0, rt => rt.atom('undefined'));
   def('system_monitor', 1, rt => rt.atom('undefined'));
   def('system_monitor', 2, rt => rt.atom('undefined'));

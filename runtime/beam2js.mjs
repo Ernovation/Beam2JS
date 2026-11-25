@@ -4,6 +4,8 @@ import {etsBifs} from './otp/ets.mjs';
 import {ertsBifs} from './otp/erts.mjs';
 import {kernelBifs, nativeModules} from './otp/kernel.mjs';
 import {reBifs} from './otp/re.mjs';
+import {fileBifs} from './otp/file.mjs';
+import {ttyBifs} from './otp/tty.mjs';
 
 const CONS = 1;
 const FLOAT = 2;
@@ -483,7 +485,7 @@ function keyFind(rt, key, position, list) {
   return null;
 }
 const bundledModules = new Set(['erts_internal', 'persistent_term', 'atomics', 'counters', 'prim_eval', 'maps', 'lists',
-  'beam2js_user']);
+  'beam2js_user', 'beam2js_shell', 'prim_file', 'prim_buffer', 'prim_tty']);
 
 const moduleBifs = new Map([['lists', [
   ['reverse', 2, (rt, [list, tail]) => {
@@ -907,7 +909,8 @@ export class Runtime {
       clearTimeout: handle => clearTimeout(handle)},
     arguments: initArguments = {root: ['/'], progname: ['erl'], home: ['/']},
     plainArguments = [],
-    stdout = defaultStdout()} = {}) {
+    stdout = defaultStdout(), terminal, fileBaseURL = moduleBaseURL,
+    fetch: fetchFile = globalThis.fetch?.bind(globalThis)} = {}) {
     if (!Number.isSafeInteger(schedulers) || schedulers < 1 ||
         !Number.isSafeInteger(reductionLimit) || reductionLimit < 1) {
       throw new RangeError('schedulers and reductionLimit must be positive safe integers');
@@ -930,7 +933,15 @@ export class Runtime {
     this.initArguments = initArguments;
     this.plainArguments = plainArguments;
     if (typeof stdout !== 'function') throw new TypeError('stdout must be a function');
+    if (terminal !== undefined && (!terminal || typeof terminal.write !== 'function' ||
+        typeof terminal.onData !== 'function' || typeof terminal.size !== 'function')) {
+      throw new TypeError('terminal requires write, onData and size methods');
+    }
     this.#stdout = stdout;
+    this.terminal = terminal;
+    this.fileBaseURL = new URL(fileBaseURL).href;
+    if (typeof fetchFile !== 'function') throw new TypeError('fetch must be a function');
+    this.fetchFile = fetchFile;
     this.modules = new Map();
   }
 
@@ -3249,6 +3260,9 @@ export class Runtime {
             .then(failed => action.done(this, failed.filter(name => name !== null))), true);
         }
         action = {type: 'return', value: action.done(this, [])};
+      } else if (action.type === 'async') {
+        if (!process.scheduled) throw new Error('asynchronous IO requires invokeAsync');
+        return this.#suspendForLoad(process, action.run(), true);
       } else if (action.type === 'dictionary') {
         action = {type: 'return', value: this.#processDictionary(process, action.name, action.args)};
       } else if (action.type === 'spawn') {
@@ -3400,7 +3414,7 @@ function isModuleBifAction(value) {
 }
 
 moduleBifs.set('ets', etsBifs());
-for (const [module, definitions] of [...stdlibBifs(), ...ertsBifs(), ...kernelBifs(), ...reBifs()]) {
+for (const [module, definitions] of [...stdlibBifs(), ...ertsBifs(), ...kernelBifs(), ...reBifs(), ...fileBifs(), ...ttyBifs()]) {
   moduleBifs.set(module, [...(moduleBifs.get(module) ?? []), ...definitions]);
 }
 for (const [name, arity, fn] of erlangBifs()) {

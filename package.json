@@ -2,11 +2,12 @@
   "name": "beam2js",
   "private": true,
   "scripts": {
-    "test": "npm run --silent test:toolchain && npm run --silent test:execution && npm run --silent test:opcodes && npm run --silent test:bifs && npm run --silent test:maps && npm run --silent test:funs && npm run --silent test:errors && npm run --silent test:links && npm run --silent test:lists && npm run --silent test:binary && npm run --silent test:otplib && npm run --silent test:shell && npm run --silent test:loader && npm run --silent test:sudoku && npm run --silent test:server && npm run --silent test:integration && npm run --silent test:browser",
+    "test": "npm run --silent test:toolchain && npm run --silent test:execution && npm run --silent test:opcodes && npm run --silent test:bifs && npm run --silent test:maps && npm run --silent test:funs && npm run --silent test:errors && npm run --silent test:links && npm run --silent test:lists && npm run --silent test:binary && npm run --silent test:otplib && npm run --silent test:shell && npm run --silent test:loader && npm run --silent test:sudoku && npm run --silent test:server && npm run --silent test:integration && npm run --silent test:browser && npm run --silent test:browser-shell",
     "build:otplib": "node tools/build-otp-lib.mjs",
     "test:bifs": "node test/bif-inventory.mjs",
     "test:binary": "node test/binary-cases.mjs",
     "test:browser": "node test/browser.mjs",
+    "test:browser-shell": "node test/browser-shell.mjs",
     "test:errors": "node test/error-process-cases.mjs",
     "test:execution": "node test/opcodes.mjs",
     "test:funs": "node test/fun-cases.mjs",

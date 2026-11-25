@@ -165,7 +165,7 @@ cases() ->
            binary_to_list(<<1, 2, 3, 4>>, 2, 3), erlang:iolist_to_iovec([<<"a">>, "b"])}
       end},
      {external_format, fun() ->
-          T = {1, -1, 1 bsl 70, 1.5, atom, "str", [1 | 2], <<1, 2>>, <<1:3>>, #{a => 1, b => [x]},
+          T = {1, -1, 1 bsl 70, 1.5, atom, "str", [1 | 2], <<1, 2>>, <<1:3>>, #{1 => 1, 2 => [x]},
                {}, [], 'héllo'},
           B = term_to_binary(T),
           {B, binary_to_term(B) =:= T, binary_to_term(B, [used]) =:= {T, byte_size(B)},

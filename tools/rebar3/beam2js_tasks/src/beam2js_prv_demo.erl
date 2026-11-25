@@ -6,15 +6,15 @@
 init(State) ->
     Provider = beam2js_tasks:provider(?MODULE, [
         {name, demo},
-        {deps, [examples]},
+        {deps, [otplib, examples]},
         {example, "rebar3 demo browser --port 8000"},
-        {opts, [{example, undefined, undefined, string, "sudoku, browser or server"},
+        {opts, [{example, undefined, undefined, string, "sudoku, browser, server or shell"},
                 {port, $p, "port", {integer, 8080}, "TCP port of the web server"},
                 {ip, $i, "ip", {string, "127.0.0.1"}, "Listening address of the web server"}]},
-        {short_desc, "Run an example: sudoku, browser or server."},
+        {short_desc, "Run an example: sudoku, browser, server or shell."},
         {desc, "Builds the examples and runs one. sudoku prints a solved puzzle with Node.js; "
-               "browser and server start beam2js serve for the page at /examples/browser/ "
-               "or /examples/server/ until stopped with Ctrl-C."}]),
+               "browser, server and shell start beam2js serve for the page at /examples/NAME/ "
+               "until stopped with Ctrl-C."}]),
     {ok, rebar_state:add_provider(State, Provider)}.
 
 do(State) ->
@@ -22,7 +22,7 @@ do(State) ->
     case proplists:get_value(example, Options) of
         "sudoku" ->
             ok_state(State, beam2js_tasks:run(State, "node", ["examples/sudoku/run.mjs"]));
-        Name when Name =:= "browser"; Name =:= "server" ->
+        Name when Name =:= "browser"; Name =:= "server"; Name =:= "shell" ->
             Args = ["serve", "--port", integer_to_list(proplists:get_value(port, Options)),
                     "--ip", proplists:get_value(ip, Options) | serve_args(Name)],
             Page = "examples/" ++ Name ++ "/",
@@ -35,14 +35,15 @@ do(State) ->
     end.
 
 format_error(missing) ->
-    "Name the example to run: rebar3 demo sudoku|browser|server";
+    "Name the example to run: rebar3 demo sudoku|browser|server|shell";
 format_error({unknown, Name}) ->
-    io_lib:format("Unknown example ~ts; choose sudoku, browser or server", [Name]);
+    io_lib:format("Unknown example ~ts; choose sudoku, browser, server or shell", [Name]);
 format_error(Reason) ->
     beam2js_tasks:format_error(Reason).
 
 serve_args("browser") -> ["--beam-dir", "_build/browser", "--module-root", "/examples/browser/"];
-serve_args("server") -> ["--pa", "_build/server"].
+serve_args("server") -> ["--pa", "_build/server"];
+serve_args("shell") -> [].
 
 ok_state(State, ok) -> {ok, State};
 ok_state(_State, Error) -> Error.

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Erlang shell in the browser</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 70rem; margin: 2rem auto; padding: 0 1rem; }
+    #terminal { height: 65vh; overflow: auto; padding: 1rem; background: #101820; color: #e8f0f8;
+      font: 16px/1.3 monospace; border: 1px solid #536575; }
+    #status { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Erlang shell</h1>
+  <p>Click the terminal to type Erlang expressions ending in a period.
+    Try <code>lists:seq(1, 5).</code> or <code>io:format("Hello!~n").</code>
+    Modules load on demand; files are read-only HTTP resources.</p>
+  <p id="status" role="status">Starting OTP shell...</p>
+  <div id="terminal"></div>
+  <button id="stop" type="button">Stop shell</button>
+  <script type="module" src="./main.mjs"></script>
+</body>
+</html>

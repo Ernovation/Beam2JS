@@ -7,7 +7,8 @@ import {mkdirSync, existsSync, mkdtempSync, readdirSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 
-export const bundledModules = ['erts_internal', 'persistent_term', 'atomics', 'counters', 'prim_eval', 'maps', 'lists'];
+export const bundledModules = ['erts_internal', 'persistent_term', 'atomics', 'counters', 'prim_eval', 'maps', 'lists',
+  'prim_file', 'prim_buffer', 'prim_tty'];
 
 const compiler = resolve('_build/default/bin/beam2js');
 const output = resolve('runtime/otp/lib');

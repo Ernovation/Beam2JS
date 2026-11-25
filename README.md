@@ -87,6 +87,67 @@ This runs `beam2js serve --pa _build/server`. Open
 with `moduleBaseURL` set to `/modules/`; the server compiles `server_demo.mjs`
 from `_build/server` and `ordsets.mjs` from the OTP installation on first use.
 
+### Interactive Erlang shell
+
+```sh
+rebar3 demo shell --port 8000
+```
+
+Open <http://localhost:8000/examples/shell/>. This runs OTP's actual `shell`,
+`user_drv`, `group` and `edlin` modules in the browser, with JavaScript
+replacements for `prim_tty`'s terminal NIFs. Enter expressions ending in a
+period; arrow keys edit and recall commands, Tab completes names, and Ctrl+G
+opens OTP's job-control menu. The **Stop shell** button stops the Erlang
+processes and disconnects input.
+
+Try:
+
+```erlang
+X = 21, X * 2.
+lists:seq(1, 5).
+io:get_line("Name: ").
+file:consult("fixtures/browser_shell.terms").
+file:list_dir("examples").
+```
+
+To embed it in another page, give the terminal element a size, an overflow
+policy and a monospace font:
+
+```html
+<div id="shell" style="height:25rem;overflow:auto;font:16px/1.3 monospace"></div>
+<script type="module">
+  import {startBrowserShell} from './runtime/browser-shell.mjs';
+  const shell = await startBrowserShell(document.getElementById('shell'), {
+    moduleBaseURL: new URL('/modules/', document.baseURI),
+    fileBaseURL: new URL('/', document.baseURI),
+  });
+  // Later: await shell.stop();
+</script>
+```
+
+The returned object contains `runtime`, `terminal` and `stop()`. It owns a
+dedicated runtime; stopping it terminates every process in that runtime.
+The supplied terminal renders plain text and cursor/erase controls, not ANSI
+colors or a complete graphical terminal emulator. Command history lives in
+the browser session, not on the server's disk.
+
+Files are fetched on demand relative to `fileBaseURL`, which defaults to
+`moduleBaseURL`. `file:read_file`, sequential and positional reads, file IO
+devices (including `file:consult`), file metadata, directory listing and
+changing the virtual working directory are supported. The working directory
+is a URL, not a path on the browser host. `beam2js serve` supplies directory
+and metadata queries; a generic static server can serve file contents but
+may not support those queries. Files are read-only: writes return
+`{error,erofs}`. OS handles, symlinks and archives are not provided and return
+explicit unsupported-operation errors.
+
+Module loading is separate from file IO. `code:ensure_loaded` and ordinary
+remote calls import and register compiled `.mjs` files. Compatibility
+requests such as `erl_prim_loader:get_file("lists.beam")` fetch
+`<moduleBaseURL>/lists.mjs` and return its JavaScript source and `.mjs` URL,
+never a BEAM binary. `code:objfile_extension()` consequently returns `".mjs"`.
+This does not add an Erlang-to-BEAM compiler inside the browser.
+
 ## Web server
 
 `beam2js serve` starts an Erlang web server that compiles BEAM files to
@@ -142,10 +203,15 @@ told otherwise. In the default mode it exposes the compiled code of every
 module on the code path, so restrict it with `--beam-dir` before making it
 reachable from other machines.
 
-The compiler supports only part of the BEAM instruction set, so many OTP
-library modules cannot be compiled yet. `lists`, `ordsets`, `orddict`,
-`proplists` and `queue` compile from OTP's own BEAM files; modules that
-match binaries, such as `string`, do not yet.
+The server also answers `?beam2js=stat` and `?beam2js=list` on static file
+and directory URLs with `application/vnd.beam2js.file+json` metadata for the
+browser filesystem. These queries are confined to the configured document
+root and are disabled by `--no-root`. Directory listings expose the names
+in that root, so choose `--root` accordingly when serving other machines.
+
+Compiling an OTP module does not supply OS services it depends on. For
+example, native shared libraries, distribution and server-side filesystem
+writes are not available in a browser.
 
 ## Runtime API
 
@@ -183,6 +249,14 @@ Besides `moduleBaseURL`, `schedulers` and `reductionLimit`, the runtime accepts:
 | `stdout` | `process.stdout.write` in Node.js, `console.log` per line in browsers | Receives text written by `io:format` and other output to the default IO server |
 | `arguments` | `{root: ['/'], progname: ['erl'], home: ['/']}` | Values returned by `init:get_argument/1` |
 | `plainArguments` | `[]` | Strings returned by `init:get_plain_arguments/0` |
+| `fileBaseURL` | `moduleBaseURL` | Base URL for the HTTP filesystem |
+| `fetch` | Host's `fetch` | Fetch-compatible function used for file IO, not ES module imports |
+| `terminal` | None | Optional terminal adapter used by `prim_tty`; provided by `startBrowserShell` |
+
+A custom terminal adapter provides `write(text)`, `onData(callback)` and
+`size()` returning `{columns, rows}`. `onData` delivers strings or UTF-8 byte
+arrays and returns an unsubscribe function. Optional `onClose(callback)` and
+`onResize(callback)` notify EOF and terminal geometry changes.
 
 Processes without a group leader use the IO server registered as `user`,
 which the runtime starts on first use. It writes output to `stdout` and
@@ -346,15 +420,17 @@ depends on, so it always uses a compiler built from the current sources:
 | `rebar3 otplib` | Rebuilds the OTP modules bundled in [runtime/otp/lib](runtime/otp/lib) | `escriptize` |
 | `rebar3 examples` | Compiles the examples into `_build/sudoku`, `_build/browser` and `_build/server` | `escriptize` |
 | `rebar3 build` | Everything above | `otplib`, `examples` |
-| `rebar3 demo sudoku` | Runs the Sudoku solver in Node.js | `examples` |
-| `rebar3 demo browser` | Serves the browser demo at `/examples/browser/` until Ctrl-C | `examples` |
-| `rebar3 demo server` | Serves the server demo at `/examples/server/` until Ctrl-C | `examples` |
+| `rebar3 demo sudoku` | Runs the Sudoku solver in Node.js | `otplib`, `examples` |
+| `rebar3 demo browser` | Serves the browser demo at `/examples/browser/` until Ctrl-C | `otplib`, `examples` |
+| `rebar3 demo server` | Serves the server demo at `/examples/server/` until Ctrl-C | `otplib`, `examples` |
+| `rebar3 demo shell` | Runs the browser shell at `/examples/shell/` until Ctrl-C | `otplib`, `examples` |
 | `rebar3 test` | Runs every test suite (`npm test`) | `otplib` |
 | `rebar3 test SUITE...` | Runs the named suites, for example `rebar3 test shell lists` | `otplib` |
 
 ```text
 compile ── escriptize ─┬─ otplib ───┬─ test
-                       │            └─ build
+                       │            ├─ build
+                       │            └─ demo
                        └─ examples ─┬─ build
                                     └─ demo
 ```
@@ -363,7 +439,7 @@ compile ── escriptize ─┬─ otplib ───┬─ test
 Erlang sources in [runtime/otp/src](runtime/otp/src), the build script and the
 OTP version) and skips the rebuild when they are unchanged; `--force` rebuilds
 anyway. Commit the regenerated `runtime/otp/lib` files together with the
-compiler change that caused them. `demo browser` and `demo server` accept
+compiler change that caused them. `demo browser`, `demo server` and `demo shell` accept
 `--port N` (default 8080) and `--ip ADDRESS` (default `127.0.0.1`). `test`
 installs the Node.js dependencies with `npm ci` when they are missing. Run
 `rebar3 help COMMAND` for details.
@@ -378,7 +454,7 @@ building anything first, so `npm test` and `npm run test:SUITE` work after a
 Each suite can also be run on its own (`rebar3 test SUITE` or
 `npm run test:SUITE`): `toolchain`, `integration`, `execution`, `opcodes`, `bifs`, `maps`, `funs`, `errors`,
 `links`, `lists`, `binary`, `otplib`, `shell`, `loader`, `sudoku`, `server`
-and `browser`. The `server` suite starts `beam2js serve` and loads both browser
+`browser` and `browser-shell`. The `server` suite starts `beam2js serve` and loads both browser
 examples through it in Chromium.
 `links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
 and checks that its link, monitor, exit-signal and exception scenarios produce
@@ -392,3 +468,6 @@ exported `lists` function with OTP.
 [fixtures/shell_cases.erl](fixtures/shell_cases.erl); `shell` compiles
 the OTP modules that the interactive shell builds on and compares scanning,
 parsing, linting, evaluation, formatting and `re` results with OTP.
+`browser-shell` boots the interactive OTP shell in Chromium and tests
+evaluation, exception recovery, line editing and history, Unicode input,
+terminal resizing, HTTP files/directories and on-demand `.mjs` loading.

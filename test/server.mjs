@@ -87,12 +87,26 @@ try {
   const welcome = await get(base, '/');
   assert.equal(welcome.status, 200);
   assert.match(welcome.body, /href="\/modules\/"/);
+  const listing = await get(base, '/examples/shell/?beam2js=list');
+  assert.equal(listing.type, 'application/vnd.beam2js.file+json');
+  assert.ok(JSON.parse(listing.body).includes('index.html'));
+  const metadata = JSON.parse((await get(base, '/examples/shell/index.html?beam2js=stat')).body);
+  assert.equal(metadata.type, 'regular');
+  assert.equal(metadata.size, readFileSync('examples/shell/index.html').length);
+  assert.equal(JSON.parse((await get(base, '/examples/shell/?beam2js=stat')).body).type, 'directory');
+  assert.equal(JSON.parse((await get(base, '/README.md?beam2js=list')).body).error, 'enotdir');
+  for (const path of ['/..%2fREADME.md?beam2js=stat', '/a%00b?beam2js=list',
+    '/%5c..%5cREADME.md?beam2js=stat']) {
+    assert.equal((await get(base, path)).status, 404, path);
+  }
 
   // Restricted mode: only listed directories; NIFs may sit beside the BEAM files.
   const restricted = await serve(['--beam-dir', beams, '--beam-dir', join(dir, 'v1'), '--no-root',
     '--module-root', 'js']);
   assert.equal((await get(restricted, '/js/server_demo.mjs')).status, 200);
   assert.equal((await get(restricted, '/js/beside.nif.mjs')).status, 200);
+  assert.equal((await get(restricted, '/?beam2js=list')).status, 404);
+  assert.equal((await get(restricted, '/README.md?beam2js=stat')).status, 404);
   for (const path of ['/js/ordsets.mjs', '/js/probe.nif.mjs', '/modules/server_demo.mjs', '/runtime/beam2js.mjs']) {
     assert.equal((await get(restricted, path)).status, 404, path);
   }
