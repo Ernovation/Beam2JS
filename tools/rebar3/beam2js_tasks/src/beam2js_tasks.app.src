@@ -1,0 +1,7 @@
+{application, beam2js_tasks,
+ [{description, "Development commands for the Beam2JS repository"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications, [kernel, stdlib]},
+  {env, []},
+  {modules, []}]}.

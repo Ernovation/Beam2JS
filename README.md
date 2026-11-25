@@ -33,18 +33,21 @@ constructing other terms and scheduling processes.
 
 ## Examples
 
+Each example runs with one command that first builds the compiler and the
+examples (see [Development commands](#development-commands)).
+
 ### Sudoku solver
 
 The [Sudoku example](examples/sudoku/sudoku.erl) is a pure Erlang backtracking
 solver that runs in Node.js:
 
 ```sh
-rebar3 escriptize
-mkdir -p _build/sudoku
-erlc -o _build/sudoku examples/sudoku/sudoku.erl
-_build/default/bin/beam2js _build/sudoku/sudoku.beam _build/sudoku/sudoku.mjs
-node examples/sudoku/run.mjs
+rebar3 demo sudoku
 ```
+
+This compiles `sudoku.erl` to `_build/sudoku/sudoku.beam`, compiles that to
+`_build/sudoku/sudoku.mjs` and runs [run.mjs](examples/sudoku/run.mjs) with
+Node.js.
 
 `sudoku:solve/1` takes nine rows of nine integers, using `0` for an empty cell.
 It returns `{ok, Grid}` for the first solution, `invalid` for malformed input
@@ -53,18 +56,16 @@ It does not check whether the solution is unique.
 
 ### Browser demo
 
-Build the compiler and the example's BEAM files, then serve them with the
-Beam2JS web server from the repository root:
+Build the example's BEAM files and serve them with the Beam2JS web server:
 
 ```sh
-rebar3 escriptize
-mkdir -p _build/browser
-erlc -o _build/browser examples/browser/browser_demo.erl examples/browser/dom.erl
-_build/default/bin/beam2js serve --beam-dir _build/browser --module-root /examples/browser/
+rebar3 demo browser        # add --port 8000 if port 8080 is taken
 ```
 
+This runs `beam2js serve --beam-dir _build/browser --module-root /examples/browser/`.
 Open <http://localhost:8080/examples/browser/> (the page, not the server root
-`http://localhost:8080/`, which has no application). The Erlang process listens for
+`http://localhost:8080/`, which has no application) and stop the server with
+Ctrl-C. The Erlang process listens for
 click and mouse-move events, updates the page, and exits when you select **Stop
 Erlang process**. The runtime requests `browser_demo.mjs` and `dom.mjs` when
 needed and the server compiles them from the BEAM files. The `dom` module loads
@@ -78,13 +79,11 @@ The [server demo](examples/server/server_demo.erl) calls OTP's own `ordsets`
 module from the browser without compiling it in advance:
 
 ```sh
-rebar3 escriptize
-mkdir -p _build/server
-erlc -o _build/server examples/server/server_demo.erl
-_build/default/bin/beam2js serve --pa _build/server
+rebar3 demo server
 ```
 
-Open <http://localhost:8080/examples/server/>. The page imports the runtime
+This runs `beam2js serve --pa _build/server`. Open
+<http://localhost:8080/examples/server/>. The page imports the runtime
 with `moduleBaseURL` set to `/modules/`; the server compiles `server_demo.mjs`
 from `_build/server` and `ordsets.mjs` from the OTP installation on first use.
 
@@ -301,7 +300,7 @@ that OTP implements as BIFs or NIFs (for example in `lists`, `maps`, `ets`,
 implementations that the runtime installs when the module loads. The runtime
 ships compiled copies of a few core modules in
 [runtime/otp/lib](runtime/otp/lib) and uses them when the module root has
-none; rebuild them with `npm run build:otplib` after changing the compiler.
+none; rebuild them with `rebar3 otplib` after changing the compiler.
 `init`, `code` and `net_kernel` are JavaScript modules describing a single,
 non-distributed node.
 
@@ -332,30 +331,64 @@ Dev Containers extension. Reopen this repository in the container; it supplies
 the pinned Erlang/OTP, Node.js, Playwright and Chromium toolchain. Check it with:
 
 ```sh
-npm run test:toolchain
+rebar3 test toolchain
 ```
 
-Build the compiler and run every suite with:
+### Development commands
 
-```sh
-rebar3 escriptize
-npm test
+The repository's rebar3 plugin ([tools/rebar3/beam2js_tasks](tools/rebar3/beam2js_tasks))
+adds commands for everyday tasks. Each command first runs the commands it
+depends on, so it always uses a compiler built from the current sources:
+
+| Command | Does | Runs first |
+| --- | --- | --- |
+| `rebar3 escriptize` | Builds the compiler, `_build/default/bin/beam2js` | `compile` |
+| `rebar3 otplib` | Rebuilds the OTP modules bundled in [runtime/otp/lib](runtime/otp/lib) | `escriptize` |
+| `rebar3 examples` | Compiles the examples into `_build/sudoku`, `_build/browser` and `_build/server` | `escriptize` |
+| `rebar3 build` | Everything above | `otplib`, `examples` |
+| `rebar3 demo sudoku` | Runs the Sudoku solver in Node.js | `examples` |
+| `rebar3 demo browser` | Serves the browser demo at `/examples/browser/` until Ctrl-C | `examples` |
+| `rebar3 demo server` | Serves the server demo at `/examples/server/` until Ctrl-C | `examples` |
+| `rebar3 test` | Runs every test suite (`npm test`) | `otplib` |
+| `rebar3 test SUITE...` | Runs the named suites, for example `rebar3 test shell lists` | `otplib` |
+
+```text
+compile ── escriptize ─┬─ otplib ───┬─ test
+                       │            └─ build
+                       └─ examples ─┬─ build
+                                    └─ demo
 ```
 
-Each suite can also be run on its own: `npm run test:integration`,
-`test:execution`, `test:opcodes`, `test:bifs`, `test:maps`, `test:funs`,
-`test:errors`, `test:links`, `test:lists`, `test:binary`, `test:otplib`,
-`test:shell`, `test:loader`, `test:sudoku`, `test:server` and `test:browser`. `test:server` starts `beam2js serve` and loads both browser
+`otplib` records a hash of its inputs (the compiler sources, the runtime's
+Erlang sources in [runtime/otp/src](runtime/otp/src), the build script and the
+OTP version) and skips the rebuild when they are unchanged; `--force` rebuilds
+anyway. Commit the regenerated `runtime/otp/lib` files together with the
+compiler change that caused them. `demo browser` and `demo server` accept
+`--port N` (default 8080) and `--ip ADDRESS` (default `127.0.0.1`). `test`
+installs the Node.js dependencies with `npm ci` when they are missing. Run
+`rebar3 help COMMAND` for details.
+
+The npm scripts in [package.json](package.json) run the suites without
+building anything first, so `npm test` and `npm run test:SUITE` work after a
+`rebar3 build`. To compile a single module by hand, run
+`_build/default/bin/beam2js input.beam output.mjs`.
+
+### Test suites
+
+Each suite can also be run on its own (`rebar3 test SUITE` or
+`npm run test:SUITE`): `toolchain`, `integration`, `execution`, `opcodes`, `bifs`, `maps`, `funs`, `errors`,
+`links`, `lists`, `binary`, `otplib`, `shell`, `loader`, `sudoku`, `server`
+and `browser`. The `server` suite starts `beam2js serve` and loads both browser
 examples through it in Chromium.
-`test:links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
+`links` compiles [fixtures/process_links.erl](fixtures/process_links.erl)
 and checks that its link, monitor, exit-signal and exception scenarios produce
 the same results in Beam2JS as in OTP.
-`test:lists` compiles OTP's installed `lists.beam` and
+`lists` compiles OTP's installed `lists.beam` and
 [fixtures/lists_cases.erl](fixtures/lists_cases.erl) and compares every
 exported `lists` function with OTP.
-`test:binary`, `test:otplib` and `test:shell` follow the same approach with
+`binary`, `otplib` and `shell` follow the same approach with
 [fixtures/binary_cases.erl](fixtures/binary_cases.erl),
 [fixtures/otp_lib_cases.erl](fixtures/otp_lib_cases.erl) and
-[fixtures/shell_cases.erl](fixtures/shell_cases.erl); `test:shell` compiles
+[fixtures/shell_cases.erl](fixtures/shell_cases.erl); `shell` compiles
 the OTP modules that the interactive shell builds on and compares scanning,
 parsing, linting, evaluation, formatting and `re` results with OTP.

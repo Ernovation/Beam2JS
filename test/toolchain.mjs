@@ -27,7 +27,8 @@ const otpInfo = execFileSync('erl', ['-noshell', '-eval',
 assert.deepEqual(otpInfo.slice(0, 3), [expected.otp, expected.compiler, expected.erts]);
 const erlc = execFileSync('which', ['erlc'], {encoding: 'utf8', timeout: 30000}).trim();
 assert.equal(realpathSync(erlc), realpathSync(join(otpInfo[3], 'bin', 'erlc')));
-const rebar = execFileSync('rebar3', ['--version'], {encoding: 'utf8', timeout: 30000});
+// Outside the project, so that compiling its rebar3 plugin adds no output.
+const rebar = execFileSync('rebar3', ['--version'], {cwd: tmpdir(), encoding: 'utf8', timeout: 30000});
 assert.equal(rebar.trim(), `rebar ${expected.rebar} on Erlang/OTP 29 Erts ${expected.erts}`);
 assert.equal(process.versions.node, expected.node);
 assert.equal(require('playwright/package.json').version, expected.playwright);
